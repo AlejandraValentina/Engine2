@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QProgressBar,
     QPushButton,
     QStyle,
     QSpinBox,
@@ -61,6 +62,12 @@ class MainWindow(QMainWindow):
         self.dyno_plot = pg.PlotWidget()
         self.power_curve = None
         self.torque_curve = None
+        self.optimizer_plot = pg.PlotWidget()
+        self.optimizer_param_combo = QComboBox()
+        self.optimizer_start_spin = QDoubleSpinBox()
+        self.optimizer_end_spin = QDoubleSpinBox()
+        self.optimizer_step_spin = QDoubleSpinBox()
+        self.optimizer_progress = QProgressBar()
         self._setup_tabs()
 
         self.toolbar = self.addToolBar("Main Toolbar")
@@ -122,9 +129,61 @@ class MainWindow(QMainWindow):
         dyno_layout.addWidget(self.dyno_plot)
         dyno_tab.setLayout(dyno_layout)
 
+        optimizer_tab = QWidget()
+        optimizer_layout = QVBoxLayout()
+
+        target_layout = QFormLayout()
+        self.optimizer_param_combo.addItems(
+            [
+                "Camshaft: Intake Duration (deg)",
+                "Camshaft: Max Lift (mm)",
+                "Intake: Runner Length (mm)",
+                "Intake: Runner Diameter (mm)",
+                "Exhaust: Primary Length (mm)",
+                "Exhaust: Primary Diameter (mm)",
+                "Block: Compression Ratio",
+            ]
+        )
+        target_layout.addRow("Target Parameter", self.optimizer_param_combo)
+
+        self.optimizer_start_spin.setRange(0.0, 10000.0)
+        self.optimizer_start_spin.setDecimals(3)
+        self.optimizer_start_spin.setSingleStep(1.0)
+        self.optimizer_start_spin.setValue(100.0)
+        target_layout.addRow("Start", self.optimizer_start_spin)
+
+        self.optimizer_end_spin.setRange(0.0, 10000.0)
+        self.optimizer_end_spin.setDecimals(3)
+        self.optimizer_end_spin.setSingleStep(1.0)
+        self.optimizer_end_spin.setValue(400.0)
+        target_layout.addRow("End", self.optimizer_end_spin)
+
+        self.optimizer_step_spin.setRange(0.001, 1000.0)
+        self.optimizer_step_spin.setDecimals(3)
+        self.optimizer_step_spin.setSingleStep(1.0)
+        self.optimizer_step_spin.setValue(25.0)
+        target_layout.addRow("Step", self.optimizer_step_spin)
+
+        optimizer_layout.addLayout(target_layout)
+
+        sweep_button = QPushButton("Run Optimization Sweep")
+        sweep_button.clicked.connect(self.run_optimization_sweep)
+        optimizer_layout.addWidget(sweep_button)
+
+        self.optimizer_progress.setRange(0, 100)
+        self.optimizer_progress.setValue(0)
+        optimizer_layout.addWidget(self.optimizer_progress)
+
+        self.optimizer_plot.showGrid(x=True, y=True, alpha=0.2)
+        self.optimizer_plot.setLabel("bottom", "Parameter Value")
+        self.optimizer_plot.setLabel("left", "Peak HP")
+        optimizer_layout.addWidget(self.optimizer_plot)
+        optimizer_tab.setLayout(optimizer_layout)
+
         self.tab_widget.addTab(overview_tab, "Overview")
         self.tab_widget.addTab(self.properties_tab, "Properties")
         self.tab_widget.addTab(dyno_tab, "Dyno Graph")
+        self.tab_widget.addTab(optimizer_tab, "Optimizer")
         self.setCentralWidget(self.tab_widget)
 
     # -------------------------- Tree Handling -----------------------------
@@ -395,6 +454,69 @@ class MainWindow(QMainWindow):
         self.torque_curve = self.dyno_plot.plot(rpm_values, torque_nm, pen=pg.mkPen("b", width=2), name="Torque (Nm)")
         self.dyno_plot.setLabel("bottom", "RPM")
         self.dyno_plot.setLabel("left", "Power (HP) / Torque (Nm)")
+
+    # -------------------------- Optimization -----------------------------
+    def _parameter_mapping(self) -> dict[str, tuple[Any, str]]:
+        return {
+            "Camshaft: Intake Duration (deg)": (self.engine.camshaft, "intake_duration"),
+            "Camshaft: Max Lift (mm)": (self.engine.camshaft, "intake_lift"),
+            "Intake: Runner Length (mm)": (self.engine.intake, "runner_length"),
+            "Intake: Runner Diameter (mm)": (self.engine.intake, "runner_diameter"),
+            "Exhaust: Primary Length (mm)": (self.engine.exhaust, "header_primary_length"),
+            "Exhaust: Primary Diameter (mm)": (self.engine.exhaust, "header_primary_diameter"),
+            "Block: Compression Ratio": (self.engine.head, "compression_ratio"),
+        }
+
+    def _compute_peak_hp(self) -> float:
+        simulator = CylinderSimulator(self.engine)
+        rpm_values = list(range(3000, 12001, 500))
+        peak_hp = 0.0
+        for rpm in rpm_values:
+            result = simulator.run_cycle(rpm)
+            peak_hp = max(peak_hp, result.get("mean_power_hp", 0.0))
+        return peak_hp
+
+    def run_optimization_sweep(self) -> None:
+        mapping = self._parameter_mapping()
+        target = self.optimizer_param_combo.currentText()
+        if target not in mapping:
+            return
+
+        obj, attr = mapping[target]
+        if not hasattr(obj, attr):
+            return
+
+        start = self.optimizer_start_spin.value()
+        end = self.optimizer_end_spin.value()
+        step = self.optimizer_step_spin.value()
+        if step <= 0:
+            return
+
+        original_value = getattr(obj, attr)
+        self.optimizer_progress.setValue(0)
+        values: list[float] = []
+        current = start
+        while current <= end + 1e-9:
+            values.append(current)
+            current += step
+
+        results: list[float] = []
+        total = max(len(values), 1)
+        for idx, val in enumerate(values):
+            setattr(obj, attr, val)
+            peak_hp = self._compute_peak_hp()
+            results.append(peak_hp)
+            progress = int((idx + 1) / total * 100)
+            self.optimizer_progress.setValue(progress)
+            QApplication.processEvents()
+
+        setattr(obj, attr, original_value)
+        self.optimizer_progress.setValue(100)
+
+        self.optimizer_plot.clear()
+        self.optimizer_plot.plot(values, results, pen=pg.mkPen("m", width=2), symbol="o", name="Peak HP")
+        self.optimizer_plot.setLabel("bottom", target)
+        self.optimizer_plot.setLabel("left", "Peak HP")
 
 
 def main() -> None:
