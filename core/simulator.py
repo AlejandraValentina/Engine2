@@ -77,6 +77,39 @@ class PipeSolver:
         if self.N > 1:
             self.U[-1] = self.U[-2]
 
+    def step_valve_boundary(
+        self,
+        dt: float,
+        p_cyl: float,
+        T_cyl: float,
+        valve_area: float,
+        discharge_coeff: float = 0.7,
+    ) -> float:
+        """Exchange mass/energy with a cylinder via valve flow balance."""
+
+        rho = self.U[0, 0]
+        u = self.U[0, 1] / rho
+        energy = self.U[0, 2]
+        p_pipe = (numerics.GAMMA - 1.0) * (energy - 0.5 * rho * u * u)
+        p_pipe = max(p_pipe, 1e-6)
+
+        m_dot = numerics.calculate_mass_flow_rate(
+            p_cyl, p_pipe, T_cyl, valve_area, discharge_coeff
+        )
+
+        cell_volume = self.areas[0] * self.dx
+        cp = numerics.GAMMA * numerics.R / (numerics.GAMMA - 1.0)
+
+        delta_rho = (m_dot * dt) / cell_volume
+        delta_energy = (m_dot * cp * T_cyl * dt) / cell_volume
+
+        self.U[0, 0] += delta_rho
+        self.U[0, 2] += delta_energy
+
+        # Optional momentum adjustment: assume injected flow has negligible
+        # momentum; keep existing momentum to avoid artificial acceleration.
+        return m_dot
+
     def get_time_step(self, cfl: float = 0.5) -> float:
         """Compute a stable time-step using the CFL condition."""
 
