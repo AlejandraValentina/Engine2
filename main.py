@@ -303,7 +303,9 @@ class MainWindow(QMainWindow):
         self.solver.U[center_idx, 2] *= 1.2
 
         x_axis = np.linspace(0, self.solver.L, self.solver.N)
-        p = self.compute_pressure(self.solver.U)
+        # Ensure the plot auto-ranges vertically for immediate visibility of pulses
+        self.scope_widget.plot_widget.getViewBox().enableAutoRange(axis="y")
+        p = self.calculate_pressure_array(self.solver.U)
         self.scope_widget.update_data(x_axis, p)
 
     def toggle_simulation(self, running: bool) -> None:
@@ -358,17 +360,24 @@ class MainWindow(QMainWindow):
         )
 
         x_axis = np.linspace(0, self.solver.L, self.solver.N)
-        p = self.compute_pressure(self.solver.U)
-        self.scope_widget.update_data(x_axis, p)
+        p_data = self.calculate_pressure_array(self.solver.U)
+        print(f"DEBUG VISUAL: Max P in plot array: {np.max(p_data):.2f} Pa")
+        self.scope_widget.update_data(x_axis, p_data)
         self.scope_widget.update_status(crank_angle, valve_state, self.solver.time)
 
-    @staticmethod
-    def compute_pressure(state: np.ndarray) -> np.ndarray:
+    def calculate_pressure_array(self, state: np.ndarray) -> np.ndarray:
+        """Vectorized pressure reconstruction from conserved variables.
+
+        Uses p = (gamma - 1) * (E - 0.5 * rho * u^2) with a safety clamp
+        against negative pressure artifacts.
+        """
+        gamma = 1.4
         rho = state[:, 0]
         mom = state[:, 1]
         energy = state[:, 2]
         u = mom / rho
-        return (numerics.GAMMA - 1.0) * (energy - 0.5 * rho * u * u)
+        p = (gamma - 1.0) * (energy - 0.5 * rho * u * u)
+        return np.maximum(p, 0.0)
 
 
 def main() -> None:
