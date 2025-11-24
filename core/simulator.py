@@ -72,19 +72,17 @@ class PipeSolver:
         gamma = numerics.GAMMA
 
         if valve_area > 0.0:
-            # High-energy blowdown imposed at the inlet. Keep density tied to the
-            # neighboring cell (or ideal-gas estimate) while injecting energy.
+            # Impose a high-energy boundary using the target cylinder pressure.
             if self.N > 1:
                 rho_base = self.U[1, 0]
             else:
-                rho_base = p_cyl / (numerics.R * max(T_cyl, 1e-6))
+                rho_base = max(p_cyl / (numerics.R * max(T_cyl, 1e-6)), 1e-6)
 
             self.U[0, 0] = rho_base
             self.U[0, 1] = 0.0
             self.U[0, 2] = p_cyl / (gamma - 1.0)
 
-            # Nudge the adjacent cell to kick off wave propagation when the valve
-            # opens so the energy isn't trapped at the boundary cell.
+            # Nudge the adjacent cell to help launch the wavefront when the valve opens.
             if self.N > 1:
                 self.U[1, 2] = 0.9 * self.U[1, 2] + 0.1 * self.U[0, 2]
         else:
@@ -99,7 +97,7 @@ class PipeSolver:
         if self.N > 1:
             self.U[-1] = self.U[-2]
 
-    def get_time_step(self, cfl: float = 0.5) -> float:
+    def get_time_step(self, cfl: float = 0.4) -> float:
         """Compute a stable time-step using the CFL condition."""
 
         rho = self.U[:, 0]
@@ -132,14 +130,23 @@ class PipeSolver:
             self.U, dt, self.dx, self.areas, self.friction_coeffs
         )
 
+        # Stability guard: detect non-finite values from the solver.
+        if not np.isfinite(U_new).all():
+            print("[PipeSolver] Warning: non-finite state detected; clamping values.")
+            U_new = np.nan_to_num(U_new, nan=0.0, posinf=0.0, neginf=0.0)
+
+        # Apply density/energy limiters to reduce CFL blowups.
+        U_new[:, 0] = np.maximum(U_new[:, 0], 0.01)
+        U_new[:, 2] = np.clip(U_new[:, 2], 1e-6, 5e6)
+
         self.U = U_new
 
         # Re-apply boundaries so ghost cells persist for plotting and the next step.
         self.apply_boundary_conditions(p_cyl, T_cyl, valve_area)
 
-        # Numerical safety clamps to prevent negative densities or energies.
-        self.U[:, 0] = np.maximum(self.U[:, 0], 1e-4)
-        self.U[:, 2] = np.maximum(self.U[:, 2], 1e-4)
+        # Keep boundary-refreshed state within sane physical limits.
+        self.U[:, 0] = np.maximum(self.U[:, 0], 0.01)
+        self.U[:, 2] = np.clip(self.U[:, 2], 1e-6, 5e6)
 
         self.time += dt
         return dt
