@@ -14,6 +14,7 @@ LHV_DEFAULT = 44e6  # J/kg
 AFR_STOICH = 14.7
 P_ATM = 101325.0
 T_INTAKE = 300.0
+THERMAL_EFFICIENCY = 0.62  # accounts for heat losses to coolant and walls
 
 
 def piston_geometry(angle_array_deg: np.ndarray, bore: float, stroke: float, conrod: float):
@@ -93,18 +94,19 @@ class CylinderSimulator:
         V_180 = volume_at(180.0)
         V_360 = volume_at(360.0)
 
-        # Volumetric efficiency curve (simple interpolated VE)
-        ve = np.interp(rpm, [1000.0, 5500.0, 8500.0], [0.85, 0.98, 0.80])
+        # Volumetric efficiency curve tuned for high-revving engines (e.g., VTEC)
+        ve = np.interp(rpm, [3000.0, 5500.0, 7500.0, 9000.0], [0.90, 1.05, 1.10, 0.95])
         m_air = ve * (P_ATM * Vd) / (R_AIR * T_INTAKE)
         fuel_mass = m_air / AFR_STOICH
         Q_total = fuel_mass * LHV_DEFAULT
+        Q_effective = Q_total * THERMAL_EFFICIENCY
 
         # Wiebe heat release during power stroke (advanced ignition)
         start_angle = 350.0
         duration = 60.0
         efficiency = 0.95
         x = wiebe_function(angle_arr, start_angle, duration, efficiency)
-        Q_rel = Q_total * x
+        Q_rel = Q_effective * x
 
         # Phase masks
         mask_intake = angle_arr < 180.0
