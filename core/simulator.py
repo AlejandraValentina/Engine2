@@ -22,31 +22,31 @@ class PipeSolver:
     ):
         """Initialize solver state using the provided pipe configuration.
 
-        The spatial discretization uses `target_dx` as a guideline. The final cell
-        count is clamped to a minimum of 10 for stability, and `dx` is recomputed
+        The spatial discretization uses `target_dx` (meters) as a guideline. The final
+        cell count is clamped to a minimum of 50 for stability, and `dx` is recomputed
         so that the total pipe length remains consistent with `pipe_data.length`.
         """
 
         self.pipe_data = pipe_data
         self.time: float = 0.0
 
-        length_m = pipe_data.length / 1000.0
+        # Convert pipe length to meters and log discretization inputs for debugging.
+        self.L = pipe_data.length / 1000.0
+        print(f"[PipeSolver] length (m)={self.L:.4f}, target_dx={target_dx}")
 
-        # Initial cell estimate based on the requested spacing.
-        estimated_N = int(math.ceil(length_m / target_dx))
-
-        # Enforce a minimum number of cells for numerical stability.
-        if estimated_N < 10:
+        # Cell count based on requested spacing, with a hard minimum for stability.
+        estimated_N = int(np.ceil(self.L / target_dx))
+        if estimated_N < 50:
             print(
                 "[PipeSolver] Warning: cell count too low for stability. "
-                f"Requested {estimated_N}, enforcing minimum of 10."
+                f"Requested {estimated_N}, enforcing minimum of 50."
             )
-            self.N = 10
+            self.N = 50
         else:
             self.N = estimated_N
 
-        # Recompute dx so that the discretized pipe length matches the original.
-        self.dx = length_m / self.N
+        # Recompute dx so the discretized pipe length matches the original length.
+        self.dx = self.L / self.N
 
         diam_in = pipe_data.diameter_inlet / 1000.0
         diam_out = pipe_data.diameter_outlet / 1000.0
@@ -97,5 +97,10 @@ class PipeSolver:
         self.apply_inlet_boundary()
         self.apply_outlet_boundary()
         self.U = numerics.lax_wendroff_step(self.U, dt, self.dx, self.areas, self.friction_coeffs)
+
+        # Numerical safety clamps to prevent negative densities or energies.
+        self.U[:, 0] = np.maximum(self.U[:, 0], 1e-4)
+        self.U[:, 2] = np.maximum(self.U[:, 2], 1e-4)
+
         self.time += dt
         return dt
