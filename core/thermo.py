@@ -99,22 +99,26 @@ class CylinderSimulator:
         fuel_mass = m_air / AFR_STOICH
         Q_total = fuel_mass * LHV_DEFAULT
 
-        # Wiebe heat release during power stroke
-        start_angle = 360.0
+        # Wiebe heat release during power stroke (advanced ignition)
+        start_angle = 350.0
         duration = 60.0
         efficiency = 0.95
         x = wiebe_function(angle_arr, start_angle, duration, efficiency)
         Q_rel = Q_total * x
 
         # Phase masks
-        mask_intake_exhaust = (angle_arr < 180.0) | (angle_arr >= 540.0)
+        mask_intake = angle_arr < 180.0
+        mask_exhaust = angle_arr >= 540.0
         mask_compression = (angle_arr >= 180.0) & (angle_arr < 360.0)
         mask_power = (angle_arr >= 360.0) & (angle_arr < 540.0)
 
         pressure = np.zeros_like(volume)
 
-        # Intake and exhaust: near-atmospheric (slightly elevated to model backpressure)
-        pressure[mask_intake_exhaust] = 1.05 * P_ATM
+        # Intake: slight vacuum to account for throttling losses
+        pressure[mask_intake] = 0.95 * P_ATM
+
+        # Exhaust: elevated backpressure
+        pressure[mask_exhaust] = 1.05 * P_ATM
 
         # Compression: adiabatic from BDC at 180 deg
         C_comp = P_ATM * (V_180 ** GAMMA)
@@ -129,11 +133,15 @@ class CylinderSimulator:
         torque_trace_single = (pressure - P_ATM) * dV_dtheta
         torque_trace = torque_trace_single * self.engine.block.num_cylinders
 
-        # Mean torque via average of trace over full 720 deg
-        torque_mean = float(np.mean(torque_trace))
+        # Indicated mean torque via average of trace over full 720 deg
+        indicated_torque = float(np.mean(torque_trace))
+
+        # Mechanical friction/pumping losses (simple FMEP-derived torque estimate)
+        friction_torque = 15.0 + (rpm * 0.005) + (rpm ** 2 * 1e-6)
+        brake_torque = indicated_torque - friction_torque
 
         omega = rpm * 2.0 * math.pi / 60.0
-        mean_power_w = torque_mean * omega
+        mean_power_w = brake_torque * omega
         mean_power_hp = mean_power_w / 745.7
 
         return {
@@ -141,6 +149,6 @@ class CylinderSimulator:
             "pressure": pressure,
             "volume": volume,
             "torque": torque_trace,
-            "mean_torque_nm": torque_mean,
+            "mean_torque_nm": brake_torque,
             "mean_power_hp": mean_power_hp,
         }
