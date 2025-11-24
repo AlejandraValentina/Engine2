@@ -322,21 +322,23 @@ class MainWindow(QMainWindow):
             return
 
         steps_per_frame = self.speed_slider.value()
+
         rpm = 12_000.0
-        p_high = 15.0 * 100_000.0
-        p_low = 1.0 * 100_000.0
+        cylinder_pressure_high = 15.0 * 100_000.0
+        cylinder_pressure_low = 1.0 * 100_000.0
         t_cyl = 1200.0
         max_area = 0.0007
 
         for _ in range(steps_per_frame):
             crank_angle = (self.solver.time * rpm * 360.0 / 60.0) % 720.0
+
             if 140.0 < crank_angle < 360.0:
                 lift_factor = np.sin(np.pi * (crank_angle - 140.0) / (360.0 - 140.0))
                 current_area = max_area * lift_factor
-                current_p_cyl = p_high
+                current_p_cyl = cylinder_pressure_high
             else:
                 current_area = 0.0
-                current_p_cyl = p_low
+                current_p_cyl = cylinder_pressure_low
 
             dt = self.solver.get_time_step()
             self.solver.step_valve_boundary(dt, current_p_cyl, t_cyl, current_area)
