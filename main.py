@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
+    QFileDialog,
     QSlider,
     QStyle,
     QTabWidget,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
 from core import numerics
 from core.model import CylinderGeometry, CylinderNode, EngineProject, Pipe
 from core.simulator import PipeSolver
+from acoustics.audio_generator import AudioSynthesizer
 from gui.widgets.scope_widget import ScopeWidget
 
 
@@ -37,6 +39,8 @@ class MainWindow(QMainWindow):
         self.sim_timer = QTimer(self)
         self.sim_timer.setInterval(16)
         self.sim_timer.timeout.connect(self.run_simulation_step)
+
+        self.audio_synth = AudioSynthesizer()
 
         self._create_menu()
         self._create_toolbar()
@@ -67,6 +71,15 @@ class MainWindow(QMainWindow):
         self.toggle_action.setCheckable(True)
         self.toggle_action.toggled.connect(self.toggle_simulation)
         self.toolbar.addAction(self.toggle_action)
+
+        self.record_action = QAction(self.style().standardIcon(QStyle.SP_DialogYesButton), "Record Audio", self)
+        self.record_action.setCheckable(True)
+        self.record_action.setToolTip("Capture tailpipe pressure for audio synthesis")
+        self.toolbar.addAction(self.record_action)
+
+        save_audio_action = QAction(self.style().standardIcon(QStyle.SP_DialogSaveButton), "Save WAV", self)
+        save_audio_action.triggered.connect(self.save_audio)
+        self.toolbar.addAction(save_audio_action)
 
         self.toolbar.addSeparator()
         speed_label = QLabel("Sim Speed", self)
@@ -364,10 +377,24 @@ class MainWindow(QMainWindow):
         self.scope_widget.update_data(x_axis, p_data)
         self.scope_widget.update_status(crank_angle, valve_state, self.solver.time)
 
+        if self.record_action.isChecked():
+            p_exit = self.calculate_pressure_array(self.solver.U)[-1]
+            self.audio_synth.add_sample(self.solver.time, p_exit)
+
     def get_plot_data(self, state: np.ndarray) -> np.ndarray:
         """Return total energy density for visualization to avoid reconstruction errors."""
 
         return state[:, 2]
+
+    def calculate_pressure_array(self, state: np.ndarray) -> np.ndarray:
+        """Reconstruct pressure from conserved variables for audio capture."""
+
+        gamma = 1.4
+        rho = np.maximum(state[:, 0], 1e-9)
+        momentum = state[:, 1]
+        energy = state[:, 2]
+        pressure = (gamma - 1.0) * (energy - 0.5 * (momentum ** 2) / rho)
+        return np.maximum(pressure, 0.0)
 
     def compute_pressure(self, state_cell: np.ndarray) -> float:
         gamma = 1.4
@@ -376,6 +403,17 @@ class MainWindow(QMainWindow):
         energy = state_cell[2]
         pressure = (gamma - 1.0) * (energy - 0.5 * (mom * mom) / rho)
         return max(pressure, 0.0)
+
+    def save_audio(self) -> None:
+        if not self.audio_synth.times:
+            print("[Audio] No samples recorded; nothing to save.")
+            return
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Save exhaust audio", "simulation.wav", "WAV Files (*.wav)"
+        )
+        if filename:
+            self.audio_synth.process_and_save(filename)
 
 
 def main() -> None:
