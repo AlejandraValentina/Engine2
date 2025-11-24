@@ -87,13 +87,20 @@ class PipeSolver:
     ) -> float:
         """Exchange mass/energy with a cylinder via valve flow balance."""
 
-        # Closed valve: enforce a reflective wall so trapped pressure can
-        # propagate downstream instead of freezing at the inlet cell.
+        # Closed valve: apply a flux-based reflective wall update so inlet
+        # pressure can relax into the pipe instead of freezing at cell 0.
         if valve_area <= 0.0:
-            if self.N > 1:
-                self.U[0, 0] = self.U[1, 0]  # mirror density
-                self.U[0, 1] = 0.0  # zero velocity at wall
-                self.U[0, 2] = self.U[1, 2]  # mirror energy/internal state
+            rho = self.U[0, 0]
+            u = 0.0 if rho == 0 else self.U[0, 1] / rho
+            energy = self.U[0, 2]
+            p0 = (numerics.GAMMA - 1.0) * (energy - 0.5 * rho * u * u)
+            p0 = max(p0, 1e-6)
+
+            F_right = numerics.flux_vector(self.U[0])
+            F_wall = np.array([0.0, p0, 0.0], dtype=np.float64)
+
+            self.U[0] -= (dt / self.dx) * (F_right - F_wall)
+            self.U[0, 1] = 0.0  # enforce no-slip velocity at the wall
             return 0.0
 
         rho = self.U[0, 0]
