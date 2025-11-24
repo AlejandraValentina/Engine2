@@ -86,26 +86,12 @@ class PipeSolver:
         discharge_coeff: float = 0.7,
     ) -> float:
         """Exchange mass/energy with a cylinder via valve flow balance."""
-
-        # Closed valve: allow pressure relaxation via Lax-Friedrichs interface
-        # flux while enforcing zero wall velocity.
+        # Closed valve: ghost-cell reflection with mirrored momentum to let
+        # pressure relax into the pipe rather than freeze at the boundary.
         if valve_area <= 0.0:
-            F0 = numerics.flux_vector(self.U[0])
-            F1 = numerics.flux_vector(self.U[1])
-
-            F_interface = 0.5 * (F0 + F1) - 0.5 * (self.dx / dt) * (
-                self.U[1] - self.U[0]
-            )
-
-            rho0 = self.U[0, 0]
-            u0 = 0.0 if rho0 == 0 else self.U[0, 1] / rho0
-            e0 = self.U[0, 2]
-            p0 = (numerics.GAMMA - 1.0) * (e0 - 0.5 * rho0 * u0 * u0)
-            p0 = max(p0, 1e-6)
-            F_wall = np.array([0.0, p0, 0.0], dtype=np.float64)
-
-            self.U[0] -= (dt / self.dx) * (F_interface - F_wall)
-            self.U[0, 1] = 0.0
+            if self.N > 1:
+                self.U[0] = self.U[1].copy()
+                self.U[0, 1] = -self.U[1, 1]
             return 0.0
 
         rho = self.U[0, 0]
@@ -137,6 +123,15 @@ class PipeSolver:
         self.U[0, 0] += delta_rho
         self.U[0, 2] += delta_energy
         self.U[0, 1] = self.U[0, 0] * u
+
+        # Nudge the neighboring cell so the pulse starts propagating immediately
+        # instead of being trapped in the ghost cell.
+        if self.N > 1:
+            self.U[1, 0] += 0.1 * delta_rho
+            self.U[1, 2] += 0.1 * delta_energy
+            rho1 = self.U[1, 0]
+            u1 = 0.0 if rho1 == 0 else self.U[1, 1] / rho1
+            self.U[1, 1] = rho1 * u1
 
         return m_dot
 

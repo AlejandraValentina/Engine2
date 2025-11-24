@@ -304,7 +304,7 @@ class MainWindow(QMainWindow):
 
         x_axis = np.linspace(0, self.solver.L, self.solver.N)
         # Ensure the plot auto-ranges vertically for immediate visibility of pulses
-        self.scope_widget.plot_widget.getViewBox().enableAutoRange(axis="y")
+        self.scope_widget.plot_widget.getViewBox().enableAutoRange()
         p = self.calculate_pressure_array(self.solver.U)
         self.scope_widget.update_data(x_axis, p)
 
@@ -361,7 +361,9 @@ class MainWindow(QMainWindow):
 
         x_axis = np.linspace(0, self.solver.L, self.solver.N)
         p_data = self.calculate_pressure_array(self.solver.U)
-        print(f"DEBUG VISUAL: Max P in plot array: {np.max(p_data):.2f} Pa")
+        print(
+            f"GUI DEBUG: Plot Data Range -> Min: {np.min(p_data):.0f} | Max: {np.max(p_data):.0f}"
+        )
         self.scope_widget.update_data(x_axis, p_data)
         self.scope_widget.update_status(crank_angle, valve_state, self.solver.time)
 

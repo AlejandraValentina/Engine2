@@ -15,7 +15,7 @@ class ScopeWidget(QWidget):
         # operating pressure.
         self.plot_widget.getViewBox().enableAutoRange(axis="y")
 
-        neon_pen = pg.mkPen(color=(0, 255, 255), width=2)
+        neon_pen = pg.mkPen(color=(0, 255, 255), width=3)
         self.curve = self.plot_widget.plot(pen=neon_pen)
 
         self.status_item = pg.TextItem(color="w", anchor=(0, 0))
