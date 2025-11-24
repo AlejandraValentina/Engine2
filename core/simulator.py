@@ -87,24 +87,28 @@ class PipeSolver:
     ) -> float:
         """Exchange mass/energy with a cylinder via valve flow balance."""
 
-        # Closed valve: flux-based reflective wall so inlet pressure can relax
-        # downstream while enforcing zero velocity at the wall.
+        # Closed valve: Lax-Friedrichs interface flux with reflective wall to
+        # allow pressure relaxation into the pipe while enforcing zero wall
+        # velocity.
         if valve_area <= 0.0:
-            # Compute local pressure from conserved variables.
-            rho = self.U[0, 0]
-            u = 0.0 if rho == 0 else self.U[0, 1] / rho
-            energy = self.U[0, 2]
-            p0 = (numerics.GAMMA - 1.0) * (energy - 0.5 * rho * u * u)
-            p0 = max(p0, 1e-6)
+            F0 = numerics.flux_vector(self.U[0])
+            F1 = numerics.flux_vector(self.U[1])
 
-            # Flux leaving cell 0 toward cell 1.
-            F_right = numerics.flux_vector(self.U[0])
-            # Wall flux: no mass/energy, pressure-only momentum flux.
+            # Lax-Friedrichs interface flux between cells 0 and 1.
+            F_interface = 0.5 * (F0 + F1) - 0.5 * (self.dx / dt) * (
+                self.U[1] - self.U[0]
+            )
+
+            # Wall flux carries only pressure on momentum component.
+            rho0 = self.U[0, 0]
+            u0 = 0.0 if rho0 == 0 else self.U[0, 1] / rho0
+            e0 = self.U[0, 2]
+            p0 = (numerics.GAMMA - 1.0) * (e0 - 0.5 * rho0 * u0 * u0)
+            p0 = max(p0, 1e-6)
             F_wall = np.array([0.0, p0, 0.0], dtype=np.float64)
 
-            # Conservative update for cell 0.
-            self.U[0] -= (dt / self.dx) * (F_right - F_wall)
-            # Enforce wall velocity.
+            # Conservative update with reflective wall condition.
+            self.U[0] -= (dt / self.dx) * (F_interface - F_wall)
             self.U[0, 1] = 0.0
             return 0.0
 
