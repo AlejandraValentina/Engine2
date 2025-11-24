@@ -85,10 +85,13 @@ class CylinderSimulator:
         Vc = Vd / (self.engine.head.compression_ratio - 1.0)
         volume = volume_swept + Vc
 
-        # Motored baseline (adiabatic compression/expansion)
-        V_max = np.max(volume)
-        C_motored = P_ATM * (V_max ** GAMMA)
-        pressure_motored = C_motored / (volume ** GAMMA)
+        # Helper to fetch volume at a specific crank angle
+        def volume_at(angle_deg: float) -> float:
+            idx = int(np.argmin(np.abs(angle_arr - angle_deg)))
+            return volume[idx]
+
+        V_180 = volume_at(180.0)
+        V_360 = volume_at(360.0)
 
         # Volumetric efficiency curve (simple interpolated VE)
         ve = np.interp(rpm, [1000.0, 5500.0, 8500.0], [0.85, 0.98, 0.80])
@@ -96,23 +99,38 @@ class CylinderSimulator:
         fuel_mass = m_air / AFR_STOICH
         Q_total = fuel_mass * LHV_DEFAULT
 
-        # Combustion around TDC
+        # Wiebe heat release during power stroke
         start_angle = 360.0
-        duration = 40.0
+        duration = 60.0
         efficiency = 0.95
         x = wiebe_function(angle_arr, start_angle, duration, efficiency)
         Q_rel = Q_total * x
 
-        pressure_comb = pressure_motored + (GAMMA - 1.0) * Q_rel / volume
+        # Phase masks
+        mask_intake_exhaust = (angle_arr < 180.0) | (angle_arr >= 540.0)
+        mask_compression = (angle_arr >= 180.0) & (angle_arr < 360.0)
+        mask_power = (angle_arr >= 360.0) & (angle_arr < 540.0)
 
-        # Work integral for indicated work per cylinder
-        work_single = np.trapz(pressure_comb, volume)  # J per cycle per cylinder
-        torque_mean_single = work_single / (4.0 * math.pi)  # 720 deg = 4*pi rad
-        torque_mean = torque_mean_single * self.engine.block.num_cylinders
+        pressure = np.zeros_like(volume)
 
-        # Torque trace (scaled to engine) for plotting
-        torque_trace_single = (pressure_comb - P_ATM) * dV_dtheta
+        # Intake and exhaust: near-atmospheric (slightly elevated to model backpressure)
+        pressure[mask_intake_exhaust] = 1.05 * P_ATM
+
+        # Compression: adiabatic from BDC at 180 deg
+        C_comp = P_ATM * (V_180 ** GAMMA)
+        pressure[mask_compression] = C_comp / (volume[mask_compression] ** GAMMA)
+
+        # Power: motored expansion plus heat release
+        C_power = C_comp  # same constant continues across TDC
+        pressure_mot_power = C_power / (volume[mask_power] ** GAMMA)
+        pressure[mask_power] = pressure_mot_power + (GAMMA - 1.0) * Q_rel[mask_power] / volume[mask_power]
+
+        # Torque trace scaled by cylinder count
+        torque_trace_single = (pressure - P_ATM) * dV_dtheta
         torque_trace = torque_trace_single * self.engine.block.num_cylinders
+
+        # Mean torque via average of trace over full 720 deg
+        torque_mean = float(np.mean(torque_trace))
 
         omega = rpm * 2.0 * math.pi / 60.0
         mean_power_w = torque_mean * omega
@@ -120,7 +138,7 @@ class CylinderSimulator:
 
         return {
             "angle": angle_arr,
-            "pressure": pressure_comb,
+            "pressure": pressure,
             "volume": volume,
             "torque": torque_trace,
             "mean_torque_nm": torque_mean,
