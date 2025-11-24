@@ -316,7 +316,7 @@ class MainWindow(QMainWindow):
         steps_per_frame = 5
         for _ in range(steps_per_frame):
             t = self.solver.time
-            target_pressure = 101325.0 + 30000.0 * math.sin(2.0 * math.pi * 150.0 * t)
+            target_pressure = 101325.0 + 20000.0 * math.sin(2.0 * math.pi * 4000.0 * t)
             target_temperature = 300.0
             rho = target_pressure / (numerics.R * target_temperature)
             u = 0.0
