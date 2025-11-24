@@ -33,35 +33,31 @@ def piston_geometry(angle_array_deg: np.ndarray, bore: float, stroke: float, con
     x = r * (1.0 - cos_t) + l - np.sqrt(under_sqrt)
 
     dx_dtheta = r * sin_t + (r ** 2 * sin_t * cos_t) / np.sqrt(under_sqrt)
-    dV_dtheta = area * dx_dtheta
+    dV_dtheta = area * dx_dtheta  # derivative with respect to crank angle (radians)
 
     # Mechanical advantage proxy; crank effective lever arm
     lever_arm = r * sin_t + (r ** 2 * sin_t * cos_t) / np.sqrt(under_sqrt)
 
-    # Clearance volume from compression ratio is handled in simulator; here we return
-    # swept contribution only.
+    # Swept contribution only; clearance volume handled in simulator
     V_swept = area * x
     return V_swept, dV_dtheta, lever_arm
 
 
 def wiebe_function(angle_array_deg: np.ndarray, start_angle: float, duration: float, efficiency: float):
-    """Return cumulative heat release fraction (0..1) and its derivative using Wiebe."""
+    """Return cumulative heat release fraction (0..1) using Wiebe."""
     a = 5.0
     m = 2.0
     theta = angle_array_deg
     x = np.zeros_like(theta)
-    dx_dtheta = np.zeros_like(theta)
 
     mask = (theta >= start_angle) & (theta <= start_angle + duration)
     theta_rel = (theta[mask] - start_angle) / duration
     expo = -a * theta_rel ** (m + 1)
     x_val = 1.0 - np.exp(expo)
-    dx_val = a * (m + 1) * theta_rel ** m * np.exp(expo) / duration
 
     x[mask] = x_val * efficiency
-    dx_dtheta[mask] = dx_val * efficiency
     x[theta > start_angle + duration] = efficiency
-    return x, dx_dtheta
+    return x
 
 
 class CylinderSimulator:
@@ -71,7 +67,10 @@ class CylinderSimulator:
         self.engine = engine
 
     def run_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
+        # Crank angle grid (0-720 deg, 0.5 deg resolution)
         angle_arr = np.arange(0.0, 720.0 + 0.5, 0.5)
+
+        # Geometry
         volume_swept, dV_dtheta, _ = piston_geometry(
             angle_arr,
             self.engine.block.bore,
@@ -82,41 +81,48 @@ class CylinderSimulator:
         bore_m = self.engine.block.bore * 1e-3
         stroke_m = self.engine.block.stroke * 1e-3
         area = math.pi * bore_m ** 2 / 4.0
-        Vd = area * stroke_m
+        Vd = area * stroke_m  # swept volume per cylinder (m^3)
         Vc = Vd / (self.engine.head.compression_ratio - 1.0)
         volume = volume_swept + Vc
 
-        V0 = volume[0]
-        C_motored = P_ATM * (V0 ** GAMMA)
+        # Motored baseline (adiabatic compression/expansion)
+        V_max = np.max(volume)
+        C_motored = P_ATM * (V_max ** GAMMA)
         pressure_motored = C_motored / (volume ** GAMMA)
 
-        V_max = np.max(volume)
-        m_air = (P_ATM * V_max) / (R_AIR * T_INTAKE)
+        # Volumetric efficiency curve (simple interpolated VE)
+        ve = np.interp(rpm, [1000.0, 5500.0, 8500.0], [0.85, 0.98, 0.80])
+        m_air = ve * (P_ATM * Vd) / (R_AIR * T_INTAKE)
         fuel_mass = m_air / AFR_STOICH
         Q_total = fuel_mass * LHV_DEFAULT
 
-        start_angle = 370.0
-        duration = 60.0
+        # Combustion around TDC
+        start_angle = 360.0
+        duration = 40.0
         efficiency = 0.95
-        x, dx_dtheta = wiebe_function(angle_arr, start_angle, duration, efficiency)
+        x = wiebe_function(angle_arr, start_angle, duration, efficiency)
         Q_rel = Q_total * x
-        dQ = Q_total * dx_dtheta
 
         pressure_comb = pressure_motored + (GAMMA - 1.0) * Q_rel / volume
 
-        torque_single = (pressure_comb - P_ATM) * dV_dtheta
-        torque = torque_single * self.engine.block.num_cylinders
+        # Work integral for indicated work per cylinder
+        work_single = np.trapz(pressure_comb, volume)  # J per cycle per cylinder
+        torque_mean_single = work_single / (4.0 * math.pi)  # 720 deg = 4*pi rad
+        torque_mean = torque_mean_single * self.engine.block.num_cylinders
 
-        theta_rad = np.deg2rad(angle_arr)
-        mean_torque = np.mean(torque)
-        mean_power_w = mean_torque * (rpm * 2.0 * math.pi / 60.0)
+        # Torque trace (scaled to engine) for plotting
+        torque_trace_single = (pressure_comb - P_ATM) * dV_dtheta
+        torque_trace = torque_trace_single * self.engine.block.num_cylinders
+
+        omega = rpm * 2.0 * math.pi / 60.0
+        mean_power_w = torque_mean * omega
         mean_power_hp = mean_power_w / 745.7
 
         return {
             "angle": angle_arr,
             "pressure": pressure_comb,
             "volume": volume,
-            "torque": torque,
-            "mean_torque_nm": mean_torque,
+            "torque": torque_trace,
+            "mean_torque_nm": torque_mean,
             "mean_power_hp": mean_power_hp,
         }
