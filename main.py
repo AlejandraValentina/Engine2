@@ -311,7 +311,23 @@ class MainWindow(QMainWindow):
         if self.solver is None:
             return
 
-        for _ in range(10):
+        import math
+
+        steps_per_frame = 5
+        for _ in range(steps_per_frame):
+            t = self.solver.time
+            target_pressure = 101325.0 + 30000.0 * math.sin(2.0 * math.pi * 150.0 * t)
+            target_temperature = 300.0
+            rho = target_pressure / (numerics.R * target_temperature)
+            u = 0.0
+            energy = target_pressure / (numerics.GAMMA - 1.0)
+
+            self.solver.U[0, 0] = rho
+            self.solver.U[0, 1] = rho * u
+            self.solver.U[0, 2] = energy
+            if self.solver.N > 1:
+                self.solver.U[1] = self.solver.U[0]
+
             dt = self.solver.get_time_step()
             self.solver.step(dt)
 
