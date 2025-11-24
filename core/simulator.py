@@ -86,6 +86,8 @@ class PipeSolver:
         discharge_coeff: float = 0.7,
     ) -> float:
         """Exchange mass/energy with a cylinder via valve flow balance."""
+        GAMMA = 1.4
+
         # Closed valve: reflective ghost cell that mirrors the interior state
         # while inverting momentum to enforce zero velocity at the wall.
         if valve_area <= 0.0:
@@ -123,6 +125,12 @@ class PipeSolver:
 
         self.U[0, 0] += delta_rho
         self.U[0, 2] += delta_energy
+
+        # Enforce target pressure energy density at the inlet (assuming negligible
+        # inlet velocity). This prevents accidental assignment of pressure into the
+        # total energy slot and keeps the boundary state physically consistent.
+        p_target = p_cyl if sign > 0 else p_pipe
+        self.U[0, 2] = p_target / (GAMMA - 1.0)
         self.U[0, 1] = self.U[0, 0] * u
 
         return m_dot
