@@ -9,6 +9,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
+    QSlider,
     QStyle,
     QTabWidget,
     QToolBar,
@@ -54,19 +55,28 @@ class MainWindow(QMainWindow):
         file_menu.addAction(new_engine_wizard)
 
     def _create_toolbar(self) -> None:
-        toolbar = QToolBar("Simulation Controls", self)
-        toolbar.setMovable(False)
+        self.toolbar = QToolBar("Simulation Controls", self)
+        self.toolbar.setMovable(False)
 
         init_action = QAction(self.style().standardIcon(QStyle.SP_BrowserReload), "Initialize Solver", self)
         init_action.triggered.connect(self.initialize_solver)
-        toolbar.addAction(init_action)
+        self.toolbar.addAction(init_action)
 
         self.toggle_action = QAction(self.style().standardIcon(QStyle.SP_MediaPlay), "Start/Stop Simulation", self)
         self.toggle_action.setCheckable(True)
         self.toggle_action.toggled.connect(self.toggle_simulation)
-        toolbar.addAction(self.toggle_action)
+        self.toolbar.addAction(self.toggle_action)
 
-        self.addToolBar(toolbar)
+        self.toolbar.addSeparator()
+        speed_label = QLabel("Sim Speed", self)
+        self.toolbar.addWidget(speed_label)
+        self.speed_slider = QSlider(Qt.Horizontal, self)
+        self.speed_slider.setRange(1, 50)
+        self.speed_slider.setValue(5)
+        self.speed_slider.setToolTip("Simulation steps per frame")
+        self.toolbar.addWidget(self.speed_slider)
+
+        self.addToolBar(self.toolbar)
 
     def _create_left_panel(self) -> None:
         self.navigation_tree = QTreeWidget()
@@ -313,7 +323,7 @@ class MainWindow(QMainWindow):
 
         import math
 
-        steps_per_frame = 5
+        steps_per_frame = self.speed_slider.value()
         for _ in range(steps_per_frame):
             t = self.solver.time
             target_pressure = 101325.0 + 20000.0 * math.sin(2.0 * math.pi * 4000.0 * t)
