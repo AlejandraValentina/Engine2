@@ -72,7 +72,10 @@ class PipeSolver:
         gamma = numerics.GAMMA
 
         if valve_area > 0.0:
-            # Impose a high-energy boundary using the target cylinder pressure.
+            # Soft-start energy injection derived from cylinder pressure.
+            target_E = p_cyl / (gamma - 1.0)
+            target_E = min(target_E, 5.0e6)
+
             if self.N > 1:
                 rho_base = self.U[1, 0]
             else:
@@ -80,7 +83,7 @@ class PipeSolver:
 
             self.U[0, 0] = rho_base
             self.U[0, 1] = 0.0
-            self.U[0, 2] = p_cyl / (gamma - 1.0)
+            self.U[0, 2] = target_E
 
             # Nudge the adjacent cell to help launch the wavefront when the valve opens.
             if self.N > 1:
@@ -106,9 +109,7 @@ class PipeSolver:
         p = (numerics.GAMMA - 1.0) * (energy - 0.5 * rho * u * u)
         p = np.maximum(p, 1e-6)
         a = np.sqrt(numerics.GAMMA * p / rho)
-        max_wave_speed = np.max(np.abs(u) + a)
-        if max_wave_speed <= 0.0:
-            max_wave_speed = 1e-8
+        max_wave_speed = np.max(np.abs(u) + a) + 1e-5
         return cfl * self.dx / max_wave_speed
 
     def step(
@@ -126,18 +127,19 @@ class PipeSolver:
         # Apply boundary conditions before the numerical update.
         self.apply_boundary_conditions(p_cyl, T_cyl, valve_area)
 
+        U_prev = self.U.copy()
         U_new = numerics.lax_wendroff_step(
             self.U, dt, self.dx, self.areas, self.friction_coeffs
         )
 
         # Stability guard: detect non-finite values from the solver.
         if not np.isfinite(U_new).all():
-            print("[PipeSolver] Warning: non-finite state detected; clamping values.")
-            U_new = np.nan_to_num(U_new, nan=0.0, posinf=0.0, neginf=0.0)
+            print("[PipeSolver] Warning: non-finite state detected; reverting step.")
+            U_new = U_prev
 
         # Apply density/energy limiters to reduce CFL blowups.
-        U_new[:, 0] = np.maximum(U_new[:, 0], 0.01)
-        U_new[:, 2] = np.clip(U_new[:, 2], 1e-6, 5e6)
+        U_new[:, 0] = np.maximum(U_new[:, 0], 0.1)
+        U_new[:, 2] = np.clip(U_new[:, 2], 0.0, 1.0e7)
 
         self.U = U_new
 
@@ -145,8 +147,8 @@ class PipeSolver:
         self.apply_boundary_conditions(p_cyl, T_cyl, valve_area)
 
         # Keep boundary-refreshed state within sane physical limits.
-        self.U[:, 0] = np.maximum(self.U[:, 0], 0.01)
-        self.U[:, 2] = np.clip(self.U[:, 2], 1e-6, 5e6)
+        self.U[:, 0] = np.maximum(self.U[:, 0], 0.1)
+        self.U[:, 2] = np.clip(self.U[:, 2], 0.0, 1.0e7)
 
         self.time += dt
         return dt
