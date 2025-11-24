@@ -94,12 +94,14 @@ class PipeSolver:
             F0 = numerics.flux_vector(self.U[0])
             F1 = numerics.flux_vector(self.U[1])
 
-            # Lax-Friedrichs interface flux between cells 0 and 1.
+            # Lax-Friedrichs interface flux between cells 0 and 1 using
+            # dx/dt scaling to allow pressure gradients to drive expansion
+            # even when velocity at the wall is zero.
             F_interface = 0.5 * (F0 + F1) - 0.5 * (self.dx / dt) * (
                 self.U[1] - self.U[0]
             )
 
-            # Wall flux carries only pressure on momentum component.
+            # Wall flux carries only pressure on the momentum component.
             rho0 = self.U[0, 0]
             u0 = 0.0 if rho0 == 0 else self.U[0, 1] / rho0
             e0 = self.U[0, 2]
