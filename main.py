@@ -348,11 +348,7 @@ class MainWindow(QMainWindow):
                 valve_state = "CLOSED"
 
             dt = self.solver.get_time_step()
-            self.solver.step_valve_boundary(dt, current_p_cyl, t_cyl, current_area)
-            self.solver.step(dt)
-
-            # Non-reflecting outlet to let waves exit cleanly
-            self.solver.U[-1] = self.solver.U[-2]
+            self.solver.step(dt, p_cyl=current_p_cyl, T_cyl=t_cyl, valve_area=current_area)
 
         inlet_energy = self.solver.U[0, 2]
         print(

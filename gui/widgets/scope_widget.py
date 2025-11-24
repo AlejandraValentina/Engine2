@@ -10,7 +10,7 @@ class ScopeWidget(QWidget):
         self.plot_widget = pg.PlotWidget(background="k")
         self.plot_widget.showGrid(x=True, y=True, alpha=0.15)
         self.plot_widget.setLabel("bottom", "Position (m)")
-        self.plot_widget.setLabel("left", "Pressure (Pa)")
+        self.plot_widget.setLabel("left", "Energy Density (J/m3)")
         # Let the vertical axis auto-scale to keep signals visible regardless of
         # operating pressure.
         self.plot_widget.getViewBox().enableAutoRange(axis="y")

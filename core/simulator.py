@@ -64,76 +64,40 @@ class PipeSolver:
         self.U[:, 1] = rho0 * u0
         self.U[:, 2] = rho0 * (e0 + 0.5 * u0 * u0)
 
-    def apply_inlet_boundary(self):
-        """Non-reflecting inlet boundary condition (transmissive)."""
+    def apply_boundary_conditions(
+        self, p_cyl: float, T_cyl: float, valve_area: float
+    ) -> None:
+        """Apply inlet valve condition and transmissive outlet."""
 
-        # Copy neighbor values to minimize reflections.
-        if self.N > 1:
-            self.U[0] = self.U[1]
+        gamma = numerics.GAMMA
 
-    def apply_outlet_boundary(self):
-        """Non-reflecting outlet boundary condition (transmissive)."""
+        if valve_area > 0.0:
+            # High-energy blowdown imposed at the inlet. Keep density tied to the
+            # neighboring cell (or ideal-gas estimate) while injecting energy.
+            if self.N > 1:
+                rho_base = self.U[1, 0]
+            else:
+                rho_base = p_cyl / (numerics.R * max(T_cyl, 1e-6))
 
-        if self.N > 1:
-            self.U[-1] = self.U[-2]
+            self.U[0, 0] = rho_base
+            self.U[0, 1] = 0.0
+            self.U[0, 2] = p_cyl / (gamma - 1.0)
 
-    def step_valve_boundary(
-        self,
-        dt: float,
-        p_cyl: float,
-        T_cyl: float,
-        valve_area: float,
-        discharge_coeff: float = 0.7,
-    ) -> float:
-        """Exchange mass/energy with a cylinder via valve flow balance."""
-        GAMMA = 1.4
-
-        # Closed valve: reflective ghost cell that mirrors the interior state
-        # while inverting momentum to enforce zero velocity at the wall.
-        if valve_area <= 0.0:
+            # Nudge the adjacent cell to kick off wave propagation when the valve
+            # opens so the energy isn't trapped at the boundary cell.
+            if self.N > 1:
+                self.U[1, 2] = 0.9 * self.U[1, 2] + 0.1 * self.U[0, 2]
+        else:
+            # Reflective ghost cell: mirror density/energy and invert momentum to
+            # impose zero velocity at the wall while allowing pressure to relax.
             if self.N > 1:
                 self.U[0, 0] = self.U[1, 0]
                 self.U[0, 1] = -self.U[1, 1]
                 self.U[0, 2] = self.U[1, 2]
-            return 0.0
 
-        rho = self.U[0, 0]
-        u = self.U[0, 1] / rho
-        energy = self.U[0, 2]
-        p_pipe = (numerics.GAMMA - 1.0) * (energy - 0.5 * rho * u * u)
-        p_pipe = max(p_pipe, 1e-6)
-        T_pipe = p_pipe / (rho * numerics.R)
-
-        # Determine flow direction and upstream conditions.
-        if p_cyl >= p_pipe:
-            p_up, p_down, T_up = p_cyl, p_pipe, T_cyl
-            sign = 1.0
-        else:
-            p_up, p_down, T_up = p_pipe, p_cyl, T_pipe
-            sign = -1.0
-
-        mdot_mag = numerics.calculate_mass_flow_rate(
-            p_up, p_down, T_up, valve_area, discharge_coeff
-        )
-        m_dot = sign * mdot_mag
-
-        cell_volume = self.areas[0] * self.dx
-        cp = numerics.GAMMA * numerics.R / (numerics.GAMMA - 1.0)
-
-        delta_rho = (m_dot * dt) / cell_volume
-        delta_energy = (m_dot * cp * T_up * dt) / cell_volume
-
-        self.U[0, 0] += delta_rho
-        self.U[0, 2] += delta_energy
-
-        # Enforce target pressure energy density at the inlet (assuming negligible
-        # inlet velocity). This prevents accidental assignment of pressure into the
-        # total energy slot and keeps the boundary state physically consistent.
-        p_target = p_cyl if sign > 0 else p_pipe
-        self.U[0, 2] = p_target / (GAMMA - 1.0)
-        self.U[0, 1] = self.U[0, 0] * u
-
-        return m_dot
+        # Transmissive outlet lets waves exit without reflection.
+        if self.N > 1:
+            self.U[-1] = self.U[-2]
 
     def get_time_step(self, cfl: float = 0.5) -> float:
         """Compute a stable time-step using the CFL condition."""
@@ -149,29 +113,29 @@ class PipeSolver:
             max_wave_speed = 1e-8
         return cfl * self.dx / max_wave_speed
 
-    def step(self, dt: Optional[float] = None) -> float:
+    def step(
+        self,
+        dt: Optional[float] = None,
+        p_cyl: float = 101325.0,
+        T_cyl: float = 300.0,
+        valve_area: float = 0.0,
+    ) -> float:
         """Advance the pipe solution by one timestep and return the dt used."""
 
         if dt is None:
             dt = self.get_time_step()
 
-        self.apply_inlet_boundary()
-        self.apply_outlet_boundary()
-
-        # Preserve boundary states during the finite-difference update so that
-        # previously applied boundary conditions (e.g., valve coupling) are not
-        # overwritten by the numerical scheme.
-        left_backup = self.U[0].copy()
-        right_backup = self.U[-1].copy()
+        # Apply boundary conditions before the numerical update.
+        self.apply_boundary_conditions(p_cyl, T_cyl, valve_area)
 
         U_new = numerics.lax_wendroff_step(
             self.U, dt, self.dx, self.areas, self.friction_coeffs
         )
 
-        U_new[0] = left_backup
-        U_new[-1] = right_backup
-
         self.U = U_new
+
+        # Re-apply boundaries so ghost cells persist for plotting and the next step.
+        self.apply_boundary_conditions(p_cyl, T_cyl, valve_area)
 
         # Numerical safety clamps to prevent negative densities or energies.
         self.U[:, 0] = np.maximum(self.U[:, 0], 1e-4)
