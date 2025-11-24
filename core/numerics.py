@@ -98,3 +98,44 @@ def lax_wendroff_step(U_grid, dt, dx, areas, friction_coeffs):
         U_new[i] = U_grid[i] - dt / dx * flux_diff + dt * (S + geom_source)
 
     return U_new
+
+
+@jit(nopython=True)
+def calculate_mass_flow_rate(p_cyl, p_pipe, T_cyl, area_valve, Cd):
+    """Compute isentropic mass flow through a valve between cylinder and pipe.
+
+    Positive sign indicates flow leaving the cylinder toward the pipe. Negative
+    indicates flow entering the cylinder from the pipe.
+    """
+    # Determine upstream/downstream states and flow direction
+    if p_cyl >= p_pipe:
+        p_up = p_cyl
+        p_down = p_pipe
+        direction = 1.0
+    else:
+        p_up = p_pipe
+        p_down = p_cyl
+        direction = -1.0
+
+    # Pressure ratio and critical choking threshold
+    pressure_ratio = p_down / p_up
+    pcrit = (2.0 / (GAMMA + 1.0)) ** (GAMMA / (GAMMA - 1.0))
+
+    # Upstream temperature (only cylinder temperature available for now)
+    T_up = T_cyl
+
+    coeff = Cd * area_valve * p_up / np.sqrt(T_up)
+    if pressure_ratio <= pcrit:
+        # Choked flow (Mach 1 at throat)
+        exponent = (GAMMA + 1.0) / (2.0 * (GAMMA - 1.0))
+        mdot_mag = coeff * np.sqrt(GAMMA / R) * (2.0 / (GAMMA + 1.0)) ** exponent
+    else:
+        # Subsonic isentropic flow
+        term1 = pressure_ratio ** (2.0 / GAMMA)
+        term2 = pressure_ratio ** ((GAMMA + 1.0) / GAMMA)
+        delta = term1 - term2
+        if delta < 0.0:
+            delta = 0.0
+        mdot_mag = coeff * np.sqrt(2.0 * GAMMA / (R * (GAMMA - 1.0)) * delta)
+
+    return direction * mdot_mag
