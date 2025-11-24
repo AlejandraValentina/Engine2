@@ -71,9 +71,9 @@ class CylinderSimulator:
         self.engine = engine
 
     def run_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
-        angles = np.arange(0.0, 720.0 + 0.5, 0.5)
+        angle_arr = np.arange(0.0, 720.0 + 0.5, 0.5)
         volume_swept, dV_dtheta, _ = piston_geometry(
-            angles,
+            angle_arr,
             self.engine.block.bore,
             self.engine.block.stroke,
             self.engine.block.conrod_length,
@@ -98,26 +98,25 @@ class CylinderSimulator:
         start_angle = 370.0
         duration = 60.0
         efficiency = 0.95
-        x, dx_dtheta = wiebe_function(angles, start_angle, duration, efficiency)
+        x, dx_dtheta = wiebe_function(angle_arr, start_angle, duration, efficiency)
         Q_rel = Q_total * x
         dQ = Q_total * dx_dtheta
 
         pressure_comb = pressure_motored + (GAMMA - 1.0) * Q_rel / volume
 
-        torque = (pressure_comb - P_ATM) * dV_dtheta
+        torque_single = (pressure_comb - P_ATM) * dV_dtheta
+        torque = torque_single * self.engine.block.num_cylinders
 
-        # Work per cylinder over 720 deg (4π rad)
-        theta_rad = np.deg2rad(angles)
-        work_single = np.trapz(torque, theta_rad)
-        work_total = work_single * self.engine.block.num_cylinders
-        mean_torque = work_total / (4.0 * math.pi)
+        theta_rad = np.deg2rad(angle_arr)
+        mean_torque = np.mean(torque)
         mean_power_w = mean_torque * (rpm * 2.0 * math.pi / 60.0)
         mean_power_hp = mean_power_w / 745.7
 
         return {
-            "angles": angles,
+            "angle": angle_arr,
             "pressure": pressure_comb,
             "volume": volume,
             "torque": torque,
+            "mean_torque_nm": mean_torque,
             "mean_power_hp": mean_power_hp,
         }
