@@ -33,6 +33,7 @@ class MainWindow(QMainWindow):
 
         self.engine_project = self._create_default_project()
         self.solver: PipeSolver | None = None
+        self._sim_step_counter = 0
         self.sim_timer = QTimer(self)
         self.sim_timer.setInterval(16)
         self.sim_timer.timeout.connect(self.run_simulation_step)
@@ -336,13 +337,24 @@ class MainWindow(QMainWindow):
                 lift_factor = np.sin(np.pi * (crank_angle - 140.0) / (360.0 - 140.0))
                 current_area = max_area * lift_factor
                 current_p_cyl = cylinder_pressure_high
+                valve_state = "OPEN"
             else:
                 current_area = 0.0
                 current_p_cyl = cylinder_pressure_low
+                valve_state = "CLOSED"
 
             dt = self.solver.get_time_step()
             self.solver.step_valve_boundary(dt, current_p_cyl, t_cyl, current_area)
             self.solver.step(dt)
+
+            # Non-reflecting outlet to let waves exit cleanly
+            self.solver.U[-1] = self.solver.U[-2]
+
+            self._sim_step_counter += 1
+            if self._sim_step_counter % 100 == 0:
+                print(
+                    f"Time: {self.solver.time:.4f} s | Angle: {crank_angle:6.1f} deg | Valve: {valve_state}"
+                )
 
         x_axis = np.linspace(0, self.solver.L, self.solver.N)
         p = self.compute_pressure(self.solver.U)
