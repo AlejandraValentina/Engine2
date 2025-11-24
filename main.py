@@ -321,24 +321,19 @@ class MainWindow(QMainWindow):
         if self.solver is None:
             return
 
-        import math
-
         steps_per_frame = self.speed_slider.value()
         for _ in range(steps_per_frame):
             t = self.solver.time
-            target_pressure = 101325.0 + 20000.0 * math.sin(2.0 * math.pi * 4000.0 * t)
-            target_temperature = 300.0
-            rho = target_pressure / (numerics.R * target_temperature)
-            u = 0.0
-            energy = target_pressure / (numerics.GAMMA - 1.0)
-
-            self.solver.U[0, 0] = rho
-            self.solver.U[0, 1] = rho * u
-            self.solver.U[0, 2] = energy
-            if self.solver.N > 1:
-                self.solver.U[1] = self.solver.U[0]
+            p_cyl = 1_000_000.0
+            t_cyl = 1200.0
+            max_area = 0.0007
+            if t < 0.005:
+                current_area = max_area * (t / 0.005)
+            else:
+                current_area = max_area
 
             dt = self.solver.get_time_step()
+            self.solver.step_valve_boundary(dt, p_cyl, t_cyl, current_area)
             self.solver.step(dt)
 
         x_axis = np.linspace(0, self.solver.L, self.solver.N)
