@@ -87,6 +87,15 @@ class PipeSolver:
     ) -> float:
         """Exchange mass/energy with a cylinder via valve flow balance."""
 
+        # Closed valve: enforce a reflective wall so trapped pressure can
+        # propagate downstream instead of freezing at the inlet cell.
+        if valve_area <= 0.0:
+            if self.N > 1:
+                self.U[0, 0] = self.U[1, 0]  # mirror density
+                self.U[0, 1] = 0.0  # zero velocity at wall
+                self.U[0, 2] = self.U[1, 2]  # mirror energy/internal state
+            return 0.0
+
         rho = self.U[0, 0]
         u = self.U[0, 1] / rho
         energy = self.U[0, 2]
@@ -103,11 +112,12 @@ class PipeSolver:
         delta_rho = (m_dot * dt) / cell_volume
         delta_energy = (m_dot * cp * T_cyl * dt) / cell_volume
 
+        # Update mass and energy; momentum is recomputed to preserve the
+        # existing velocity after mass exchange (source assumed low momentum).
         self.U[0, 0] += delta_rho
         self.U[0, 2] += delta_energy
+        self.U[0, 1] = self.U[0, 0] * u
 
-        # Optional momentum adjustment: assume injected flow has negligible
-        # momentum; keep existing momentum to avoid artificial acceleration.
         return m_dot
 
     def get_time_step(self, cfl: float = 0.5) -> float:
