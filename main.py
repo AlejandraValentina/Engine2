@@ -72,7 +72,7 @@ class MainWindow(QMainWindow):
         speed_label = QLabel("Sim Speed", self)
         self.toolbar.addWidget(speed_label)
         self.speed_slider = QSlider(Qt.Horizontal, self)
-        self.speed_slider.setRange(1, 50)
+        self.speed_slider.setRange(1, 100)
         self.speed_slider.setValue(5)
         self.speed_slider.setToolTip("Simulation steps per frame")
         self.toolbar.addWidget(self.speed_slider)
@@ -330,6 +330,9 @@ class MainWindow(QMainWindow):
         t_cyl = 1200.0
         max_area = 0.0007
 
+        crank_angle = 0.0
+        valve_state = "CLOSED"
+
         for _ in range(steps_per_frame):
             crank_angle = (self.solver.time * rpm * 360.0 / 60.0) % 720.0
 
@@ -359,6 +362,7 @@ class MainWindow(QMainWindow):
         x_axis = np.linspace(0, self.solver.L, self.solver.N)
         p = self.compute_pressure(self.solver.U)
         self.scope_widget.update_data(x_axis, p)
+        self.scope_widget.update_status(crank_angle, valve_state, self.solver.time)
 
     @staticmethod
     def compute_pressure(state: np.ndarray) -> np.ndarray:
