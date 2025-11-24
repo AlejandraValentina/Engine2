@@ -101,41 +101,50 @@ def lax_wendroff_step(U_grid, dt, dx, areas, friction_coeffs):
 
 
 @jit(nopython=True)
-def calculate_mass_flow_rate(p_cyl, p_pipe, T_cyl, area_valve, Cd):
-    """Compute isentropic mass flow through a valve between cylinder and pipe.
+def calculate_mass_flow_rate(p_up: float, p_down: float, T_up: float, area: float, Cd: float) -> float:
+    """Compute isentropic mass flow rate from an upstream reservoir to a downstream region.
 
-    Positive sign indicates flow leaving the cylinder toward the pipe. Negative
-    indicates flow entering the cylinder from the pipe.
+    Parameters
+    ----------
+    p_up : float
+        Upstream (stagnation) pressure [Pa].
+    p_down : float
+        Downstream pressure [Pa].
+    T_up : float
+        Upstream (stagnation) temperature [K].
+    area : float
+        Effective throat/valve area [m^2].
+    Cd : float
+        Discharge coefficient (0-1).
+
+    Returns
+    -------
+    float
+        Mass flow rate [kg/s], always positive in the direction from upstream
+        to downstream.
     """
-    # Determine upstream/downstream states and flow direction
-    if p_cyl >= p_pipe:
-        p_up = p_cyl
-        p_down = p_pipe
-        direction = 1.0
-    else:
-        p_up = p_pipe
-        p_down = p_cyl
-        direction = -1.0
 
-    # Pressure ratio and critical choking threshold
+    if area <= 0.0 or p_up <= 0.0 or T_up <= 0.0:
+        return 0.0
+
     pressure_ratio = p_down / p_up
+    if pressure_ratio < 0.0:
+        pressure_ratio = 0.0
+
     pcrit = (2.0 / (GAMMA + 1.0)) ** (GAMMA / (GAMMA - 1.0))
+    coeff = Cd * area * p_up * np.sqrt(GAMMA / (R * T_up))
 
-    # Upstream temperature (only cylinder temperature available for now)
-    T_up = T_cyl
-
-    coeff = Cd * area_valve * p_up / np.sqrt(T_up)
     if pressure_ratio <= pcrit:
-        # Choked flow (Mach 1 at throat)
+        # Choked flow (Mach = 1 at throat)
         exponent = (GAMMA + 1.0) / (2.0 * (GAMMA - 1.0))
-        mdot_mag = coeff * np.sqrt(GAMMA / R) * (2.0 / (GAMMA + 1.0)) ** exponent
+        mdot = coeff * (2.0 / (GAMMA + 1.0)) ** exponent
     else:
-        # Subsonic isentropic flow
+        # Subsonic isentropic nozzle/orifice flow
         term1 = pressure_ratio ** (2.0 / GAMMA)
         term2 = pressure_ratio ** ((GAMMA + 1.0) / GAMMA)
         delta = term1 - term2
         if delta < 0.0:
             delta = 0.0
-        mdot_mag = coeff * np.sqrt(2.0 * GAMMA / (R * (GAMMA - 1.0)) * delta)
+        mdot = coeff * np.sqrt((2.0 / (GAMMA - 1.0)) * delta)
 
-    return direction * mdot_mag
+    return mdot

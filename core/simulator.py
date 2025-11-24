@@ -87,21 +87,16 @@ class PipeSolver:
     ) -> float:
         """Exchange mass/energy with a cylinder via valve flow balance."""
 
-        # Closed valve: Lax-Friedrichs interface flux with reflective wall to
-        # allow pressure relaxation into the pipe while enforcing zero wall
-        # velocity.
+        # Closed valve: allow pressure relaxation via Lax-Friedrichs interface
+        # flux while enforcing zero wall velocity.
         if valve_area <= 0.0:
             F0 = numerics.flux_vector(self.U[0])
             F1 = numerics.flux_vector(self.U[1])
 
-            # Lax-Friedrichs interface flux between cells 0 and 1 using
-            # dx/dt scaling to allow pressure gradients to drive expansion
-            # even when velocity at the wall is zero.
             F_interface = 0.5 * (F0 + F1) - 0.5 * (self.dx / dt) * (
                 self.U[1] - self.U[0]
             )
 
-            # Wall flux carries only pressure on the momentum component.
             rho0 = self.U[0, 0]
             u0 = 0.0 if rho0 == 0 else self.U[0, 1] / rho0
             e0 = self.U[0, 2]
@@ -109,7 +104,6 @@ class PipeSolver:
             p0 = max(p0, 1e-6)
             F_wall = np.array([0.0, p0, 0.0], dtype=np.float64)
 
-            # Conservative update with reflective wall condition.
             self.U[0] -= (dt / self.dx) * (F_interface - F_wall)
             self.U[0, 1] = 0.0
             return 0.0
@@ -119,19 +113,27 @@ class PipeSolver:
         energy = self.U[0, 2]
         p_pipe = (numerics.GAMMA - 1.0) * (energy - 0.5 * rho * u * u)
         p_pipe = max(p_pipe, 1e-6)
+        T_pipe = p_pipe / (rho * numerics.R)
 
-        m_dot = numerics.calculate_mass_flow_rate(
-            p_cyl, p_pipe, T_cyl, valve_area, discharge_coeff
+        # Determine flow direction and upstream conditions.
+        if p_cyl >= p_pipe:
+            p_up, p_down, T_up = p_cyl, p_pipe, T_cyl
+            sign = 1.0
+        else:
+            p_up, p_down, T_up = p_pipe, p_cyl, T_pipe
+            sign = -1.0
+
+        mdot_mag = numerics.calculate_mass_flow_rate(
+            p_up, p_down, T_up, valve_area, discharge_coeff
         )
+        m_dot = sign * mdot_mag
 
         cell_volume = self.areas[0] * self.dx
         cp = numerics.GAMMA * numerics.R / (numerics.GAMMA - 1.0)
 
         delta_rho = (m_dot * dt) / cell_volume
-        delta_energy = (m_dot * cp * T_cyl * dt) / cell_volume
+        delta_energy = (m_dot * cp * T_up * dt) / cell_volume
 
-        # Update mass and energy; momentum is recomputed to preserve the
-        # existing velocity after mass exchange (source assumed low momentum).
         self.U[0, 0] += delta_rho
         self.U[0, 2] += delta_energy
         self.U[0, 1] = self.U[0, 0] * u

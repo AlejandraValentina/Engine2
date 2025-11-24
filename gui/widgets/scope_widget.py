@@ -11,14 +11,16 @@ class ScopeWidget(QWidget):
         self.plot_widget.showGrid(x=True, y=True, alpha=0.15)
         self.plot_widget.setLabel("bottom", "Position (m)")
         self.plot_widget.setLabel("left", "Pressure (Pa)")
-        self.plot_widget.setYRange(0, 250000)
+        # Let the vertical axis auto-scale to keep signals visible regardless of
+        # operating pressure.
+        self.plot_widget.getViewBox().enableAutoRange(axis="y")
 
         neon_pen = pg.mkPen(color=(0, 255, 255), width=2)
         self.curve = self.plot_widget.plot(pen=neon_pen)
 
         self.status_item = pg.TextItem(color="w", anchor=(0, 0))
         self.status_item.setText("Time: 0.00 ms | Crank: 0.0 deg | Valve: CLOSED")
-        self.status_item.setPos(0.0, 250000)
+        self.status_item.setPos(0.0, 0.0)
         self.plot_widget.addItem(self.status_item)
 
         layout = QVBoxLayout(self)
