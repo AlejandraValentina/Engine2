@@ -324,26 +324,25 @@ class MainWindow(QMainWindow):
 
         steps_per_frame = self.speed_slider.value()
 
-        rpm = 12_000.0
-        cylinder_pressure_high = 15.0 * 100_000.0
-        cylinder_pressure_low = 1.0 * 100_000.0
-        t_cyl = 1200.0
-        max_area = 0.0007
+        rpm = 6_000.0
+        max_area = 0.001
+        p_cyl_open = 500_000.0
+        p_cyl_closed = 100_000.0
+        t_cyl = 1000.0
 
         crank_angle = 0.0
         valve_state = "CLOSED"
 
         for _ in range(steps_per_frame):
-            crank_angle = (self.solver.time * rpm * 360.0 / 60.0) % 720.0
+            crank_angle = (self.solver.time * rpm * 360.0 / 60.0) % 360.0
 
-            if 140.0 < crank_angle < 360.0:
-                lift_factor = np.sin(np.pi * (crank_angle - 140.0) / (360.0 - 140.0))
-                current_area = max_area * lift_factor
-                current_p_cyl = cylinder_pressure_high
-                valve_state = "OPEN"
+            if 0.0 <= crank_angle <= 180.0:
+                current_area = max_area
+                current_p_cyl = p_cyl_open
+                valve_state = "OPEN (BLOWDOWN)"
             else:
                 current_area = 0.0
-                current_p_cyl = cylinder_pressure_low
+                current_p_cyl = p_cyl_closed
                 valve_state = "CLOSED"
 
             dt = self.solver.get_time_step()
@@ -353,11 +352,10 @@ class MainWindow(QMainWindow):
             # Non-reflecting outlet to let waves exit cleanly
             self.solver.U[-1] = self.solver.U[-2]
 
-            self._sim_step_counter += 1
-            if self._sim_step_counter % 100 == 0:
-                print(
-                    f"Time: {self.solver.time:.4f} s | Angle: {crank_angle:6.1f} deg | Valve: {valve_state}"
-                )
+        inlet_energy = self.solver.U[0, 2]
+        print(
+            f"Time: {self.solver.time:.4f} | Angle: {crank_angle:.1f} | Status: {valve_state} | Pipe_Inlet_P: {inlet_energy}"
+        )
 
         x_axis = np.linspace(0, self.solver.L, self.solver.N)
         p = self.compute_pressure(self.solver.U)
