@@ -305,8 +305,8 @@ class MainWindow(QMainWindow):
         x_axis = np.linspace(0, self.solver.L, self.solver.N)
         # Ensure the plot auto-ranges vertically for immediate visibility of pulses
         self.scope_widget.plot_widget.getViewBox().enableAutoRange()
-        p = self.calculate_pressure_array(self.solver.U)
-        self.scope_widget.update_data(x_axis, p)
+        energy_trace = self.get_plot_data(self.solver.U)
+        self.scope_widget.update_data(x_axis, energy_trace)
 
     def toggle_simulation(self, running: bool) -> None:
         if self.solver is None:
@@ -360,25 +360,18 @@ class MainWindow(QMainWindow):
         )
 
         x_axis = np.linspace(0, self.solver.L, self.solver.N)
-        p_data = self.calculate_pressure_array(self.solver.U)
+        p_data = self.get_plot_data(self.solver.U)
         print(
-            f"VISUAL DEBUG: Plot Range [{np.min(p_data):.0f}, {np.max(p_data):.0f}] | "
+            f"VISUAL DEBUG: Energy Density Range [{np.min(p_data):.0f}, {np.max(p_data):.0f}] | "
             f"Log Inlet P: {self.compute_pressure(self.solver.U[0]):.0f}"
         )
         self.scope_widget.update_data(x_axis, p_data)
         self.scope_widget.update_status(crank_angle, valve_state, self.solver.time)
 
-    def calculate_pressure_array(self, state: np.ndarray) -> np.ndarray:
-        """Vectorized absolute pressure from conserved variables."""
+    def get_plot_data(self, state: np.ndarray) -> np.ndarray:
+        """Return total energy density for visualization to avoid reconstruction errors."""
 
-        gamma = 1.4
-        rho = state[:, 0]
-        mom = state[:, 1]
-        energy = state[:, 2]
-
-        rho_safe = np.maximum(rho, 1e-9)
-        pressure = (gamma - 1.0) * (energy - 0.5 * (mom * mom) / rho_safe)
-        return np.maximum(pressure, 0.0)
+        return state[:, 2]
 
     def compute_pressure(self, state_cell: np.ndarray) -> float:
         gamma = 1.4
