@@ -86,12 +86,13 @@ class PipeSolver:
         discharge_coeff: float = 0.7,
     ) -> float:
         """Exchange mass/energy with a cylinder via valve flow balance."""
-        # Closed valve: ghost-cell reflection with mirrored momentum to let
-        # pressure relax into the pipe rather than freeze at the boundary.
+        # Closed valve: reflective ghost cell that mirrors the interior state
+        # while inverting momentum to enforce zero velocity at the wall.
         if valve_area <= 0.0:
             if self.N > 1:
-                self.U[0] = self.U[1].copy()
+                self.U[0, 0] = self.U[1, 0]
                 self.U[0, 1] = -self.U[1, 1]
+                self.U[0, 2] = self.U[1, 2]
             return 0.0
 
         rho = self.U[0, 0]
@@ -123,15 +124,6 @@ class PipeSolver:
         self.U[0, 0] += delta_rho
         self.U[0, 2] += delta_energy
         self.U[0, 1] = self.U[0, 0] * u
-
-        # Nudge the neighboring cell so the pulse starts propagating immediately
-        # instead of being trapped in the ghost cell.
-        if self.N > 1:
-            self.U[1, 0] += 0.1 * delta_rho
-            self.U[1, 2] += 0.1 * delta_energy
-            rho1 = self.U[1, 0]
-            u1 = 0.0 if rho1 == 0 else self.U[1, 1] / rho1
-            self.U[1, 1] = rho1 * u1
 
         return m_dot
 

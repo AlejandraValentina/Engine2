@@ -362,24 +362,31 @@ class MainWindow(QMainWindow):
         x_axis = np.linspace(0, self.solver.L, self.solver.N)
         p_data = self.calculate_pressure_array(self.solver.U)
         print(
-            f"GUI DEBUG: Plot Data Range -> Min: {np.min(p_data):.0f} | Max: {np.max(p_data):.0f}"
+            f"VISUAL DEBUG: Plot Range [{np.min(p_data):.0f}, {np.max(p_data):.0f}] | "
+            f"Log Inlet P: {self.compute_pressure(self.solver.U[0]):.0f}"
         )
         self.scope_widget.update_data(x_axis, p_data)
         self.scope_widget.update_status(crank_angle, valve_state, self.solver.time)
 
     def calculate_pressure_array(self, state: np.ndarray) -> np.ndarray:
-        """Vectorized pressure reconstruction from conserved variables.
+        """Vectorized absolute pressure from conserved variables."""
 
-        Uses p = (gamma - 1) * (E - 0.5 * rho * u^2) with a safety clamp
-        against negative pressure artifacts.
-        """
         gamma = 1.4
         rho = state[:, 0]
         mom = state[:, 1]
         energy = state[:, 2]
-        u = mom / rho
-        p = (gamma - 1.0) * (energy - 0.5 * rho * u * u)
-        return np.maximum(p, 0.0)
+
+        rho_safe = np.maximum(rho, 1e-9)
+        pressure = (gamma - 1.0) * (energy - 0.5 * (mom * mom) / rho_safe)
+        return np.maximum(pressure, 0.0)
+
+    def compute_pressure(self, state_cell: np.ndarray) -> float:
+        gamma = 1.4
+        rho = max(state_cell[0], 1e-9)
+        mom = state_cell[1]
+        energy = state_cell[2]
+        pressure = (gamma - 1.0) * (energy - 0.5 * (mom * mom) / rho)
+        return max(pressure, 0.0)
 
 
 def main() -> None:
