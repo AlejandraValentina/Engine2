@@ -1,7 +1,16 @@
 """Numerical routines for 1D Euler equations using Lax-Wendroff scheme."""
 
+import importlib.util
 import numpy as np
-from numba import jit
+
+if importlib.util.find_spec("numba") is not None:
+    from numba import jit
+else:  # pragma: no cover - fallback when numba is not installed
+    def jit(*args, **kwargs):
+        def decorator(func):
+            return func
+
+        return decorator
 
 GAMMA = 1.4
 R = 287.0
