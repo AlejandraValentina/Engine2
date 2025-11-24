@@ -150,9 +150,20 @@ class PipeSolver:
         self.apply_inlet_boundary()
         self.apply_outlet_boundary()
 
-        self.U = numerics.lax_wendroff_step(
+        # Preserve boundary states during the finite-difference update so that
+        # previously applied boundary conditions (e.g., valve coupling) are not
+        # overwritten by the numerical scheme.
+        left_backup = self.U[0].copy()
+        right_backup = self.U[-1].copy()
+
+        U_new = numerics.lax_wendroff_step(
             self.U, dt, self.dx, self.areas, self.friction_coeffs
         )
+
+        U_new[0] = left_backup
+        U_new[-1] = right_backup
+
+        self.U = U_new
 
         # Numerical safety clamps to prevent negative densities or energies.
         self.U[:, 0] = np.maximum(self.U[:, 0], 1e-4)
