@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QPushButton,
+    QStyle,
     QSpinBox,
     QTabWidget,
     QTreeWidget,
@@ -62,9 +63,10 @@ class MainWindow(QMainWindow):
         self.torque_curve = None
         self._setup_tabs()
 
+        self.toolbar = self.addToolBar("Main Toolbar")
+        self._create_toolbar()
         self._create_menu()
         self._create_left_panel()
-        self._create_right_panel()
 
         self.refresh_tree()
         self._show_placeholder("Select a component to edit its properties")
@@ -82,17 +84,17 @@ class MainWindow(QMainWindow):
         load_action.triggered.connect(self.load_engine)
         file_menu.addAction(load_action)
 
+    def _create_toolbar(self) -> None:
+        save_icon = self.style().standardIcon(QStyle.SP_DialogSaveButton)
+        save_action = QAction(save_icon, "Save", self)
+        save_action.triggered.connect(self.save_engine)
+        self.toolbar.addAction(save_action)
+
     def _create_left_panel(self) -> None:
         left_dock = QDockWidget("Project Explorer", self)
         left_dock.setWidget(self.navigation_tree)
         left_dock.setAllowedAreas(Qt.LeftDockWidgetArea)
         self.addDockWidget(Qt.LeftDockWidgetArea, left_dock)
-
-    def _create_right_panel(self) -> None:
-        right_dock = QDockWidget("Properties", self)
-        right_dock.setWidget(self.property_widget)
-        right_dock.setAllowedAreas(Qt.RightDockWidgetArea)
-        self.addDockWidget(Qt.RightDockWidgetArea, right_dock)
 
     def _setup_tabs(self) -> None:
         overview_tab = QWidget()
@@ -100,6 +102,12 @@ class MainWindow(QMainWindow):
         overview_layout.addWidget(QLabel("Engine Overview"))
         overview_layout.addStretch()
         overview_tab.setLayout(overview_layout)
+
+        self.properties_tab = QWidget()
+        properties_layout = QVBoxLayout()
+        properties_layout.addWidget(self.property_widget)
+        properties_layout.addStretch()
+        self.properties_tab.setLayout(properties_layout)
 
         dyno_tab = QWidget()
         dyno_layout = QVBoxLayout()
@@ -115,6 +123,7 @@ class MainWindow(QMainWindow):
         dyno_tab.setLayout(dyno_layout)
 
         self.tab_widget.addTab(overview_tab, "Overview")
+        self.tab_widget.addTab(self.properties_tab, "Properties")
         self.tab_widget.addTab(dyno_tab, "Dyno Graph")
         self.setCentralWidget(self.tab_widget)
 
@@ -169,6 +178,8 @@ class MainWindow(QMainWindow):
         if current is None:
             self._show_placeholder("Select a component to edit its properties")
             return
+
+        self.tab_widget.setCurrentWidget(self.properties_tab)
 
         component = current.data(0, Qt.UserRole)
         if isinstance(component, Block):
