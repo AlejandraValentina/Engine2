@@ -20,13 +20,32 @@ class PipeSolver:
         p_atm: float = 101325.0,
         T_amb: float = 300.0,
     ):
-        """Initialize solver state using the provided pipe configuration."""
+        """Initialize solver state using the provided pipe configuration.
+
+        The spatial discretization uses `target_dx` as a guideline. The final cell
+        count is clamped to a minimum of 10 for stability, and `dx` is recomputed
+        so that the total pipe length remains consistent with `pipe_data.length`.
+        """
 
         self.pipe_data = pipe_data
         self.time: float = 0.0
 
         length_m = pipe_data.length / 1000.0
-        self.N = max(3, int(math.ceil(length_m / target_dx)))
+
+        # Initial cell estimate based on the requested spacing.
+        estimated_N = int(math.ceil(length_m / target_dx))
+
+        # Enforce a minimum number of cells for numerical stability.
+        if estimated_N < 10:
+            print(
+                "[PipeSolver] Warning: cell count too low for stability. "
+                f"Requested {estimated_N}, enforcing minimum of 10."
+            )
+            self.N = 10
+        else:
+            self.N = estimated_N
+
+        # Recompute dx so that the discretized pipe length matches the original.
         self.dx = length_m / self.N
 
         diam_in = pipe_data.diameter_inlet / 1000.0
