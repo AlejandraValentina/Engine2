@@ -322,11 +322,12 @@ class MainWindow(QMainWindow):
             return
 
         steps_per_frame = self.speed_slider.value()
+        p_cyl = 1_000_000.0
+        t_cyl = 1200.0
+        max_area = 0.0007
+
         for _ in range(steps_per_frame):
             t = self.solver.time
-            p_cyl = 1_000_000.0
-            t_cyl = 1200.0
-            max_area = 0.0007
             if t < 0.005:
                 current_area = max_area * (t / 0.005)
             else:
