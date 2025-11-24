@@ -30,9 +30,9 @@ class PipeSolver:
         self.pipe_data = pipe_data
         self.time: float = 0.0
 
-        # Convert pipe length to meters and log discretization inputs for debugging.
-        self.L = pipe_data.length / 1000.0
-        print(f"[PipeSolver] length (m)={self.L:.4f}, target_dx={target_dx}")
+        # Strict SI units: assume pipe_data.length is already in meters.
+        self.L = float(pipe_data.length)
+        print(f"[PipeSolver] SI Units Check: Input L={self.L}m, target_dx={target_dx}")
 
         # Cell count based on requested spacing, with a hard minimum for stability.
         estimated_N = int(np.ceil(self.L / target_dx))
@@ -48,8 +48,8 @@ class PipeSolver:
         # Recompute dx so the discretized pipe length matches the original length.
         self.dx = self.L / self.N
 
-        diam_in = pipe_data.diameter_inlet / 1000.0
-        diam_out = pipe_data.diameter_outlet / 1000.0
+        diam_in = float(pipe_data.diameter_inlet)
+        diam_out = float(pipe_data.diameter_outlet)
         diameters = np.linspace(diam_in, diam_out, self.N)
         self.areas = math.pi * (diameters * 0.5) ** 2
 
@@ -65,14 +65,17 @@ class PipeSolver:
         self.U[:, 2] = rho0 * (e0 + 0.5 * u0 * u0)
 
     def apply_inlet_boundary(self):
-        """Placeholder for inlet boundary conditions."""
-        # TODO: connect to cylinder or upstream component
-        return
+        """Non-reflecting inlet boundary condition (transmissive)."""
+
+        # Copy neighbor values to minimize reflections.
+        if self.N > 1:
+            self.U[0] = self.U[1]
 
     def apply_outlet_boundary(self):
-        """Placeholder for outlet boundary conditions."""
-        # TODO: connect to atmosphere or downstream component
-        return
+        """Non-reflecting outlet boundary condition (transmissive)."""
+
+        if self.N > 1:
+            self.U[-1] = self.U[-2]
 
     def get_time_step(self, cfl: float = 0.5) -> float:
         """Compute a stable time-step using the CFL condition."""
@@ -96,7 +99,10 @@ class PipeSolver:
 
         self.apply_inlet_boundary()
         self.apply_outlet_boundary()
-        self.U = numerics.lax_wendroff_step(self.U, dt, self.dx, self.areas, self.friction_coeffs)
+
+        self.U = numerics.lax_wendroff_step(
+            self.U, dt, self.dx, self.areas, self.friction_coeffs
+        )
 
         # Numerical safety clamps to prevent negative densities or energies.
         self.U[:, 0] = np.maximum(self.U[:, 0], 1e-4)
