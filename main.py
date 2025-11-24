@@ -1,4 +1,5 @@
-from PySide6.QtCore import Qt
+import numpy as np
+from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QApplication,
@@ -8,14 +9,19 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMenu,
+    QStyle,
     QTabWidget,
+    QToolBar,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
 )
 
+from core import numerics
 from core.model import CylinderGeometry, CylinderNode, EngineProject, Pipe
+from core.simulator import PipeSolver
+from gui.widgets.scope_widget import ScopeWidget
 
 
 class MainWindow(QMainWindow):
@@ -25,8 +31,13 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)
 
         self.engine_project = self._create_default_project()
+        self.solver: PipeSolver | None = None
+        self.sim_timer = QTimer(self)
+        self.sim_timer.setInterval(16)
+        self.sim_timer.timeout.connect(self.run_simulation_step)
 
         self._create_menu()
+        self._create_toolbar()
         self._create_left_panel()
         self._create_center_tabs()
         self._create_right_panel()
@@ -41,6 +52,21 @@ class MainWindow(QMainWindow):
         )
         # TODO: Implement wizard to guide selection of engine topology and parameters
         file_menu.addAction(new_engine_wizard)
+
+    def _create_toolbar(self) -> None:
+        toolbar = QToolBar("Simulation Controls", self)
+        toolbar.setMovable(False)
+
+        init_action = QAction(self.style().standardIcon(QStyle.SP_BrowserReload), "Initialize Solver", self)
+        init_action.triggered.connect(self.initialize_solver)
+        toolbar.addAction(init_action)
+
+        self.toggle_action = QAction(self.style().standardIcon(QStyle.SP_MediaPlay), "Start/Stop Simulation", self)
+        self.toggle_action.setCheckable(True)
+        self.toggle_action.toggled.connect(self.toggle_simulation)
+        toolbar.addAction(self.toggle_action)
+
+        self.addToolBar(toolbar)
 
     def _create_left_panel(self) -> None:
         self.navigation_tree = QTreeWidget()
@@ -57,7 +83,8 @@ class MainWindow(QMainWindow):
     def _create_center_tabs(self) -> None:
         self.tab_widget = QTabWidget()
         self.tab_widget.addTab(self._create_placeholder_tab("Dashboard / Overview"), "Overview")
-        self.tab_widget.addTab(self._create_placeholder_tab("Simulation Plots"), "Plots")
+        self.scope_widget = ScopeWidget()
+        self.tab_widget.addTab(self.scope_widget, "Simulation Monitor")
         self.setCentralWidget(self.tab_widget)
 
     def _create_placeholder_tab(self, title: str) -> QWidget:
@@ -237,6 +264,68 @@ class MainWindow(QMainWindow):
         spinbox.setSingleStep(step)
         spinbox.setValue(value)
         return spinbox
+
+    # --- Simulation wiring ---
+    def initialize_solver(self) -> None:
+        pipe_obj = None
+        if self.engine_project.pipes:
+            first_key = next(iter(self.engine_project.pipes))
+            pipe_obj = self.engine_project.pipes[first_key]
+
+        if pipe_obj is None:
+            pipe_obj = Pipe(length=1.0, diameter_inlet=0.04, diameter_outlet=0.04, friction_coeff=0.02)
+
+        length_m = pipe_obj.length / 1000.0
+        diameter_inlet_m = pipe_obj.diameter_inlet / 1000.0
+        diameter_outlet_m = pipe_obj.diameter_outlet / 1000.0
+        pipe_si = Pipe(
+            length=length_m,
+            diameter_inlet=diameter_inlet_m,
+            diameter_outlet=diameter_outlet_m,
+            wall_temperature=pipe_obj.wall_temperature,
+            friction_coeff=pipe_obj.friction_coeff,
+        )
+
+        self.solver = PipeSolver(pipe_si, target_dx=0.01)
+
+        center_idx = self.solver.N // 2
+        self.solver.U[center_idx, 2] *= 1.2
+
+        x_axis = np.linspace(0, self.solver.L, self.solver.N)
+        p = self.compute_pressure(self.solver.U)
+        self.scope_widget.update_data(x_axis, p)
+
+    def toggle_simulation(self, running: bool) -> None:
+        if self.solver is None:
+            self.toggle_action.setChecked(False)
+            return
+
+        if running:
+            self.toggle_action.setIcon(self.style().standardIcon(QStyle.SP_MediaPause))
+            self.sim_timer.start()
+        else:
+            self.toggle_action.setIcon(self.style().standardIcon(QStyle.SP_MediaPlay))
+            self.sim_timer.stop()
+
+    def run_simulation_step(self) -> None:
+        if self.solver is None:
+            return
+
+        for _ in range(10):
+            dt = self.solver.get_time_step()
+            self.solver.step(dt)
+
+        x_axis = np.linspace(0, self.solver.L, self.solver.N)
+        p = self.compute_pressure(self.solver.U)
+        self.scope_widget.update_data(x_axis, p)
+
+    @staticmethod
+    def compute_pressure(state: np.ndarray) -> np.ndarray:
+        rho = state[:, 0]
+        mom = state[:, 1]
+        energy = state[:, 2]
+        u = mom / rho
+        return (numerics.GAMMA - 1.0) * (energy - 0.5 * rho * u * u)
 
 
 def main() -> None:
