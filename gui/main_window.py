@@ -291,8 +291,11 @@ class MainWindow(QMainWindow):
         redline_spin = QSpinBox()
         redline_spin.setRange(1000, 20000)
         redline_spin.setSingleStep(100)
+        redline_spin.setSuffix(" rpm")
         redline_spin.setValue(int(block.redline_rpm))
-        redline_spin.valueChanged.connect(lambda val: self._update_value(block, "redline_rpm", float(val)))
+        redline_spin.valueChanged.connect(
+            lambda val: self._update_value(block, "redline_rpm", float(val))
+        )
         self.property_form.addRow("Redline RPM", redline_spin)
 
         firing_edit = QLineEdit(",".join(str(x) for x in block.firing_order))
