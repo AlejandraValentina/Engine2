@@ -15,6 +15,7 @@ AFR_STOICH = 14.7
 P_ATM = 101325.0
 T_INTAKE = 300.0
 THERMAL_EFFICIENCY = 0.62  # accounts for heat losses to coolant and walls
+SPEED_OF_SOUND = 340.0  # m/s approximate at 300 K
 
 
 def piston_geometry(angle_array_deg: np.ndarray, bore: float, stroke: float, conrod: float):
@@ -94,8 +95,34 @@ class CylinderSimulator:
         V_180 = volume_at(180.0)
         V_360 = volume_at(360.0)
 
-        # Volumetric efficiency curve tuned for high-revving engines (e.g., VTEC)
-        ve = np.interp(rpm, [3000.0, 5500.0, 7500.0, 9000.0], [0.90, 1.05, 1.10, 0.95])
+        # Volumetric efficiency driven by Taylor's Mach index (valve choke) with a small
+        # resonance tuning overlay to preserve high-rpm breathing trends.
+        stroke_m = self.engine.block.stroke * 1e-3
+        piston_speed = 2.0 * stroke_m * rpm / 60.0  # mean piston speed (m/s)
+
+        valve_diameter_mm = getattr(
+            self.engine.head, "intake_valve_diameter", self.engine.intake.runner_diameter
+        )
+        valve_diameter_m = valve_diameter_mm * 1e-3
+        flow_coeff = 0.7
+        Av = max(
+            1e-9,
+            self.engine.head.intake_valves * math.pi * (valve_diameter_m / 2.0) ** 2 * flow_coeff,
+        )
+        Ap = max(1e-9, math.pi * (bore_m / 2.0) ** 2)
+        mach_index = (Ap / Av) * (piston_speed / SPEED_OF_SOUND)
+
+        base_ve = 0.95
+        if mach_index <= 0.5:
+            ve_penalty = 1.0
+        else:
+            ve_penalty = max(0.0, 1.0 - 2.5 * (mach_index - 0.5) ** 2)
+
+        resonance_tuning = np.interp(
+            rpm, [3000.0, 5500.0, 7500.0, 9000.0], [0.95, 1.05, 1.10, 0.98]
+        )
+
+        ve = np.clip(base_ve * ve_penalty * resonance_tuning, 0.0, 1.2)
         m_air = ve * (P_ATM * Vd) / (R_AIR * T_INTAKE)
         fuel_mass = m_air / AFR_STOICH
         Q_total = fuel_mass * LHV_DEFAULT
