@@ -97,15 +97,16 @@ class CylinderSimulator:
         Vd = area * stroke_m  # swept volume per cylinder (m^3)
 
         head = self.engine.head
+        compression_ratio = max(head.compression_ratio, 1.01)
         if head.combustion_chamber_vol is not None:
             Vc = head.combustion_chamber_vol * 1e-6  # cc -> m^3
         else:
-            Vc = Vd / (head.compression_ratio - 1.0)
-        volume = volume_swept + Vc
+            Vc = Vd / (compression_ratio - 1.0)
+        volume = np.maximum(volume_swept + Vc, 1e-9)
 
         def volume_at(angle_deg: float) -> float:
             idx = int(np.argmin(np.abs(angle_arr - angle_deg)))
-            return volume[idx]
+            return max(volume[idx], 1e-9)
 
         V_IVC = volume_at(IVC)
 
@@ -192,12 +193,15 @@ class CylinderSimulator:
         pressure[mask_intake] = P_manifold
         pressure[mask_exhaust] = 1.05 * P_ATM
 
+        vol_comp = np.maximum(volume[mask_compression], 1e-9)
+        vol_pow = np.maximum(volume[mask_power], 1e-9)
+
         C_comp = P_manifold * (V_IVC ** GAMMA)
-        pressure[mask_compression] = C_comp / (volume[mask_compression] ** GAMMA)
+        pressure[mask_compression] = C_comp / (vol_comp ** GAMMA)
 
         C_power = C_comp
-        pressure_mot_power = C_power / (volume[mask_power] ** GAMMA)
-        pressure[mask_power] = pressure_mot_power + (GAMMA - 1.0) * Q_rel[mask_power] / volume[mask_power]
+        pressure_mot_power = C_power / (vol_pow ** GAMMA)
+        pressure[mask_power] = pressure_mot_power + (GAMMA - 1.0) * Q_rel[mask_power] / vol_pow
 
         torque_trace_single = (pressure - P_ATM) * dV_dtheta
         torque_trace = torque_trace_single * self.engine.block.num_cylinders
