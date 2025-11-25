@@ -250,8 +250,9 @@ class CylinderSimulator:
         displacement_m3 = max(self.engine.block.displacement_cc * 1e-6, 1e-9)
         bmep_bar = brake_torque * 4.0 * math.pi / displacement_m3 / 100000.0
 
-        mass_flow_kg_s = m_air * rpm / 120.0 * self.engine.block.num_cylinders
-        airflow_cfm = mass_flow_kg_s * 60.0 / 1.225
+        disp_ci = self.engine.block.displacement_cc * 0.0610237
+        theo_cfm = (disp_ci * rpm) / 3456.0
+        airflow_cfm = theo_cfm * ve
 
         return {
             "angle": angle_arr,
