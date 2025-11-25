@@ -1,8 +1,14 @@
 """Simple regression harness for the pipe solver."""
 
+import pytest
+
+pytest.importorskip("numpy")
+
 from core import numerics
 from core.model import Pipe
 from core.simulator import PipeSolver
+
+pytestmark = pytest.mark.integration
 
 
 def compute_pressure(state_row):
@@ -28,7 +34,7 @@ def main():
             p_exit = compute_pressure(solver.U[-1])
             print(
                 f"Step {i + 1:03d} | time={solver.time:.6f}s | "
-                f"p_center={p_center:.2f} Pa | p_exit={p_exit:.2f} Pa"
+                f"p_center={p_center:.2f} Pa | p_exit={p_exit:.2f} Pa",
             )
 
 

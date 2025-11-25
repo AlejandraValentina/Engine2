@@ -1,6 +1,7 @@
 import copy
-import numpy as np
 import pytest
+
+np = pytest.importorskip("numpy")
 
 from core.engine_components import Engine
 from core.thermo import CylinderSimulator
@@ -52,15 +53,7 @@ def build_engine(comb_chamber_vol=None) -> Engine:
     return Engine.from_dict(config)
 
 
-def test_run_cycle_no_nan():
-    engine = build_engine()
-    sim = CylinderSimulator(engine)
-    results = sim.run_cycle(6000.0)
-    assert np.isfinite(results["pressure"]).all()
-    assert np.isfinite(results["torque"]).all()
-    assert np.min(results["volume"]) > 0.0
-
-
+@pytest.mark.integration
 @pytest.mark.parametrize("rpm", [2000.0, 4000.0, 6000.0, 8000.0])
 def test_mean_outputs_finite(rpm):
     engine = build_engine()
@@ -70,6 +63,17 @@ def test_mean_outputs_finite(rpm):
     assert np.isfinite(results["mean_torque_nm"])
 
 
+@pytest.mark.integration
+def test_run_cycle_no_nan():
+    engine = build_engine()
+    sim = CylinderSimulator(engine)
+    results = sim.run_cycle(6000.0)
+    assert np.isfinite(results["pressure"]).all()
+    assert np.isfinite(results["torque"]).all()
+    assert np.min(results["volume"]) > 0.0
+
+
+@pytest.mark.integration
 def test_combustion_chamber_zero_fallback():
     engine = build_engine(comb_chamber_vol=0.0)
     sim = CylinderSimulator(engine)
