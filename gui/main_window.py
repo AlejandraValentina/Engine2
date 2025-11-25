@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 import pyqtgraph as pg
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QColor, QBrush, QFont
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
@@ -144,6 +144,9 @@ class MainWindow(QMainWindow):
 
         analysis_tab = QWidget()
         analysis_layout = QVBoxLayout()
+        self.analysis_summary_label = QLabel("No dyno data yet")
+        self.analysis_summary_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        analysis_layout.addWidget(self.analysis_summary_label)
         self.analysis_table = QTableWidget()
         self.analysis_table.setColumnCount(9)
         self.analysis_table.setHorizontalHeaderLabels(
@@ -758,14 +761,31 @@ class MainWindow(QMainWindow):
         rpm_values = list(range(1000, max_rpm + 500, 500))
         power_hp: list[float] = []
         torque_nm: list[float] = []
+        max_hp_value = -float("inf")
+        max_hp_rpm = 0
+        max_hp_row = -1
+        max_tq_value = -float("inf")
+        max_tq_rpm = 0
+        max_tq_row = -1
 
         self.analysis_table.setRowCount(0)
 
         for rpm in rpm_values:
             result = simulator.run_cycle(rpm)
-            power_hp.append(result["mean_power_hp"])
+            hp_val = result["mean_power_hp"]
+            power_hp.append(hp_val)
             torque = result.get("mean_torque_nm", 0.0)
             torque_nm.append(torque)
+
+            if hp_val > max_hp_value:
+                max_hp_value = hp_val
+                max_hp_rpm = rpm
+                max_hp_row = self.analysis_table.rowCount()
+
+            if torque > max_tq_value:
+                max_tq_value = torque
+                max_tq_rpm = rpm
+                max_tq_row = self.analysis_table.rowCount()
 
             row = self.analysis_table.rowCount()
             self.analysis_table.insertRow(row)
@@ -783,6 +803,26 @@ class MainWindow(QMainWindow):
             for col, val in enumerate(row_data):
                 item = QTableWidgetItem(f"{val:.2f}" if isinstance(val, (int, float)) else str(val))
                 self.analysis_table.setItem(row, col, item)
+
+        if rpm_values and max_hp_row >= 0 and max_tq_row >= 0:
+            self.analysis_summary_label.setText(
+                f"🏆 Max Power: {max_hp_value:.1f} HP @ {max_hp_rpm} RPM | 🚀 Max Torque: {max_tq_value:.1f} Nm @ {max_tq_rpm} RPM"
+            )
+            hp_item = self.analysis_table.item(max_hp_row, 2)
+            if hp_item:
+                hp_item.setBackground(QBrush(QColor(255, 200, 200)))
+                font = QFont(hp_item.font())
+                font.setBold(True)
+                hp_item.setFont(font)
+
+            tq_item = self.analysis_table.item(max_tq_row, 1)
+            if tq_item:
+                tq_item.setBackground(QBrush(QColor(200, 200, 255)))
+                font = QFont(tq_item.font())
+                font.setBold(True)
+                tq_item.setFont(font)
+        else:
+            self.analysis_summary_label.setText("No dyno data yet")
 
         self.dyno_plot.clear()
         self.dyno_plot.addLegend(clear=True)
