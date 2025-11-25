@@ -77,11 +77,6 @@ class MainWindow(QMainWindow):
         self.optimizer_end_spin = QDoubleSpinBox()
         self.optimizer_step_spin = QDoubleSpinBox()
         self.optimizer_progress = QProgressBar()
-        self.losses_bottom_combo = QComboBox()
-        self.losses_water = QCheckBox("Water Pump")
-        self.losses_alternator = QCheckBox("Alternator")
-        self.losses_ps = QCheckBox("Power Steering")
-        self.losses_fan = QCheckBox("Mechanical Fan")
         self._setup_tabs()
 
         self.toolbar = self.addToolBar("Main Toolbar")
@@ -92,6 +87,7 @@ class MainWindow(QMainWindow):
         self.refresh_tree()
         self._show_placeholder("Select a component to edit its properties")
         self.update_overview()
+        self.tab_widget.setCurrentIndex(0)
 
     # -------------------------- UI Construction ---------------------------
     def _create_menu(self) -> None:
@@ -223,29 +219,26 @@ class MainWindow(QMainWindow):
         optimizer_layout.addWidget(self.optimizer_plot)
         optimizer_tab.setLayout(optimizer_layout)
 
-        losses_tab = QWidget()
-        losses_layout = QFormLayout()
-        self.losses_bottom_combo.addItems(["Standard", "Performance", "Race"])
-        losses_layout.addRow("Bottom End / Rings", self.losses_bottom_combo)
-
-        acc_layout = QVBoxLayout()
-        acc_layout.addWidget(self.losses_water)
-        acc_layout.addWidget(self.losses_alternator)
-        acc_layout.addWidget(self.losses_ps)
-        acc_layout.addWidget(self.losses_fan)
-        acc_container = QWidget()
-        acc_container.setLayout(acc_layout)
-        losses_layout.addRow("Accessories", acc_container)
-        losses_tab.setLayout(losses_layout)
-
-        self._sync_losses_controls()
-        self._connect_losses_controls()
+        nav_layout = QHBoxLayout()
+        nav_layout.setContentsMargins(0, 0, 0, 0)
+        nav_layout.setSpacing(12)
+        go_dyno = QPushButton("📉 Go to Dyno")
+        go_dyno.clicked.connect(lambda: self.tab_widget.setCurrentWidget(dyno_tab))
+        go_analysis = QPushButton("📊 Analysis Data")
+        go_analysis.clicked.connect(lambda: self.tab_widget.setCurrentWidget(analysis_tab))
+        go_optimizer = QPushButton("⚡ Optimizer")
+        go_optimizer.clicked.connect(lambda: self.tab_widget.setCurrentWidget(optimizer_tab))
+        nav_layout.addWidget(go_dyno)
+        nav_layout.addWidget(go_analysis)
+        nav_layout.addWidget(go_optimizer)
+        nav_container = QWidget()
+        nav_container.setLayout(nav_layout)
+        overview_layout.addWidget(nav_container)
 
         self.tab_widget.addTab(overview_tab, "Overview")
         self.tab_widget.addTab(self.properties_tab, "Properties")
         self.tab_widget.addTab(dyno_tab, "Dyno Graph")
         self.tab_widget.addTab(analysis_tab, "Analysis Data")
-        self.tab_widget.addTab(losses_tab, "Losses")
         self.tab_widget.addTab(optimizer_tab, "Optimizer")
         self.setCentralWidget(self.tab_widget)
 
@@ -288,6 +281,10 @@ class MainWindow(QMainWindow):
         fuel_item.setData(0, Qt.UserRole, self.engine.fuel)
         root_item.addChild(fuel_item)
 
+        friction_item = QTreeWidgetItem(["Mechanical Losses"])
+        friction_item.setData(0, Qt.UserRole, self.engine.friction)
+        root_item.addChild(friction_item)
+
         self.navigation_tree.expandAll()
         self.navigation_tree.setCurrentItem(block_item)
 
@@ -328,31 +325,10 @@ class MainWindow(QMainWindow):
             self._build_fuel_form(component)
         elif isinstance(component, SimulationSettings):
             self._build_sim_settings_form(component)
+        elif isinstance(component, Friction):
+            self._build_friction_form(component)
         else:
             self._show_placeholder("No editable properties for this selection")
-
-    def _sync_losses_controls(self) -> None:
-        fr = getattr(self.engine, "friction", Friction())
-        self.losses_bottom_combo.setCurrentText(fr.bottom_end_type)
-        self.losses_water.setChecked(fr.water_pump)
-        self.losses_alternator.setChecked(fr.alternator)
-        self.losses_ps.setChecked(fr.power_steering)
-        self.losses_fan.setChecked(fr.mechanical_fan)
-
-    def _connect_losses_controls(self) -> None:
-        self.losses_bottom_combo.currentTextChanged.connect(self._on_friction_changed)
-        self.losses_water.toggled.connect(self._on_friction_changed)
-        self.losses_alternator.toggled.connect(self._on_friction_changed)
-        self.losses_ps.toggled.connect(self._on_friction_changed)
-        self.losses_fan.toggled.connect(self._on_friction_changed)
-
-    def _on_friction_changed(self) -> None:
-        self.engine.friction.bottom_end_type = self.losses_bottom_combo.currentText()
-        self.engine.friction.water_pump = self.losses_water.isChecked()
-        self.engine.friction.alternator = self.losses_alternator.isChecked()
-        self.engine.friction.power_steering = self.losses_ps.isChecked()
-        self.engine.friction.mechanical_fan = self.losses_fan.isChecked()
-        self.update_overview()
 
     def _build_block_form(self, block: Block) -> None:
         self._clear_property_form()
@@ -553,6 +529,28 @@ class MainWindow(QMainWindow):
         boost_spin.valueChanged.connect(lambda val: self._update_value(supercharger, "boost_pressure_bar", val))
         self.property_form.addRow("Boost (bar)", boost_spin)
 
+    def _build_friction_form(self, friction: Friction) -> None:
+        self._clear_property_form()
+
+        bottom_combo = QComboBox()
+        bottom_combo.addItems(["Standard", "Performance", "Race"])
+        bottom_combo.setCurrentText(friction.bottom_end_type)
+        bottom_combo.currentTextChanged.connect(
+            lambda text: self._update_value(friction, "bottom_end_type", text)
+        )
+        self.property_form.addRow("Bottom End Type", bottom_combo)
+
+        def _checkbox_row(label: str, attr: str) -> None:
+            box = QCheckBox(label)
+            box.setChecked(getattr(friction, attr))
+            box.stateChanged.connect(lambda state, a=attr: self._update_value(friction, a, bool(state)))
+            self.property_form.addRow(label, box)
+
+        _checkbox_row("Water Pump", "water_pump")
+        _checkbox_row("Alternator", "alternator")
+        _checkbox_row("Power Steering", "power_steering")
+        _checkbox_row("Mechanical Fan", "mechanical_fan")
+
     def _apply_fuel_preset(self, fuel: Fuel, preset: str) -> None:
         presets = {
             "Regular (87)": ("Regular", 87.0, 44e6, 14.7),
@@ -750,8 +748,8 @@ class MainWindow(QMainWindow):
         if filename:
             self.engine = Engine.load_from_file(filename)
             self.refresh_tree()
-            self._sync_losses_controls()
             self.update_overview()
+            self.tab_widget.setCurrentIndex(0)
 
     # -------------------------- Dyno Sweep --------------------------------
     def run_dyno_sweep(self) -> None:
