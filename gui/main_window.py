@@ -71,6 +71,9 @@ class MainWindow(QMainWindow):
         self.dyno_plot = pg.PlotWidget()
         self.power_curve = None
         self.torque_curve = None
+        self.pro_dyno_plot = pg.PlotWidget()
+        self.pro_power_curve = None
+        self.pro_torque_curve = None
         self.optimizer_plot = pg.PlotWidget()
         self.optimizer_param_combo = QComboBox()
         self.optimizer_start_spin = QDoubleSpinBox()
@@ -141,6 +144,19 @@ class MainWindow(QMainWindow):
         self.dyno_plot.setLabel("left", "Output")
         dyno_layout.addWidget(self.dyno_plot)
         dyno_tab.setLayout(dyno_layout)
+
+        pro_dyno_tab = QWidget()
+        pro_dyno_layout = QVBoxLayout()
+        pro_run_button = QPushButton("Run Pro Simulation (Slower)")
+        pro_run_button.clicked.connect(self.run_pro_dyno_sweep)
+        pro_dyno_layout.addWidget(pro_run_button)
+
+        self.pro_dyno_plot.showGrid(x=True, y=True, alpha=0.2)
+        self.pro_dyno_plot.addLegend()
+        self.pro_dyno_plot.setLabel("bottom", "RPM")
+        self.pro_dyno_plot.setLabel("left", "Output")
+        pro_dyno_layout.addWidget(self.pro_dyno_plot)
+        pro_dyno_tab.setLayout(pro_dyno_layout)
 
         analysis_tab = QWidget()
         analysis_layout = QVBoxLayout()
@@ -227,11 +243,14 @@ class MainWindow(QMainWindow):
         nav_layout.setSpacing(12)
         go_dyno = QPushButton("📉 Go to Dyno")
         go_dyno.clicked.connect(lambda: self.tab_widget.setCurrentWidget(dyno_tab))
+        go_pro = QPushButton("🧠 Pro Dyno")
+        go_pro.clicked.connect(lambda: self.tab_widget.setCurrentWidget(pro_dyno_tab))
         go_analysis = QPushButton("📊 Analysis Data")
         go_analysis.clicked.connect(lambda: self.tab_widget.setCurrentWidget(analysis_tab))
         go_optimizer = QPushButton("⚡ Optimizer")
         go_optimizer.clicked.connect(lambda: self.tab_widget.setCurrentWidget(optimizer_tab))
         nav_layout.addWidget(go_dyno)
+        nav_layout.addWidget(go_pro)
         nav_layout.addWidget(go_analysis)
         nav_layout.addWidget(go_optimizer)
         nav_container = QWidget()
@@ -240,7 +259,8 @@ class MainWindow(QMainWindow):
 
         self.tab_widget.addTab(overview_tab, "Overview")
         self.tab_widget.addTab(self.properties_tab, "Properties")
-        self.tab_widget.addTab(dyno_tab, "Dyno Graph")
+        self.tab_widget.addTab(dyno_tab, "Quick Dyno")
+        self.tab_widget.addTab(pro_dyno_tab, "Pro Dyno")
         self.tab_widget.addTab(analysis_tab, "Analysis Data")
         self.tab_widget.addTab(optimizer_tab, "Optimizer")
         self.setCentralWidget(self.tab_widget)
@@ -840,6 +860,31 @@ class MainWindow(QMainWindow):
         self.dyno_plot.setLabel("left", "Power (HP) / Torque (Nm)")
         if rpm_values:
             self.dyno_plot.setXRange(min(rpm_values), max(rpm_values), padding=0.05)
+
+    def run_pro_dyno_sweep(self) -> None:
+        simulator = CylinderSimulator(self.engine)
+        max_rpm = int(self.engine.block.redline_rpm)
+        rpm_values = list(range(1000, max_rpm + 500, 500))
+        power_hp: list[float] = []
+        torque_nm: list[float] = []
+
+        for rpm in rpm_values:
+            result = simulator.run_pro_cycle(rpm)
+            power_hp.append(result.get("mean_power_hp", 0.0))
+            torque_nm.append(result.get("mean_torque_nm", 0.0))
+
+        self.pro_dyno_plot.clear()
+        self.pro_dyno_plot.addLegend(clear=True)
+        self.pro_power_curve = self.pro_dyno_plot.plot(
+            rpm_values, power_hp, pen=pg.mkPen("r", width=2), name="Power (HP)"
+        )
+        self.pro_torque_curve = self.pro_dyno_plot.plot(
+            rpm_values, torque_nm, pen=pg.mkPen("b", width=2), name="Torque (Nm)"
+        )
+        self.pro_dyno_plot.setLabel("bottom", "RPM")
+        self.pro_dyno_plot.setLabel("left", "Power (HP) / Torque (Nm)")
+        if rpm_values:
+            self.pro_dyno_plot.setXRange(min(rpm_values), max(rpm_values), padding=0.05)
 
     # -------------------------- Optimization -----------------------------
     def _parameter_mapping(self) -> dict[str, tuple[Any, str]]:
