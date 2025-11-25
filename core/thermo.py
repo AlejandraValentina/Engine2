@@ -336,16 +336,15 @@ class CylinderSimulator:
 
         design = getattr(self.engine.head, "chamber_design", "Pent Roof") or "Pent Roof"
         eff_map = {
-            "Pent Roof": (0.66, 58.0),
-            "Compact Wedge": (0.62, 65.0),
-            "Hemi": (0.63, 62.0),
-            "Typical Wedge": (0.58, 68.0),
-            "Flat Head": (0.45, 75.0),
+            "Pent Roof": (0.68, 58.0),
+            "Compact Wedge": (0.64, 65.0),
+            "Hemi": (0.65, 62.0),
+            "Typical Wedge": (0.60, 68.0),
+            "Flat Head": (0.50, 75.0),
         }
         base_eff, base_duration = eff_map.get(design, eff_map["Pent Roof"])
 
-        duration = 40.0 + (self.engine.block.bore * 0.2)
-        duration = max(duration, base_duration)
+        duration = max(40.0 + (self.engine.block.bore * 0.2), base_duration)
 
         icl = cam.lobe_separation - cam.advance
         ecl = cam.lobe_separation + cam.advance
@@ -381,6 +380,13 @@ class CylinderSimulator:
             return max(volume[idx], 1e-9)
 
         V_IVC = max(volume_at(IVC), 1e-9)
+
+        clearance_height = max(Vc / max(area, 1e-9), 1e-9)
+        area_tdc = 2.0 * math.pi * (bore_m / 2.0) ** 2 + math.pi * bore_m * clearance_height
+        sv_current = area_tdc / max(Vc, 1e-9)
+        sv_ref = 500.0
+        sv_factor = (sv_ref / max(sv_current, 1e-9)) ** 0.5
+        pro_efficiency = np.clip(base_eff * sv_factor, 0.35, 0.9)
 
         boost_bar = getattr(self.engine.supercharger, "boost_pressure_bar", 0.0)
         boost_pa = float(boost_bar) * 100000.0
@@ -454,21 +460,12 @@ class CylinderSimulator:
         m_air = ve * (P_manifold * V_IVC) / (R_AIR * T_charge)
         fuel_mass = m_air / fuel_stoich
         Q_total = fuel_mass * fuel_lhv
-        Q_effective_base = Q_total * base_eff
+        Q_effective_base = Q_total * pro_efficiency
 
         start_angle = 360.0 - float(ignition)
         x = wiebe_function(angle_arr, start_angle, duration, efficiency=1.0)
 
-        x_swept = np.maximum(volume_swept / area, 0.0)
-        A_head = area
-        A_piston = area
-        A_liner = math.pi * bore_m * x_swept
-        A_total = A_head + A_piston + A_liner
-        A_over_V = A_total / volume
-        A_over_V_norm = A_over_V / np.maximum(np.max(A_over_V), 1e-9)
-        heat_loss_frac = np.clip(0.2 + 0.6 * A_over_V_norm, 0.0, 0.95)
-        heat_scaling = 1.0 - heat_loss_frac
-        Q_rel = Q_effective_base * x * heat_scaling
+        Q_rel = Q_effective_base * x
 
         mask_intake = angle_arr < IVC
         mask_compression = (angle_arr >= IVC) & (angle_arr < 360.0)
@@ -500,7 +497,7 @@ class CylinderSimulator:
 
         indicated_torque = float(np.mean(torque_trace))
 
-        friction_base = 15.0 + (rpm * 0.005) + (rpm ** 2 * 1e-6)
+        friction_base = 0.28 * (piston_speed ** 2)
         fr_cfg = getattr(self.engine, "friction", None)
         bottom = getattr(fr_cfg, "bottom_end_type", "Standard") if fr_cfg else "Standard"
         bottom_lower = bottom.lower()
