@@ -28,7 +28,7 @@ class Block:
         """Return total displacement in cubic centimeters."""
         bore_m = self.bore * 1e-3
         stroke_m = self.stroke * 1e-3
-        single_cyl_vol_m3 = math.pi * (bore_m ** 2) * stroke_m / 4.0
+        single_cyl_vol_m3 = math.pi * (bore_m**2) * stroke_m / 4.0
         total_vol_m3 = single_cyl_vol_m3 * self.num_cylinders
         return total_vol_m3 * 1e6  # convert m^3 to cc
 
@@ -108,28 +108,30 @@ class Camshaft:
     advance: float = 0.0  # degrees
 
     def get_lift(self, angle_deg: float, intake: bool = True) -> float:
-        """Approximate valve lift (mm) at a given crank angle.
+        """Approximate valve lift (mm) at a given crank angle using harmonic profile.
 
-        Uses a simple harmonic profile centered around TDC firing (~360°) with
-        intake and exhaust centers separated by the lobe separation angle. The
-        optional advance shifts both centers equally. Angles wrap over 0–720°.
+        Intake and exhaust lobes are centered independently:
+        - Intake center at (lobe_separation - advance) degrees ATDC firing.
+        - Exhaust center at (720 - (lobe_separation + advance)) degrees BTDC.
+
+        Angles wrap over 0–720° and the lift shape is a cosine-squared arc.
         """
         duration = self.intake_duration if intake else self.exhaust_duration
         max_lift = self.intake_lift if intake else self.exhaust_lift
 
-        center_intake = 360.0 - self.lobe_separation / 2.0 + self.advance
-        center_exhaust = 360.0 + self.lobe_separation / 2.0 + self.advance
+        center_intake = self.lobe_separation - self.advance
+        center_exhaust = 720.0 - (self.lobe_separation + self.advance)
         center = center_intake if intake else center_exhaust
 
-        start = center - duration / 2.0
+        span = duration
+        start = center - span / 2.0
         start_mod = start % 720.0
         angle = angle_deg % 720.0
 
-        # Normalize active interval handling wrap-around
-        if duration >= 720.0:
+        if span >= 720.0:
             phase = 0.5
         else:
-            end_mod = (start_mod + duration) % 720.0
+            end_mod = (start_mod + span) % 720.0
             if start_mod <= end_mod:
                 active = start_mod <= angle <= end_mod
                 rel = angle - start_mod if active else -1.0
@@ -138,9 +140,9 @@ class Camshaft:
                 rel = (angle - start_mod) % 720.0 if active else -1.0
             if not active:
                 return 0.0
-            phase = rel / duration
+            phase = rel / span
 
-        return max_lift * 0.5 * (1.0 - math.cos(math.pi * phase))
+        return max_lift * (math.sin(math.pi * phase)) ** 2
 
     def to_dict(self) -> dict:
         return {
@@ -273,6 +275,34 @@ class Engine:
         with open(filename, "r", encoding="utf-8") as f:
             data = json.load(f)
         return cls.from_dict(data)
+
+    def calculate_geometric_cr(self) -> float:
+        """Compute geometric compression ratio using gasket/deck/dome data."""
+        bore_m = self.block.bore * 1e-3
+        stroke_m = self.block.stroke * 1e-3
+        area_m2 = math.pi * (bore_m**2) / 4.0
+        V_swept = area_m2 * stroke_m
+
+        head = self.head
+        gasket_bore_m = head.gasket_bore_mm * 1e-3
+        gasket_thickness_m = head.gasket_thickness_mm * 1e-3
+        deck_clearance_m = head.deck_clearance_mm * 1e-3
+
+        V_gasket = math.pi * (gasket_bore_m**2) * gasket_thickness_m / 4.0
+        V_deck = area_m2 * deck_clearance_m
+
+        if head.combustion_chamber_vol is not None:
+            V_chamber = head.combustion_chamber_vol * 1e-6
+        elif head.compression_ratio > 1.0:
+            V_chamber = V_swept / (head.compression_ratio - 1.0)
+        else:
+            return 0.0
+
+        V_total_clearance = V_chamber + V_gasket + V_deck - (head.piston_dome_cc * 1e-6)
+        if V_total_clearance <= 0.0:
+            return 0.0
+
+        return (V_swept + V_total_clearance) / V_total_clearance
 
 
 __all__ = [
