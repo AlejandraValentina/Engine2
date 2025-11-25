@@ -406,6 +406,14 @@ class MainWindow(QMainWindow):
         exhaust_valves_spin.valueChanged.connect(lambda val: self._update_value(head, "exhaust_valves", val))
         self.property_form.addRow("Exhaust Valves", exhaust_valves_spin)
 
+        chamber_options = ["Pent Roof", "Hemi", "Compact Wedge", "Typical Wedge", "Flat Head"]
+        chamber_combo = QComboBox()
+        chamber_combo.addItems(chamber_options)
+        if head.chamber_design in chamber_options:
+            chamber_combo.setCurrentText(head.chamber_design)
+        chamber_combo.currentTextChanged.connect(lambda text: self._update_value(head, "chamber_design", text))
+        self.property_form.addRow("Chamber Design", chamber_combo)
+
         intake_dia = self._double_spin(head.intake_valve_diameter, 15.0, 60.0, 0.1)
         intake_dia.setSuffix(" mm")
         intake_dia.valueChanged.connect(

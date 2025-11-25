@@ -15,7 +15,6 @@ LHV_DEFAULT = 44e6  # J/kg
 AFR_STOICH = 14.7
 P_ATM = 101325.0
 T_INTAKE = 300.0
-THERMAL_EFFICIENCY = 0.72  # accounts for heat losses to coolant and walls
 SPEED_OF_SOUND = 340.0  # m/s approximate at 300 K
 
 logger = logging.getLogger(__name__)
@@ -78,6 +77,24 @@ class CylinderSimulator:
         fuel_lhv = getattr(fuel_cfg, "energy_density", LHV_DEFAULT) or LHV_DEFAULT
         fuel_stoich = getattr(fuel_cfg, "stoich_afr", AFR_STOICH) or AFR_STOICH
         fuel_octane = getattr(fuel_cfg, "octane_rating", 93.0)
+
+        design = getattr(self.engine.head, "chamber_design", "Pent Roof") or "Pent Roof"
+        efficiency_map = {
+            "Pent Roof": 0.72,
+            "Compact Wedge": 0.68,
+            "Hemi": 0.66,
+            "Typical Wedge": 0.64,
+            "Flat Head": 0.55,
+        }
+        burn_duration_map = {
+            "Pent Roof": 50.0,
+            "Compact Wedge": 55.0,
+            "Hemi": 60.0,
+            "Typical Wedge": 65.0,
+            "Flat Head": 70.0,
+        }
+        thermal_eff = efficiency_map.get(design, efficiency_map["Pent Roof"])
+        burn_duration = burn_duration_map.get(design, 60.0)
 
         # Valve centerlines aligned with lift model
         icl = cam.lobe_separation - cam.advance
@@ -191,10 +208,10 @@ class CylinderSimulator:
         m_air = ve * (P_manifold * V_IVC) / (R_AIR * T_charge)
         fuel_mass = m_air / fuel_stoich
         Q_total = fuel_mass * fuel_lhv
-        Q_effective = Q_total * THERMAL_EFFICIENCY
+        Q_effective = Q_total * thermal_eff
 
         start_angle = 360.0 - float(ignition)
-        duration = 60.0
+        duration = burn_duration
         x = wiebe_function(angle_arr, start_angle, duration, efficiency=1.0)
         Q_rel = Q_effective * x
 

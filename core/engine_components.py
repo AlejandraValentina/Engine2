@@ -71,6 +71,7 @@ class CylinderHead:
     gasket_bore_mm: float = 88.0
     deck_clearance_mm: float = 0.0
     piston_dome_cc: float = 0.0
+    chamber_design: str = "Pent Roof"
 
     def to_dict(self) -> dict:
         return {
@@ -85,6 +86,7 @@ class CylinderHead:
             "gasket_bore_mm": self.gasket_bore_mm,
             "deck_clearance_mm": self.deck_clearance_mm,
             "piston_dome_cc": self.piston_dome_cc,
+            "chamber_design": self.chamber_design,
         }
 
     @classmethod
@@ -101,6 +103,7 @@ class CylinderHead:
             gasket_bore_mm=data.get("gasket_bore_mm", 88.0),
             deck_clearance_mm=data.get("deck_clearance_mm", 0.0),
             piston_dome_cc=data.get("piston_dome_cc", 0.0),
+            chamber_design=data.get("chamber_design", "Pent Roof"),
         )
 
 
