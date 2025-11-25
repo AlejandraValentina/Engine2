@@ -15,7 +15,7 @@ LHV_DEFAULT = 44e6  # J/kg
 AFR_STOICH = 14.7
 P_ATM = 101325.0
 T_INTAKE = 300.0
-THERMAL_EFFICIENCY = 0.62  # accounts for heat losses to coolant and walls
+THERMAL_EFFICIENCY = 0.72  # accounts for heat losses to coolant and walls
 SPEED_OF_SOUND = 340.0  # m/s approximate at 300 K
 
 logger = logging.getLogger(__name__)
