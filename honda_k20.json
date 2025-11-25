@@ -1,0 +1,65 @@
+{
+  "block": {
+    "bore": 86.0,
+    "stroke": 86.0,
+    "conrod_length": 139.0,
+    "num_cylinders": 4,
+    "config": "L",
+    "bank_angle": 0.0,
+    "firing_order": [1, 3, 4, 2],
+    "redline_rpm": 8600.0
+  },
+  "head": {
+    "compression_ratio": 11.5,
+    "intake_valves": 2,
+    "exhaust_valves": 2,
+    "intake_valve_diameter": 35.0,
+    "exhaust_valve_diameter": 30.0,
+    "combustion_chamber_vol": 47.6,
+    "port_flow_cfm": 290.0,
+    "gasket_thickness_mm": 0.7,
+    "gasket_bore_mm": 88.0,
+    "deck_clearance_mm": 0.0,
+    "piston_dome_cc": 0.0
+  },
+  "camshaft": {
+    "intake_lift": 11.5,
+    "exhaust_lift": 10.5,
+    "intake_duration": 265.0,
+    "exhaust_duration": 260.0,
+    "lobe_separation": 107.0,
+    "advance": 0.0
+  },
+  "intake": {
+    "runner_length": 230.0,
+    "runner_diameter": 48.0,
+    "plenum_volume": 3.5,
+    "throttle_body_dia": 64.0,
+    "throttle_cfm": 850.0
+  },
+  "exhaust": {
+    "header_primary_length": 450.0,
+    "header_primary_diameter": 45.0,
+    "collector_length": 150.0
+  },
+  "supercharger": {
+    "type": "NA",
+    "boost_pressure_bar": 0.0
+  },
+  "simulation_settings": {
+    "ignition_timing_btdc": 30.0
+  },
+  "friction": {
+    "bottom_end_type": "Performance",
+    "water_pump": true,
+    "alternator": true,
+    "power_steering": true,
+    "mechanical_fan": false
+  },
+  "fuel": {
+    "type_name": "Premium",
+    "octane_rating": 93.0,
+    "energy_density": 44000000.0,
+    "stoich_afr": 14.7
+  }
+}

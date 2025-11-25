@@ -1,0 +1,65 @@
+{
+  "block": {
+    "bore": 101.6,
+    "stroke": 88.4,
+    "conrod_length": 146.1,
+    "num_cylinders": 8,
+    "config": "V",
+    "bank_angle": 90.0,
+    "firing_order": [1, 8, 4, 3, 6, 5, 7, 2],
+    "redline_rpm": 6000.0
+  },
+  "head": {
+    "compression_ratio": 9.5,
+    "intake_valves": 2,
+    "exhaust_valves": 2,
+    "intake_valve_diameter": 48.0,
+    "exhaust_valve_diameter": 40.0,
+    "combustion_chamber_vol": 72.0,
+    "port_flow_cfm": 240.0,
+    "gasket_thickness_mm": 1.0,
+    "gasket_bore_mm": 104.0,
+    "deck_clearance_mm": 0.5,
+    "piston_dome_cc": 0.0
+  },
+  "camshaft": {
+    "intake_lift": 12.0,
+    "exhaust_lift": 12.0,
+    "intake_duration": 270.0,
+    "exhaust_duration": 270.0,
+    "lobe_separation": 110.0,
+    "advance": 0.0
+  },
+  "intake": {
+    "runner_length": 280.0,
+    "runner_diameter": 50.0,
+    "plenum_volume": 6.0,
+    "throttle_body_dia": 75.0,
+    "throttle_cfm": 750.0
+  },
+  "exhaust": {
+    "header_primary_length": 600.0,
+    "header_primary_diameter": 45.0,
+    "collector_length": 200.0
+  },
+  "supercharger": {
+    "type": "NA",
+    "boost_pressure_bar": 0.0
+  },
+  "simulation_settings": {
+    "ignition_timing_btdc": 30.0
+  },
+  "friction": {
+    "bottom_end_type": "Standard",
+    "water_pump": true,
+    "alternator": true,
+    "power_steering": true,
+    "mechanical_fan": false
+  },
+  "fuel": {
+    "type_name": "Pump Gas",
+    "octane_rating": 93.0,
+    "energy_density": 44000000.0,
+    "stoich_afr": 14.7
+  }
+}
