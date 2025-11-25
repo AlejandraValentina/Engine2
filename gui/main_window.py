@@ -25,6 +25,8 @@ from PySide6.QtWidgets import (
     QStyle,
     QSpinBox,
     QTabWidget,
+    QTableWidget,
+    QTableWidgetItem,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -136,6 +138,26 @@ class MainWindow(QMainWindow):
         dyno_layout.addWidget(self.dyno_plot)
         dyno_tab.setLayout(dyno_layout)
 
+        analysis_tab = QWidget()
+        analysis_layout = QVBoxLayout()
+        self.analysis_table = QTableWidget()
+        self.analysis_table.setColumnCount(9)
+        self.analysis_table.setHorizontalHeaderLabels(
+            [
+                "RPM",
+                "Torque (Nm)",
+                "Power (HP)",
+                "BMEP (bar)",
+                "VE (%)",
+                "Piston Spd (m/s)",
+                "Mach Z",
+                "Friction (HP)",
+                "Airflow (CFM)",
+            ]
+        )
+        analysis_layout.addWidget(self.analysis_table)
+        analysis_tab.setLayout(analysis_layout)
+
         optimizer_tab = QWidget()
         optimizer_layout = QVBoxLayout()
 
@@ -196,6 +218,7 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(overview_tab, "Overview")
         self.tab_widget.addTab(self.properties_tab, "Properties")
         self.tab_widget.addTab(dyno_tab, "Dyno Graph")
+        self.tab_widget.addTab(analysis_tab, "Analysis Data")
         self.tab_widget.addTab(optimizer_tab, "Optimizer")
         self.setCentralWidget(self.tab_widget)
 
@@ -614,12 +637,30 @@ class MainWindow(QMainWindow):
         power_hp: list[float] = []
         torque_nm: list[float] = []
 
+        self.analysis_table.setRowCount(0)
+
         for rpm in rpm_values:
             result = simulator.run_cycle(rpm)
             power_hp.append(result["mean_power_hp"])
-            power_w = result["mean_power_hp"] * 745.7
-            torque = power_w * 60.0 / (2.0 * math.pi * rpm)
+            torque = result.get("mean_torque_nm", 0.0)
             torque_nm.append(torque)
+
+            row = self.analysis_table.rowCount()
+            self.analysis_table.insertRow(row)
+            row_data = [
+                rpm,
+                torque,
+                result.get("mean_power_hp", 0.0),
+                result.get("bmep_bar", 0.0),
+                result.get("ve_actual", 0.0) * 100.0,
+                result.get("mean_piston_speed", 0.0),
+                result.get("mach_index", 0.0),
+                result.get("friction_hp", 0.0),
+                result.get("airflow_cfm", 0.0),
+            ]
+            for col, val in enumerate(row_data):
+                item = QTableWidgetItem(f"{val:.2f}" if isinstance(val, (int, float)) else str(val))
+                self.analysis_table.setItem(row, col, item)
 
         self.dyno_plot.clear()
         self.dyno_plot.addLegend(clear=True)

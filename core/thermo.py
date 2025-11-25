@@ -245,6 +245,14 @@ class CylinderSimulator:
         mean_power_w = brake_torque * omega
         mean_power_hp = mean_power_w / 745.7
 
+        friction_power_hp = friction_torque * omega / 745.7
+
+        displacement_m3 = max(self.engine.block.displacement_cc * 1e-6, 1e-9)
+        bmep_bar = brake_torque * 4.0 * math.pi / displacement_m3 / 100000.0
+
+        mass_flow_kg_s = m_air * rpm / 120.0 * self.engine.block.num_cylinders
+        airflow_cfm = mass_flow_kg_s * 60.0 / 1.225
+
         return {
             "angle": angle_arr,
             "pressure": pressure,
@@ -252,4 +260,10 @@ class CylinderSimulator:
             "torque": torque_trace,
             "mean_torque_nm": brake_torque,
             "mean_power_hp": mean_power_hp,
+            "mean_piston_speed": piston_speed,
+            "ve_actual": ve,
+            "mach_index": mach_index,
+            "friction_hp": friction_power_hp,
+            "bmep_bar": bmep_bar,
+            "airflow_cfm": airflow_cfm,
         }
