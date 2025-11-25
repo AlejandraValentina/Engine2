@@ -140,13 +140,17 @@ class MainWindow(QMainWindow):
             [
                 "Camshaft: Intake Duration (deg)",
                 "Camshaft: Max Lift (mm)",
-                "Ignition Timing (deg BTDC)",
-                "Intake: Runner Length (mm)",
-                "Intake: Runner Diameter (mm)",
-                "Exhaust: Primary Length (mm)",
-                "Exhaust: Primary Diameter (mm)",
+                "Camshaft: Lobe Separation (deg)",
+                "Camshaft: Advance (deg)",
+                "Tuning: Ignition Timing (deg BTDC)",
                 "Head: Compression Ratio",
                 "Head: Port Flow (CFM)",
+                "Intake: Runner Length (mm)",
+                "Intake: Runner Diameter (mm)",
+                "Intake: Throttle Flow (CFM)",
+                "Exhaust: Primary Length (mm)",
+                "Exhaust: Primary Diameter (mm)",
+                "Turbo: Boost Pressure (Bar)",
             ]
         )
         target_layout.addRow("Target Parameter", self.optimizer_param_combo)
@@ -554,13 +558,23 @@ class MainWindow(QMainWindow):
         return {
             "Camshaft: Intake Duration (deg)": (self.engine.camshaft, "intake_duration"),
             "Camshaft: Max Lift (mm)": (self.engine.camshaft, "both_lifts"),
-            "Ignition Timing (deg BTDC)": (self.engine.simulation_settings, "ignition_timing_btdc"),
+            "Camshaft: Lobe Separation (deg)": (self.engine.camshaft, "lobe_separation"),
+            "Camshaft: Advance (deg)": (self.engine.camshaft, "advance"),
+            "Tuning: Ignition Timing (deg BTDC)": (
+                self.engine.simulation_settings,
+                "ignition_timing_btdc",
+            ),
             "Intake: Runner Length (mm)": (self.engine.intake, "runner_length"),
             "Intake: Runner Diameter (mm)": (self.engine.intake, "runner_diameter"),
+            "Intake: Throttle Flow (CFM)": (self.engine.intake, "throttle_cfm"),
             "Exhaust: Primary Length (mm)": (self.engine.exhaust, "header_primary_length"),
             "Exhaust: Primary Diameter (mm)": (self.engine.exhaust, "header_primary_diameter"),
             "Head: Compression Ratio": (self.engine.head, "compression_ratio"),
             "Head: Port Flow (CFM)": (self.engine.head, "port_flow_cfm"),
+            "Turbo: Boost Pressure (Bar)": (
+                self.engine.supercharger,
+                "boost_pressure_bar",
+            ),
         }
 
     def _compute_peak_hp(self) -> float:
@@ -587,8 +601,10 @@ class MainWindow(QMainWindow):
         step = self.optimizer_step_spin.value()
         if step <= 0:
             return
-
-        original_value = getattr(obj, attr)
+        if attr == "both_lifts":
+            original_value = (obj.intake_lift, obj.exhaust_lift)
+        else:
+            original_value = getattr(obj, attr)
         self.optimizer_progress.setValue(0)
         values: list[float] = []
         current = start
@@ -610,12 +626,32 @@ class MainWindow(QMainWindow):
             self.optimizer_progress.setValue(progress)
             QApplication.processEvents()
 
-        setattr(obj, attr, original_value)
+        if attr == "both_lifts":
+            obj.intake_lift, obj.exhaust_lift = original_value
+        else:
+            setattr(obj, attr, original_value)
         self.optimizer_progress.setValue(100)
 
         self.optimizer_plot.clear()
+        unit_map = {
+            "Camshaft: Intake Duration (deg)": "Degrees",
+            "Camshaft: Max Lift (mm)": "mm",
+            "Camshaft: Lobe Separation (deg)": "Degrees",
+            "Camshaft: Advance (deg)": "Degrees",
+            "Tuning: Ignition Timing (deg BTDC)": "Degrees",
+            "Head: Compression Ratio": "Ratio",
+            "Head: Port Flow (CFM)": "CFM",
+            "Intake: Runner Length (mm)": "mm",
+            "Intake: Runner Diameter (mm)": "mm",
+            "Intake: Throttle Flow (CFM)": "CFM",
+            "Exhaust: Primary Length (mm)": "mm",
+            "Exhaust: Primary Diameter (mm)": "mm",
+            "Turbo: Boost Pressure (Bar)": "Bar",
+        }
+        x_label = unit_map.get(target, "Parameter Value")
+
         self.optimizer_plot.plot(values, results, pen=pg.mkPen("m", width=2), symbol="o", name="Peak HP")
-        self.optimizer_plot.setLabel("bottom", target)
+        self.optimizer_plot.setLabel("bottom", f"{target} [{x_label}]")
         self.optimizer_plot.setLabel("left", "Peak HP")
 
 
