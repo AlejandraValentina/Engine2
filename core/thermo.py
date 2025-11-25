@@ -78,14 +78,14 @@ class CylinderSimulator:
         cam = self.engine.camshaft
         ignition = getattr(getattr(self.engine, "simulation_settings", None), "ignition_timing_btdc", 30.0)
 
-        # Valve centerlines consistent with Camshaft.get_lift convention
-        intake_centerline = 360.0 - cam.lobe_separation / 2.0 + cam.advance
-        exhaust_centerline = 360.0 + cam.lobe_separation / 2.0 + cam.advance
+        # Valve centerlines aligned with lift model
+        intake_centerline = cam.lobe_separation - cam.advance
+        exhaust_centerline = 720.0 - (cam.lobe_separation + cam.advance)
 
         # Valve events (clip to physically reasonable windows)
         IVC = intake_centerline + (cam.intake_duration / 2.0)   # intake valve closing
         EVO = exhaust_centerline - (cam.exhaust_duration / 2.0) # exhaust valve opening
-        IVC = float(np.clip(IVC, 180.0, 360.0))
+        IVC = float(np.clip(IVC, 200.0, 360.0))
         EVO = float(np.clip(EVO, 480.0, 720.0))
 
         volume_swept, dV_dtheta, _ = piston_geometry(
