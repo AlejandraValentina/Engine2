@@ -132,12 +132,20 @@ def calculate_mass_flow_rate(p_up: float, p_down: float, T_up: float, area: floa
     if area <= 0.0 or p_up <= 0.0 or T_up <= 0.0:
         return 0.0
 
-    pressure_ratio = p_down / p_up
+    sign = 1.0
+    p_up_eff = p_up
+    p_down_eff = p_down
+    if p_down > p_up:
+        sign = -1.0
+        p_up_eff = p_down
+        p_down_eff = p_up
+
+    pressure_ratio = p_down_eff / p_up_eff
     if pressure_ratio < 0.0:
         pressure_ratio = 0.0
 
     pcrit = (2.0 / (GAMMA + 1.0)) ** (GAMMA / (GAMMA - 1.0))
-    coeff = Cd * area * p_up * np.sqrt(GAMMA / (R * T_up))
+    coeff = Cd * area * p_up_eff * np.sqrt(GAMMA / (R * T_up))
 
     if pressure_ratio <= pcrit:
         exponent = (GAMMA + 1.0) / (2.0 * (GAMMA - 1.0))
@@ -150,4 +158,4 @@ def calculate_mass_flow_rate(p_up: float, p_down: float, T_up: float, area: floa
             delta = 0.0
         mdot = coeff * np.sqrt((2.0 / (GAMMA - 1.0)) * delta)
 
-    return mdot
+    return sign * mdot
