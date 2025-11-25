@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QMainWindow,
     QProgressBar,
+    QTextBrowser,
     QPushButton,
     QStyle,
     QSpinBox,
@@ -80,6 +81,7 @@ class MainWindow(QMainWindow):
 
         self.refresh_tree()
         self._show_placeholder("Select a component to edit its properties")
+        self.update_overview()
 
     # -------------------------- UI Construction ---------------------------
     def _create_menu(self) -> None:
@@ -109,8 +111,10 @@ class MainWindow(QMainWindow):
     def _setup_tabs(self) -> None:
         overview_tab = QWidget()
         overview_layout = QVBoxLayout()
-        overview_layout.addWidget(QLabel("Engine Overview"))
-        overview_layout.addStretch()
+        self.overview_browser = QTextBrowser()
+        self.overview_browser.setOpenExternalLinks(False)
+        self.overview_browser.setReadOnly(True)
+        overview_layout.addWidget(self.overview_browser)
         overview_tab.setLayout(overview_layout)
 
         self.properties_tab = QWidget()
@@ -504,6 +508,7 @@ class MainWindow(QMainWindow):
         current_item = self.navigation_tree.currentItem()
         if current_item and isinstance(obj, Block):
             self._build_block_form(obj)
+        self.update_overview()
 
     def _update_firing_order(self, block: Block, text: str) -> None:
         try:
@@ -512,6 +517,77 @@ class MainWindow(QMainWindow):
                 block.firing_order = order
         except ValueError:
             pass
+        self.update_overview()
+
+    def update_overview(self) -> None:
+        if not hasattr(self, "overview_browser"):
+            return
+
+        block = self.engine.block
+        head = self.engine.head
+        cam = self.engine.camshaft
+        intake = self.engine.intake
+        exhaust = self.engine.exhaust
+        sc = self.engine.supercharger
+
+        displacement_cc = block.displacement_cc
+        displacement_l = displacement_cc / 1000.0
+        bore = block.bore
+        stroke = block.stroke
+        rod = block.conrod_length
+        redline = block.redline_rpm
+        mean_piston_speed = 2.0 * (stroke * 1e-3) * redline / 60.0
+
+        try:
+            geo_cr = self.engine.calculate_geometric_cr()
+        except Exception:
+            geo_cr = head.compression_ratio
+
+        induction = "Naturally Aspirated"
+        if sc.type != "NA" or sc.boost_pressure_bar > 0.0:
+            induction = f"{sc.type} @ {sc.boost_pressure_bar:.2f} bar"
+
+        html_parts = [
+            "<h2>Project: PyWaveDyn Engine</h2>",
+            "<h3>Short Block</h3>",
+            "<ul>",
+            f"<li><b>Config:</b> {block.config} {block.num_cylinders}</li>",
+            f"<li><b>Bore:</b> {bore:.1f} mm</li>",
+            f"<li><b>Stroke:</b> {stroke:.1f} mm</li>",
+            f"<li><b>Displacement:</b> {displacement_cc:.1f} cc ({displacement_l:.2f} L)</li>",
+            f"<li><b>Rod Length:</b> {rod:.1f} mm</li>",
+            f"<li><b>Redline:</b> {redline:.0f} rpm</li>",
+            f"<li><b>Mean Piston Speed @ Redline:</b> {mean_piston_speed:.2f} m/s</li>",
+            "</ul>",
+            "<h3>Cylinder Head</h3>",
+            "<ul>",
+            f"<li><b>Compression Ratio (geom):</b> {geo_cr:.2f}:1</li>",
+            f"<li><b>Intake Valve Dia:</b> {head.intake_valve_diameter:.1f} mm</li>",
+            f"<li><b>Exhaust Valve Dia:</b> {head.exhaust_valve_diameter:.1f} mm</li>",
+            f"<li><b>Port Flow:</b> {head.port_flow_cfm:.1f} cfm</li>",
+            "</ul>",
+            "<h3>Camshaft</h3>",
+            "<ul>",
+            f"<li><b>Durations (I/E):</b> {cam.intake_duration:.1f} / {cam.exhaust_duration:.1f} deg</li>",
+            f"<li><b>Lifts (I/E):</b> {cam.intake_lift:.2f} / {cam.exhaust_lift:.2f} mm</li>",
+            f"<li><b>LSA:</b> {cam.lobe_separation:.1f} deg</li>",
+            f"<li><b>Advance:</b> {cam.advance:.1f} deg</li>",
+            "</ul>",
+            "<h3>Induction</h3>",
+            "<ul>",
+            f"<li><b>Runner:</b> {intake.runner_length:.1f} mm x {intake.runner_diameter:.1f} mm</li>",
+            f"<li><b>Plenum:</b> {intake.plenum_volume:.2f} L</li>",
+            f"<li><b>Throttle:</b> {intake.throttle_body_dia:.1f} mm ({intake.throttle_cfm:.1f} cfm)</li>",
+            f"<li><b>Induction:</b> {induction}</li>",
+            "</ul>",
+            "<h3>Exhaust</h3>",
+            "<ul>",
+            f"<li><b>Primary:</b> {exhaust.header_primary_length:.1f} mm x {exhaust.header_primary_diameter:.1f} mm</li>",
+            f"<li><b>Collector Length:</b> {exhaust.collector_length:.1f} mm</li>",
+            "</ul>",
+        ]
+
+        self.overview_browser.setHtml("\n".join(html_parts))
 
     def _open_compression_dialog(self, head: CylinderHead, cr_spin: QDoubleSpinBox) -> None:
         dialog = CompressionDialog(self.engine, head, cr_spin, self)
@@ -528,6 +604,7 @@ class MainWindow(QMainWindow):
         if filename:
             self.engine = Engine.load_from_file(filename)
             self.refresh_tree()
+            self.update_overview()
 
     # -------------------------- Dyno Sweep --------------------------------
     def run_dyno_sweep(self) -> None:
@@ -767,6 +844,8 @@ class CompressionDialog(QDialog):
         self.head.deck_clearance_mm = self.deck_clearance_spin.value()
         self.head.piston_dome_cc = self.piston_dome_spin.value()
         self.cr_spin.setValue(cr)
+        if isinstance(self.parent(), MainWindow):
+            self.parent().update_overview()
         self.accept()
 
 
