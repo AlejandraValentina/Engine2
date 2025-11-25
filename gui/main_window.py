@@ -10,6 +10,8 @@ from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDockWidget,
     QDoubleSpinBox,
     QFormLayout,
@@ -307,7 +309,15 @@ class MainWindow(QMainWindow):
 
         cr_spin = self._double_spin(head.compression_ratio, 5.0, 18.0, 0.1)
         cr_spin.valueChanged.connect(lambda val: self._update_value(head, "compression_ratio", val))
-        self.property_form.addRow("Compression Ratio", cr_spin)
+        cr_row = QWidget()
+        cr_layout = QHBoxLayout()
+        cr_layout.setContentsMargins(0, 0, 0, 0)
+        cr_layout.addWidget(cr_spin)
+        calc_btn = QPushButton("Calculator...")
+        calc_btn.clicked.connect(lambda: self._open_compression_dialog(head, cr_spin))
+        cr_layout.addWidget(calc_btn)
+        cr_row.setLayout(cr_layout)
+        self.property_form.addRow("Compression Ratio", cr_row)
 
         intake_valves_spin = QSpinBox()
         intake_valves_spin.setRange(1, 5)
@@ -324,6 +334,30 @@ class MainWindow(QMainWindow):
         chamber_spin = self._double_spin(head.combustion_chamber_vol or 40.0, 20.0, 80.0, 0.1)
         chamber_spin.valueChanged.connect(lambda val: self._update_value(head, "combustion_chamber_vol", val))
         self.property_form.addRow("Chamber Volume (cc)", chamber_spin)
+
+        gasket_thickness = self._double_spin(head.gasket_thickness_mm, 0.1, 5.0, 0.05)
+        gasket_thickness.setSuffix(" mm")
+        gasket_thickness.valueChanged.connect(
+            lambda val: self._update_value(head, "gasket_thickness_mm", val)
+        )
+        self.property_form.addRow("Gasket Thickness", gasket_thickness)
+
+        gasket_bore = self._double_spin(head.gasket_bore_mm, 50.0, 120.0, 0.1)
+        gasket_bore.setSuffix(" mm")
+        gasket_bore.valueChanged.connect(lambda val: self._update_value(head, "gasket_bore_mm", val))
+        self.property_form.addRow("Gasket Bore", gasket_bore)
+
+        deck_clearance = self._double_spin(head.deck_clearance_mm, -2.0, 5.0, 0.05)
+        deck_clearance.setSuffix(" mm")
+        deck_clearance.valueChanged.connect(
+            lambda val: self._update_value(head, "deck_clearance_mm", val)
+        )
+        self.property_form.addRow("Deck Clearance", deck_clearance)
+
+        piston_dome = self._double_spin(head.piston_dome_cc, -30.0, 30.0, 0.1)
+        piston_dome.setSuffix(" cc")
+        piston_dome.valueChanged.connect(lambda val: self._update_value(head, "piston_dome_cc", val))
+        self.property_form.addRow("Piston Dome Volume", piston_dome)
 
         port_flow_spin = self._double_spin(head.port_flow_cfm, 50.0, 500.0, 1.0)
         port_flow_spin.setSuffix(" cfm")
@@ -442,6 +476,10 @@ class MainWindow(QMainWindow):
         except ValueError:
             pass
 
+    def _open_compression_dialog(self, head: CylinderHead, cr_spin: QDoubleSpinBox) -> None:
+        dialog = CompressionDialog(self.engine, head, cr_spin, self)
+        dialog.exec()
+
     # -------------------------- File IO -----------------------------------
     def save_engine(self) -> None:
         filename, _ = QFileDialog.getSaveFileName(self, "Save Engine", "engine.json", "JSON Files (*.json)")
@@ -540,6 +578,121 @@ class MainWindow(QMainWindow):
         self.optimizer_plot.plot(values, results, pen=pg.mkPen("m", width=2), symbol="o", name="Peak HP")
         self.optimizer_plot.setLabel("bottom", target)
         self.optimizer_plot.setLabel("left", "Peak HP")
+
+
+class CompressionDialog(QDialog):
+    """Compression ratio helper dialog using build measurements."""
+
+    def __init__(
+        self,
+        engine: Engine,
+        head: CylinderHead,
+        cr_spin: QDoubleSpinBox,
+        parent: Optional[QWidget] = None,
+    ) -> None:
+        super().__init__(parent)
+        self.engine = engine
+        self.head = head
+        self.cr_spin = cr_spin
+        self.setWindowTitle("Compression Calculator")
+
+        form = QFormLayout()
+
+        self.bore_spin = self._make_spin(engine.block.bore, 30.0, 150.0, 0.01, suffix=" mm")
+        self.bore_spin.setEnabled(False)
+        form.addRow("Bore", self.bore_spin)
+
+        self.stroke_spin = self._make_spin(engine.block.stroke, 30.0, 150.0, 0.01, suffix=" mm")
+        self.stroke_spin.setEnabled(False)
+        form.addRow("Stroke", self.stroke_spin)
+
+        chamber_init = head.combustion_chamber_vol if head.combustion_chamber_vol is not None else 40.0
+        self.chamber_spin = self._make_spin(chamber_init, 10.0, 150.0, 0.01, suffix=" cc")
+        form.addRow("Chamber Volume", self.chamber_spin)
+
+        self.gasket_thickness_spin = self._make_spin(head.gasket_thickness_mm, 0.1, 5.0, 0.01, suffix=" mm")
+        form.addRow("Gasket Thickness", self.gasket_thickness_spin)
+
+        self.gasket_bore_spin = self._make_spin(head.gasket_bore_mm, 30.0, 150.0, 0.01, suffix=" mm")
+        form.addRow("Gasket Bore", self.gasket_bore_spin)
+
+        self.deck_clearance_spin = self._make_spin(head.deck_clearance_mm, -5.0, 5.0, 0.01, suffix=" mm")
+        form.addRow("Deck Clearance", self.deck_clearance_spin)
+
+        self.piston_dome_spin = self._make_spin(head.piston_dome_cc, -50.0, 50.0, 0.01, suffix=" cc")
+        form.addRow("Piston Dome Volume", self.piston_dome_spin)
+
+        self.result_label = QLabel()
+        form.addRow("Result", self.result_label)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Apply | QDialogButtonBox.Close)
+        btns.accepted.connect(self._apply)
+        btns.rejected.connect(self.reject)
+
+        container = QVBoxLayout()
+        container.addLayout(form)
+        container.addWidget(btns)
+        self.setLayout(container)
+
+        for spin in (
+            self.chamber_spin,
+            self.gasket_thickness_spin,
+            self.gasket_bore_spin,
+            self.deck_clearance_spin,
+            self.piston_dome_spin,
+        ):
+            spin.valueChanged.connect(self._update_result)
+
+        self._update_result()
+
+    def _make_spin(
+        self, value: float, minimum: float, maximum: float, step: float, suffix: str = ""
+    ) -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setRange(minimum, maximum)
+        spin.setDecimals(3)
+        spin.setSingleStep(step)
+        spin.setValue(value)
+        if suffix:
+            spin.setSuffix(suffix)
+        return spin
+
+    def _compute_cr(self) -> float:
+        bore_m = self.bore_spin.value() * 1e-3
+        stroke_m = self.stroke_spin.value() * 1e-3
+        area_bore = math.pi * bore_m * bore_m / 4.0
+        swept_cc = area_bore * stroke_m * 1e6
+
+        gasket_bore_m = self.gasket_bore_spin.value() * 1e-3
+        gasket_thick_m = self.gasket_thickness_spin.value() * 1e-3
+        deck_clear_m = self.deck_clearance_spin.value() * 1e-3
+
+        gasket_cc = math.pi * gasket_bore_m * gasket_bore_m / 4.0 * gasket_thick_m * 1e6
+        deck_cc = math.pi * bore_m * bore_m / 4.0 * deck_clear_m * 1e6
+        chamber_cc = self.chamber_spin.value()
+        dome_cc = self.piston_dome_spin.value()
+
+        total_clearance_cc = chamber_cc + gasket_cc + deck_cc - dome_cc
+        if total_clearance_cc <= 1e-6:
+            total_clearance_cc = 1e-6
+
+        cr = (swept_cc + total_clearance_cc) / total_clearance_cc
+        return cr
+
+    def _update_result(self) -> None:
+        cr = self._compute_cr()
+        self.result_label.setText(f"{cr:.2f} : 1")
+
+    def _apply(self) -> None:
+        cr = self._compute_cr()
+        self.head.compression_ratio = cr
+        self.head.combustion_chamber_vol = self.chamber_spin.value()
+        self.head.gasket_thickness_mm = self.gasket_thickness_spin.value()
+        self.head.gasket_bore_mm = self.gasket_bore_spin.value()
+        self.head.deck_clearance_mm = self.deck_clearance_spin.value()
+        self.head.piston_dome_cc = self.piston_dome_spin.value()
+        self.cr_spin.setValue(cr)
+        self.accept()
 
 
 def main() -> None:

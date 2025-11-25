@@ -65,6 +65,10 @@ class CylinderHead:
     exhaust_valves: int = 2
     combustion_chamber_vol: Optional[float] = None  # cc override
     port_flow_cfm: float = 200.0  # peak flow at max lift @ 28" H2O per valve
+    gasket_thickness_mm: float = 1.0
+    gasket_bore_mm: float = 88.0
+    deck_clearance_mm: float = 0.0
+    piston_dome_cc: float = 0.0
 
     def to_dict(self) -> dict:
         return {
@@ -73,6 +77,10 @@ class CylinderHead:
             "exhaust_valves": self.exhaust_valves,
             "combustion_chamber_vol": self.combustion_chamber_vol,
             "port_flow_cfm": self.port_flow_cfm,
+            "gasket_thickness_mm": self.gasket_thickness_mm,
+            "gasket_bore_mm": self.gasket_bore_mm,
+            "deck_clearance_mm": self.deck_clearance_mm,
+            "piston_dome_cc": self.piston_dome_cc,
         }
 
     @classmethod
@@ -83,6 +91,10 @@ class CylinderHead:
             exhaust_valves=data.get("exhaust_valves", 2),
             combustion_chamber_vol=data.get("combustion_chamber_vol"),
             port_flow_cfm=data.get("port_flow_cfm", 200.0),
+            gasket_thickness_mm=data.get("gasket_thickness_mm", 1.0),
+            gasket_bore_mm=data.get("gasket_bore_mm", 88.0),
+            deck_clearance_mm=data.get("deck_clearance_mm", 0.0),
+            piston_dome_cc=data.get("piston_dome_cc", 0.0),
         )
 
 
