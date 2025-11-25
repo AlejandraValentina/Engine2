@@ -224,7 +224,27 @@ class CylinderSimulator:
         indicated_torque = float(np.mean(torque_trace))
 
         # Simple friction estimate (placeholder for calibrated FMEP model)
-        friction_torque = 15.0 + (rpm * 0.005) + (rpm ** 2 * 1e-6)
+        friction_base = 15.0 + (rpm * 0.005) + (rpm ** 2 * 1e-6)
+        fr_cfg = getattr(self.engine, "friction", None)
+        bottom = getattr(fr_cfg, "bottom_end_type", "Standard") if fr_cfg else "Standard"
+        bottom_lower = bottom.lower()
+        multiplier = 1.0
+        if bottom_lower == "performance":
+            multiplier = 0.85
+        elif bottom_lower == "race":
+            multiplier = 0.70
+
+        accessories = 0.0
+        if getattr(fr_cfg, "water_pump", True):
+            accessories += 0.5 + (rpm / 10000.0) ** 2 * 2.0
+        if getattr(fr_cfg, "alternator", True):
+            accessories += 2.0
+        if getattr(fr_cfg, "power_steering", True):
+            accessories += 3.0
+        if getattr(fr_cfg, "mechanical_fan", False):
+            accessories += 0.1 + (rpm / 5000.0) ** 3 * 5.0
+
+        friction_torque = friction_base * multiplier + accessories
         brake_torque = max(0.0, indicated_torque - friction_torque)
 
         logger.debug(

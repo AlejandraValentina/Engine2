@@ -191,6 +191,34 @@ class Camshaft:
 
 
 @dataclass
+class Friction:
+    bottom_end_type: str = "Standard"  # "Standard", "Performance", "Race"
+    water_pump: bool = True
+    alternator: bool = True
+    power_steering: bool = True
+    mechanical_fan: bool = False
+
+    def to_dict(self) -> dict:
+        return {
+            "bottom_end_type": self.bottom_end_type,
+            "water_pump": self.water_pump,
+            "alternator": self.alternator,
+            "power_steering": self.power_steering,
+            "mechanical_fan": self.mechanical_fan,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Friction":
+        return cls(
+            bottom_end_type=data.get("bottom_end_type", "Standard"),
+            water_pump=data.get("water_pump", True),
+            alternator=data.get("alternator", True),
+            power_steering=data.get("power_steering", True),
+            mechanical_fan=data.get("mechanical_fan", False),
+        )
+
+
+@dataclass
 class IntakeSystem:
     runner_length: float = 300.0  # millimeters
     runner_diameter: float = 45.0  # millimeters
@@ -268,6 +296,7 @@ class Engine:
     exhaust: ExhaustSystem = field(default_factory=ExhaustSystem)
     supercharger: Supercharger = field(default_factory=Supercharger)
     simulation_settings: SimulationSettings = field(default_factory=SimulationSettings)
+    friction: Friction = field(default_factory=Friction)
 
     def to_dict(self) -> dict:
         return {
@@ -278,6 +307,7 @@ class Engine:
             "exhaust": self.exhaust.to_dict(),
             "supercharger": self.supercharger.to_dict(),
             "simulation_settings": self.simulation_settings.to_dict(),
+            "friction": self.friction.to_dict(),
         }
 
     @classmethod
@@ -291,6 +321,7 @@ class Engine:
             exhaust=ExhaustSystem.from_dict(data.get("exhaust", {})),
             supercharger=Supercharger.from_dict(data.get("supercharger", {})),
             simulation_settings=SimulationSettings.from_dict(data.get("simulation_settings", {})),
+            friction=Friction.from_dict(data.get("friction", {})),
         )
 
     def save_to_file(self, filename: str) -> None:
@@ -340,5 +371,6 @@ __all__ = [
     "ExhaustSystem",
     "Supercharger",
     "SimulationSettings",
+    "Friction",
     "Engine",
 ]
