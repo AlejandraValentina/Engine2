@@ -72,18 +72,14 @@ class PipeSolver:
         gamma = numerics.GAMMA
 
         if valve_area > 0.0:
-            # Soft-start energy injection derived from cylinder pressure.
-            target_E = p_cyl / (gamma - 1.0)
-            target_E = min(target_E, 5.0e6)
+            T_ref = max(T_cyl, 1.0)
+            rho_inlet = max(p_cyl / (numerics.R * T_ref), 0.1)
+            energy_inlet = p_cyl / (gamma - 1.0)
+            energy_inlet = min(energy_inlet, 5.0e6)
 
-            if self.N > 1:
-                rho_base = self.U[1, 0]
-            else:
-                rho_base = max(p_cyl / (numerics.R * max(T_cyl, 1e-6)), 1e-6)
-
-            self.U[0, 0] = rho_base
+            self.U[0, 0] = rho_inlet
             self.U[0, 1] = 0.0
-            self.U[0, 2] = target_E
+            self.U[0, 2] = energy_inlet
 
             # Nudge the adjacent cell to help launch the wavefront when the valve opens.
             if self.N > 1:
@@ -122,10 +118,10 @@ class PipeSolver:
         """Advance the pipe solution by one timestep and return the dt used."""
 
         if dt is None:
+            self.apply_boundary_conditions(p_cyl, T_cyl, valve_area)
             dt = self.get_time_step()
-
-        # Apply boundary conditions before the numerical update.
-        self.apply_boundary_conditions(p_cyl, T_cyl, valve_area)
+        else:
+            self.apply_boundary_conditions(p_cyl, T_cyl, valve_area)
 
         U_prev = self.U.copy()
         U_new = numerics.lax_wendroff_step(
@@ -135,7 +131,8 @@ class PipeSolver:
         # Stability guard: detect non-finite values from the solver.
         if not np.isfinite(U_new).all():
             print("[PipeSolver] Warning: non-finite state detected; reverting step.")
-            U_new = U_prev
+            self.U = U_prev
+            return 0.0
 
         # Apply density/energy limiters to reduce CFL blowups.
         U_new[:, 0] = np.maximum(U_new[:, 0], 0.1)
