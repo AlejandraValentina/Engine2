@@ -105,6 +105,24 @@ class CylinderHead:
 
 
 @dataclass
+class SimulationSettings:
+    """Simulation-level tunables such as ignition timing."""
+
+    ignition_timing_btdc: float = 30.0  # degrees before TDC firing
+
+    def to_dict(self) -> dict:
+        return {
+            "ignition_timing_btdc": self.ignition_timing_btdc,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SimulationSettings":
+        return cls(
+            ignition_timing_btdc=data.get("ignition_timing_btdc", 30.0),
+        )
+
+
+@dataclass
 class Camshaft:
     intake_lift: float = 10.0  # millimeters
     exhaust_lift: float = 10.0  # millimeters
@@ -249,6 +267,7 @@ class Engine:
     intake: IntakeSystem = field(default_factory=IntakeSystem)
     exhaust: ExhaustSystem = field(default_factory=ExhaustSystem)
     supercharger: Supercharger = field(default_factory=Supercharger)
+    simulation_settings: SimulationSettings = field(default_factory=SimulationSettings)
 
     def to_dict(self) -> dict:
         return {
@@ -258,6 +277,7 @@ class Engine:
             "intake": self.intake.to_dict(),
             "exhaust": self.exhaust.to_dict(),
             "supercharger": self.supercharger.to_dict(),
+            "simulation_settings": self.simulation_settings.to_dict(),
         }
 
     @classmethod
@@ -270,6 +290,7 @@ class Engine:
             intake=IntakeSystem.from_dict(data.get("intake", {})),
             exhaust=ExhaustSystem.from_dict(data.get("exhaust", {})),
             supercharger=Supercharger.from_dict(data.get("supercharger", {})),
+            simulation_settings=SimulationSettings.from_dict(data.get("simulation_settings", {})),
         )
 
     def save_to_file(self, filename: str) -> None:
@@ -318,5 +339,6 @@ __all__ = [
     "IntakeSystem",
     "ExhaustSystem",
     "Supercharger",
+    "SimulationSettings",
     "Engine",
 ]

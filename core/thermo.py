@@ -76,6 +76,7 @@ class CylinderSimulator:
         angle_arr = np.arange(0.0, 720.0 + 0.5, 0.5)
 
         cam = self.engine.camshaft
+        ignition = getattr(getattr(self.engine, "simulation_settings", None), "ignition_timing_btdc", 30.0)
 
         # Valve centerlines consistent with Camshaft.get_lift convention
         intake_centerline = 360.0 - cam.lobe_separation / 2.0 + cam.advance
@@ -179,7 +180,7 @@ class CylinderSimulator:
         Q_total = fuel_mass * LHV_DEFAULT
         Q_effective = Q_total * THERMAL_EFFICIENCY
 
-        start_angle = 350.0
+        start_angle = 360.0 - float(ignition)
         duration = 60.0
         x = wiebe_function(angle_arr, start_angle, duration, efficiency=1.0)
         Q_rel = Q_effective * x

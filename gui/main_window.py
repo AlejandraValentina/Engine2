@@ -37,6 +37,7 @@ from core.engine_components import (
     Engine,
     ExhaustSystem,
     IntakeSystem,
+    SimulationSettings,
     Supercharger,
 )
 from core.thermo import CylinderSimulator
@@ -199,6 +200,10 @@ class MainWindow(QMainWindow):
         block_item.setData(0, Qt.UserRole, self.engine.block)
         root_item.addChild(block_item)
 
+        settings_item = QTreeWidgetItem(["Simulation Settings"])
+        settings_item.setData(0, Qt.UserRole, self.engine.simulation_settings)
+        root_item.addChild(settings_item)
+
         head_item = QTreeWidgetItem(["Cylinder Head"])
         head_item.setData(0, Qt.UserRole, self.engine.head)
         root_item.addChild(head_item)
@@ -255,6 +260,8 @@ class MainWindow(QMainWindow):
             self._build_exhaust_form(component)
         elif isinstance(component, Supercharger):
             self._build_supercharger_form(component)
+        elif isinstance(component, SimulationSettings):
+            self._build_sim_settings_form(component)
         else:
             self._show_placeholder("No editable properties for this selection")
 
@@ -456,6 +463,16 @@ class MainWindow(QMainWindow):
         boost_spin = self._double_spin(supercharger.boost_pressure_bar, 0.0, 3.0, 0.05)
         boost_spin.valueChanged.connect(lambda val: self._update_value(supercharger, "boost_pressure_bar", val))
         self.property_form.addRow("Boost (bar)", boost_spin)
+
+    def _build_sim_settings_form(self, settings: SimulationSettings) -> None:
+        self._clear_property_form()
+
+        ign_spin = self._double_spin(settings.ignition_timing_btdc, -10.0, 60.0, 0.5)
+        ign_spin.setSuffix(" deg BTDC")
+        ign_spin.valueChanged.connect(
+            lambda val: self._update_value(settings, "ignition_timing_btdc", val)
+        )
+        self.property_form.addRow("Ignition Timing", ign_spin)
 
     # -------------------------- Helpers -----------------------------------
     def _double_spin(self, value: float, minimum: float, maximum: float, step: float) -> QDoubleSpinBox:
