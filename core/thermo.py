@@ -73,12 +73,14 @@ class CylinderSimulator:
         angle_arr = np.arange(0.0, 720.0 + 0.5, 0.5)
 
         cam = self.engine.camshaft
-        intake_centerline = cam.lobe_separation - cam.advance
-        exhaust_centerline = 720.0 - (cam.lobe_separation + cam.advance)
+
+        # Valve centerlines consistent with Camshaft.get_lift convention
+        intake_centerline = 360.0 - cam.lobe_separation / 2.0 + cam.advance
+        exhaust_centerline = 360.0 + cam.lobe_separation / 2.0 + cam.advance
 
         # Valve events (clip to physically reasonable windows)
-        IVC = intake_centerline + (cam.intake_duration / 2.0)
-        EVO = exhaust_centerline - (cam.exhaust_duration / 2.0)
+        IVC = intake_centerline + (cam.intake_duration / 2.0)   # intake valve closing
+        EVO = exhaust_centerline - (cam.exhaust_duration / 2.0) # exhaust valve opening
         IVC = float(np.clip(IVC, 180.0, 360.0))
         EVO = float(np.clip(EVO, 480.0, 720.0))
 
