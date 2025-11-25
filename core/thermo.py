@@ -72,6 +72,13 @@ class CylinderSimulator:
         # Crank angle grid (0-720 deg, 0.5 deg resolution)
         angle_arr = np.arange(0.0, 720.0 + 0.5, 0.5)
 
+        cam = self.engine.camshaft
+        intake_centerline = cam.lobe_separation - cam.advance
+        exhaust_centerline = cam.lobe_separation + cam.advance
+
+        IVC = intake_centerline + (cam.intake_duration / 2.0) + 180.0
+        EVO = 540.0 - (exhaust_centerline + (cam.exhaust_duration / 2.0))
+
         # Geometry
         volume_swept, dV_dtheta, _ = piston_geometry(
             angle_arr,
@@ -92,8 +99,7 @@ class CylinderSimulator:
             idx = int(np.argmin(np.abs(angle_arr - angle_deg)))
             return volume[idx]
 
-        V_180 = volume_at(180.0)
-        V_360 = volume_at(360.0)
+        V_IVC = volume_at(IVC)
 
         # Volumetric efficiency driven by Taylor's Mach index (valve choke) with intake
         # runner acoustic tuning (Chrysler/Helmholtz-inspired).
@@ -136,7 +142,11 @@ class CylinderSimulator:
 
         tuning_factor = 1.0 + tuning_boost
 
-        ve = np.clip(base_ve * ve_penalty * tuning_factor, 0.0, 1.2)
+        ivc_abdc = max(0.0, IVC - 180.0)
+        rpm_ratio = min(max(rpm / 7000.0, 0.0), 1.0)
+        reversion_factor = max(0.0, 1.0 - (ivc_abdc * 0.005 * (1.0 - rpm_ratio)))
+
+        ve = np.clip(base_ve * ve_penalty * tuning_factor * reversion_factor, 0.0, 1.2)
         m_air = ve * (P_ATM * Vd) / (R_AIR * T_INTAKE)
         fuel_mass = m_air / AFR_STOICH
         Q_total = fuel_mass * LHV_DEFAULT
@@ -149,11 +159,11 @@ class CylinderSimulator:
         x = wiebe_function(angle_arr, start_angle, duration, efficiency)
         Q_rel = Q_effective * x
 
-        # Phase masks
-        mask_intake = angle_arr < 180.0
-        mask_exhaust = angle_arr >= 540.0
-        mask_compression = (angle_arr >= 180.0) & (angle_arr < 360.0)
-        mask_power = (angle_arr >= 360.0) & (angle_arr < 540.0)
+        # Phase masks driven by cam events
+        mask_intake = angle_arr < IVC
+        mask_compression = (angle_arr >= IVC) & (angle_arr < 360.0)
+        mask_power = (angle_arr >= 360.0) & (angle_arr < EVO)
+        mask_exhaust = angle_arr >= EVO
 
         pressure = np.zeros_like(volume)
 
@@ -163,8 +173,8 @@ class CylinderSimulator:
         # Exhaust: elevated backpressure
         pressure[mask_exhaust] = 1.05 * P_ATM
 
-        # Compression: adiabatic from BDC at 180 deg
-        C_comp = P_ATM * (V_180 ** GAMMA)
+        # Compression: adiabatic from intake valve closing forward
+        C_comp = (0.95 * P_ATM) * (V_IVC**GAMMA)
         pressure[mask_compression] = C_comp / (volume[mask_compression] ** GAMMA)
 
         # Power: motored expansion plus heat release
