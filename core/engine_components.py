@@ -98,23 +98,36 @@ class Camshaft:
     def get_lift(self, angle_deg: float, intake: bool = True) -> float:
         """Approximate valve lift (mm) at a given crank angle.
 
-        Uses a simple harmonic profile centered around TDC firing for the
-        selected valve. This is an intentionally lightweight placeholder.
+        Uses a simple harmonic profile centered around TDC firing (~360°) with
+        intake and exhaust centers separated by the lobe separation angle. The
+        optional advance shifts both centers equally. Angles wrap over 0–720°.
         """
         duration = self.intake_duration if intake else self.exhaust_duration
         max_lift = self.intake_lift if intake else self.exhaust_lift
 
-        # Center the lobe around 360° (TDC overlap) with optional advance
-        center = 360.0 + self.advance
+        center_intake = 360.0 - self.lobe_separation / 2.0 + self.advance
+        center_exhaust = 360.0 + self.lobe_separation / 2.0 + self.advance
+        center = center_intake if intake else center_exhaust
+
         start = center - duration / 2.0
-        end = center + duration / 2.0
-
+        start_mod = start % 720.0
         angle = angle_deg % 720.0
-        if angle < start or angle > end:
-            return 0.0
 
-        phase = (angle - start) / duration  # 0..1
-        # Simple harmonic: 0 at edges, max at middle
+        # Normalize active interval handling wrap-around
+        if duration >= 720.0:
+            phase = 0.5
+        else:
+            end_mod = (start_mod + duration) % 720.0
+            if start_mod <= end_mod:
+                active = start_mod <= angle <= end_mod
+                rel = angle - start_mod if active else -1.0
+            else:
+                active = angle >= start_mod or angle <= end_mod
+                rel = (angle - start_mod) % 720.0 if active else -1.0
+            if not active:
+                return 0.0
+            phase = rel / duration
+
         return max_lift * 0.5 * (1.0 - math.cos(math.pi * phase))
 
     def to_dict(self) -> dict:
