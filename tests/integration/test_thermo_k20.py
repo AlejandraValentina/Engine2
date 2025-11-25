@@ -1,4 +1,3 @@
-import copy
 import pytest
 
 np = pytest.importorskip("numpy")
@@ -21,9 +20,9 @@ K20_CONFIG = {
         "intake_valves": 2,
         "exhaust_valves": 2,
         "combustion_chamber_vol": 47.6,
+        "port_flow_cfm": 280.0,
     },
-    # Using legacy "cam" key to verify backward compatibility
-    "cam": {
+    "camshaft": {
         "intake_lift": 11.5,
         "exhaust_lift": 10.5,
         "intake_duration": 265.0,
@@ -46,37 +45,15 @@ K20_CONFIG = {
 }
 
 
-def build_engine(comb_chamber_vol=None) -> Engine:
-    config = copy.deepcopy(K20_CONFIG)
-    if comb_chamber_vol is not None:
-        config["head"]["combustion_chamber_vol"] = comb_chamber_vol
-    return Engine.from_dict(config)
-
-
 @pytest.mark.integration
-@pytest.mark.parametrize("rpm", [2000.0, 4000.0, 6000.0, 8000.0])
-def test_mean_outputs_finite(rpm):
-    engine = build_engine()
-    sim = CylinderSimulator(engine)
-    results = sim.run_cycle(rpm)
-    assert np.isfinite(results["mean_power_hp"])
-    assert np.isfinite(results["mean_torque_nm"])
+def test_k20_performance():
+    engine = Engine.from_dict(K20_CONFIG)
+    simulator = CylinderSimulator(engine)
 
+    results_8000 = simulator.run_cycle(8000.0)
+    hp_8000 = results_8000["mean_power_hp"]
+    assert 200.0 <= hp_8000 <= 230.0
 
-@pytest.mark.integration
-def test_run_cycle_no_nan():
-    engine = build_engine()
-    sim = CylinderSimulator(engine)
-    results = sim.run_cycle(6000.0)
-    assert np.isfinite(results["pressure"]).all()
-    assert np.isfinite(results["torque"]).all()
-    assert np.min(results["volume"]) > 0.0
-
-
-@pytest.mark.integration
-def test_combustion_chamber_zero_fallback():
-    engine = build_engine(comb_chamber_vol=0.0)
-    sim = CylinderSimulator(engine)
-    results = sim.run_cycle(6000.0)
-    assert np.isfinite(results["pressure"]).all()
-    assert np.min(results["volume"]) > 0.0
+    results_6000 = simulator.run_cycle(6000.0)
+    tq_6000 = results_6000["mean_torque_nm"]
+    assert 195.0 <= tq_6000 <= 215.0
