@@ -124,9 +124,7 @@ class CylinderSimulator:
         stroke_m = self.engine.block.stroke * 1e-3
         piston_speed = 2.0 * stroke_m * rpm / 60.0  # mean piston speed (m/s)
 
-        valve_diameter_mm = getattr(
-            self.engine.head, "intake_valve_diameter", self.engine.intake.runner_diameter
-        )
+        valve_diameter_mm = self.engine.head.intake_valve_diameter
         valve_diameter_m = valve_diameter_mm * 1e-3
         flow_coeff = 0.7
         Av = max(

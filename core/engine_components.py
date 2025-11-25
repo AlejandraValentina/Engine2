@@ -63,6 +63,8 @@ class CylinderHead:
     compression_ratio: float = 10.5
     intake_valves: int = 2
     exhaust_valves: int = 2
+    intake_valve_diameter: float = 35.0  # millimeters
+    exhaust_valve_diameter: float = 30.0  # millimeters
     combustion_chamber_vol: Optional[float] = None  # cc override
     port_flow_cfm: float = 200.0  # peak flow at max lift @ 28" H2O per valve
     gasket_thickness_mm: float = 1.0
@@ -75,6 +77,8 @@ class CylinderHead:
             "compression_ratio": self.compression_ratio,
             "intake_valves": self.intake_valves,
             "exhaust_valves": self.exhaust_valves,
+            "intake_valve_diameter": self.intake_valve_diameter,
+            "exhaust_valve_diameter": self.exhaust_valve_diameter,
             "combustion_chamber_vol": self.combustion_chamber_vol,
             "port_flow_cfm": self.port_flow_cfm,
             "gasket_thickness_mm": self.gasket_thickness_mm,
@@ -89,6 +93,8 @@ class CylinderHead:
             compression_ratio=data.get("compression_ratio", 10.5),
             intake_valves=data.get("intake_valves", 2),
             exhaust_valves=data.get("exhaust_valves", 2),
+            intake_valve_diameter=data.get("intake_valve_diameter", 35.0),
+            exhaust_valve_diameter=data.get("exhaust_valve_diameter", 30.0),
             combustion_chamber_vol=data.get("combustion_chamber_vol"),
             port_flow_cfm=data.get("port_flow_cfm", 200.0),
             gasket_thickness_mm=data.get("gasket_thickness_mm", 1.0),

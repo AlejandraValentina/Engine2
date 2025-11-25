@@ -331,6 +331,20 @@ class MainWindow(QMainWindow):
         exhaust_valves_spin.valueChanged.connect(lambda val: self._update_value(head, "exhaust_valves", val))
         self.property_form.addRow("Exhaust Valves", exhaust_valves_spin)
 
+        intake_dia = self._double_spin(head.intake_valve_diameter, 15.0, 60.0, 0.1)
+        intake_dia.setSuffix(" mm")
+        intake_dia.valueChanged.connect(
+            lambda val: self._update_value(head, "intake_valve_diameter", val)
+        )
+        self.property_form.addRow("Intake Valve Dia", intake_dia)
+
+        exhaust_dia = self._double_spin(head.exhaust_valve_diameter, 15.0, 60.0, 0.1)
+        exhaust_dia.setSuffix(" mm")
+        exhaust_dia.valueChanged.connect(
+            lambda val: self._update_value(head, "exhaust_valve_diameter", val)
+        )
+        self.property_form.addRow("Exhaust Valve Dia", exhaust_dia)
+
         chamber_spin = self._double_spin(head.combustion_chamber_vol or 40.0, 20.0, 80.0, 0.1)
         chamber_spin.valueChanged.connect(lambda val: self._update_value(head, "combustion_chamber_vol", val))
         self.property_form.addRow("Chamber Volume (cc)", chamber_spin)
