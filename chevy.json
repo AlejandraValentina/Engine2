@@ -1,0 +1,49 @@
+{
+    "block": {
+      "bore": 101.6,
+      "stroke": 88.4,
+      "conrod_length": 144.8,
+      "num_cylinders": 8,
+      "config": "V",
+      "bank_angle": 90.0,
+      "firing_order": [1, 8, 4, 3, 6, 5, 7, 2],
+      "redline_rpm": 6500.0
+    },
+    "head": {
+      "compression_ratio": 10.2,
+      "intake_valves": 1,
+      "exhaust_valves": 1,
+      "combustion_chamber_vol": 64.0,
+      "port_flow_cfm": 230.0,
+      "intake_valve_diameter": 51.3,
+      "exhaust_valve_diameter": 40.6,
+      "gasket_thickness_mm": 1.0,
+      "gasket_bore_mm": 104.0,
+      "deck_clearance_mm": 0.5,
+      "piston_dome_cc": -5.0
+    },
+    "camshaft": {
+      "intake_lift": 12.5,
+      "exhaust_lift": 12.5,
+      "intake_duration": 245.0,
+      "exhaust_duration": 255.0,
+      "lobe_separation": 110.0,
+      "advance": 4.0
+    },
+    "intake": {
+      "runner_length": 350.0,
+      "runner_diameter": 42.0,
+      "plenum_volume": 5.0,
+      "throttle_body_dia": 75.0,
+      "throttle_cfm": 750.0
+    },
+    "exhaust": {
+      "header_primary_length": 800.0,
+      "header_primary_diameter": 42.0,
+      "collector_length": 300.0
+    },
+    "supercharger": {
+      "type": "NA",
+      "boost_pressure_bar": 0.0
+    }
+  }
