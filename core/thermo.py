@@ -80,18 +80,18 @@ class CylinderSimulator:
 
         design = getattr(self.engine.head, "chamber_design", "Pent Roof") or "Pent Roof"
         efficiency_map = {
-            "Pent Roof": 0.72,
-            "Compact Wedge": 0.68,
-            "Hemi": 0.66,
-            "Typical Wedge": 0.64,
-            "Flat Head": 0.55,
+            "Pent Roof": 0.66,
+            "Compact Wedge": 0.62,
+            "Hemi": 0.63,
+            "Typical Wedge": 0.58,
+            "Flat Head": 0.45,
         }
         burn_duration_map = {
-            "Pent Roof": 50.0,
-            "Compact Wedge": 55.0,
-            "Hemi": 60.0,
-            "Typical Wedge": 65.0,
-            "Flat Head": 70.0,
+            "Pent Roof": 58.0,
+            "Compact Wedge": 65.0,
+            "Hemi": 62.0,
+            "Typical Wedge": 68.0,
+            "Flat Head": 75.0,
         }
         thermal_eff = efficiency_map.get(design, efficiency_map["Pent Roof"])
         burn_duration = burn_duration_map.get(design, 60.0)
