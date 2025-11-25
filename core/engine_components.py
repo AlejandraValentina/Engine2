@@ -242,10 +242,11 @@ class Engine:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Engine":
+        cam_data = data.get("camshaft") or data.get("cam") or {}
         return cls(
             block=Block.from_dict(data.get("block", {})),
             head=CylinderHead.from_dict(data.get("head", {})),
-            camshaft=Camshaft.from_dict(data.get("camshaft", {})),
+            camshaft=Camshaft.from_dict(cam_data),
             intake=IntakeSystem.from_dict(data.get("intake", {})),
             exhaust=ExhaustSystem.from_dict(data.get("exhaust", {})),
             supercharger=Supercharger.from_dict(data.get("supercharger", {})),

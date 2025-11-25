@@ -1,6 +1,7 @@
 """0D thermodynamic cycle simulator for indicated torque/power estimates."""
 from __future__ import annotations
 
+import logging
 import math
 from typing import Dict
 
@@ -16,6 +17,8 @@ P_ATM = 101325.0
 T_INTAKE = 300.0
 THERMAL_EFFICIENCY = 0.62  # accounts for heat losses to coolant and walls
 SPEED_OF_SOUND = 340.0  # m/s approximate at 300 K
+
+logger = logging.getLogger(__name__)
 
 
 def piston_geometry(angle_array_deg: np.ndarray, bore: float, stroke: float, conrod: float):
@@ -98,7 +101,7 @@ class CylinderSimulator:
 
         head = self.engine.head
         compression_ratio = max(head.compression_ratio, 1.01)
-        if head.combustion_chamber_vol is not None:
+        if head.combustion_chamber_vol is not None and head.combustion_chamber_vol > 0.0:
             Vc = head.combustion_chamber_vol * 1e-6  # cc -> m^3
         else:
             Vc = Vd / (compression_ratio - 1.0)
@@ -108,7 +111,7 @@ class CylinderSimulator:
             idx = int(np.argmin(np.abs(angle_arr - angle_deg)))
             return max(volume[idx], 1e-9)
 
-        V_IVC = volume_at(IVC)
+        V_IVC = max(volume_at(IVC), 1e-9)
 
         boost_bar = getattr(self.engine.supercharger, "boost_pressure_bar", 0.0)
         boost_pa = float(boost_bar) * 100000.0
@@ -203,6 +206,11 @@ class CylinderSimulator:
         pressure_mot_power = C_power / (vol_pow ** GAMMA)
         pressure[mask_power] = pressure_mot_power + (GAMMA - 1.0) * Q_rel[mask_power] / vol_pow
 
+        if (not np.isfinite(pressure).all()) or (not np.isfinite(volume).all()):
+            raise ValueError(
+                f"Non-finite thermo state (rpm={rpm:.1f}, IVC={IVC:.2f}, EVO={EVO:.2f}, minV={float(np.min(volume)):.3e})"
+            )
+
         torque_trace_single = (pressure - P_ATM) * dV_dtheta
         torque_trace = torque_trace_single * self.engine.block.num_cylinders
 
@@ -211,6 +219,20 @@ class CylinderSimulator:
         # Simple friction estimate (placeholder for calibrated FMEP model)
         friction_torque = 15.0 + (rpm * 0.005) + (rpm ** 2 * 1e-6)
         brake_torque = max(0.0, indicated_torque - friction_torque)
+
+        logger.debug(
+            "rpm=%.1f IVC=%.2f EVO=%.2f Vc=%.3e minV=%.3e V_IVC=%.3e ve=%.3f Ti=%.3f Tf=%.3f Tb=%.3f",
+            rpm,
+            IVC,
+            EVO,
+            Vc,
+            float(np.min(volume)),
+            V_IVC,
+            ve,
+            indicated_torque,
+            friction_torque,
+            brake_torque,
+        )
 
         omega = rpm * 2.0 * math.pi / 60.0
         mean_power_w = brake_torque * omega
