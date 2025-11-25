@@ -69,17 +69,19 @@ class CylinderSimulator:
         self.engine = engine
 
     def run_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
-        # Crank angle grid (0-720 deg, 0.5 deg resolution)
+        """Run a 720° four-stroke cycle and return pressure/torque traces."""
         angle_arr = np.arange(0.0, 720.0 + 0.5, 0.5)
 
         cam = self.engine.camshaft
         intake_centerline = cam.lobe_separation - cam.advance
-        exhaust_centerline = cam.lobe_separation + cam.advance
+        exhaust_centerline = 720.0 - (cam.lobe_separation + cam.advance)
 
-        IVC = intake_centerline + (cam.intake_duration / 2.0) + 180.0
-        EVO = 540.0 - (exhaust_centerline + (cam.exhaust_duration / 2.0))
+        # Valve events (clip to physically reasonable windows)
+        IVC = intake_centerline + (cam.intake_duration / 2.0)
+        EVO = exhaust_centerline - (cam.exhaust_duration / 2.0)
+        IVC = float(np.clip(IVC, 180.0, 360.0))
+        EVO = float(np.clip(EVO, 540.0, 720.0))
 
-        # Geometry
         volume_swept, dV_dtheta, _ = piston_geometry(
             angle_arr,
             self.engine.block.bore,
@@ -94,7 +96,6 @@ class CylinderSimulator:
         Vc = Vd / (self.engine.head.compression_ratio - 1.0)
         volume = volume_swept + Vc
 
-        # Helper to fetch volume at a specific crank angle
         def volume_at(angle_deg: float) -> float:
             idx = int(np.argmin(np.abs(angle_arr - angle_deg)))
             return volume[idx]
@@ -105,13 +106,10 @@ class CylinderSimulator:
         boost_pa = float(boost_bar) * 100000.0
         is_boosted = (getattr(self.engine.supercharger, "type", "NA") or "NA") != "NA"
         P_manifold = P_ATM + boost_pa if is_boosted and boost_pa > 0.0 else P_ATM
-        # Account for charge heating from compression with simple exponent (k-1)/k ~= 0.28
         T_boost = T_INTAKE * (P_manifold / P_ATM) ** 0.28
         intercooler_eff = 0.7
         T_charge = T_INTAKE + (T_boost - T_INTAKE) * (1.0 - intercooler_eff)
 
-        # Volumetric efficiency driven by Taylor's Mach index (valve choke) with intake
-        # runner acoustic tuning (Chrysler/Helmholtz-inspired).
         stroke_m = self.engine.block.stroke * 1e-3
         piston_speed = 2.0 * stroke_m * rpm / 60.0  # mean piston speed (m/s)
 
@@ -133,13 +131,11 @@ class CylinderSimulator:
         else:
             ve_penalty = max(0.0, 1.0 - 2.5 * (mach_index - 0.5) ** 2)
 
-        # Intake runner tuning based on pulse reflections. Convert runner length to inches
-        # for the classic 84k / L formula.
         runner_length_m = max(1e-6, self.engine.intake.runner_length * 1e-3)
         runner_length_in = runner_length_m / 0.0254
         rpm_tune = 84000.0 / runner_length_in
 
-        harmonics = [1.0, 0.7, 0.5]  # 2nd, 3rd, 4th harmonic multipliers
+        harmonics = [1.0, 0.7, 0.5]
         peak_boosts = [0.15, 0.1, 0.08]
         sigma_factors = [0.12, 0.12, 0.12]
 
@@ -151,13 +147,12 @@ class CylinderSimulator:
 
         tuning_factor = 1.0 + tuning_boost
 
-        ivc_abdc = max(0.0, IVC - 180.0)
+        ivc_abdc = max(0.0, IVC - 540.0)
         rpm_ratio = min(max(rpm / 7000.0, 0.0), 1.0)
-        reversion_factor = max(0.0, 1.0 - (ivc_abdc * 0.005 * (1.0 - rpm_ratio)))
+        reversion_factor = max(0.0, 1.0 - (ivc_abdc * 0.002 * (1.0 - rpm_ratio)))
 
         ve_base = np.clip(base_ve * ve_penalty * tuning_factor * reversion_factor, 0.0, 1.2)
 
-        # Flowbench/throttle restriction using CFM limits
         disp_cid = self.engine.block.displacement_cc * 0.0610237  # cc to cubic inches
         required_cfm = (disp_cid * rpm) / 3456.0 * ve_base
         head_capacity = self.engine.head.port_flow_cfm * self.engine.head.intake_valves
@@ -170,19 +165,16 @@ class CylinderSimulator:
 
         ve = np.clip(ve_base * restriction_penalty, 0.0, 1.2)
 
-        m_air = ve * (P_manifold * Vd) / (R_AIR * T_charge)
+        m_air = ve * (P_manifold * V_IVC) / (R_AIR * T_charge)
         fuel_mass = m_air / AFR_STOICH
         Q_total = fuel_mass * LHV_DEFAULT
         Q_effective = Q_total * THERMAL_EFFICIENCY
 
-        # Wiebe heat release during power stroke (advanced ignition)
         start_angle = 350.0
         duration = 60.0
-        efficiency = 0.95
-        x = wiebe_function(angle_arr, start_angle, duration, efficiency)
+        x = wiebe_function(angle_arr, start_angle, duration, efficiency=1.0)
         Q_rel = Q_effective * x
 
-        # Phase masks driven by cam events
         mask_intake = angle_arr < IVC
         mask_compression = (angle_arr >= IVC) & (angle_arr < 360.0)
         mask_power = (angle_arr >= 360.0) & (angle_arr < EVO)
@@ -190,31 +182,24 @@ class CylinderSimulator:
 
         pressure = np.zeros_like(volume)
 
-        # Intake: manifold pressure (atmospheric for NA, elevated for boost)
         pressure[mask_intake] = P_manifold
-
-        # Exhaust: elevated backpressure
         pressure[mask_exhaust] = 1.05 * P_ATM
 
-        # Compression: adiabatic from intake valve closing forward
-        C_comp = P_manifold * (V_IVC**GAMMA)
+        C_comp = P_manifold * (V_IVC ** GAMMA)
         pressure[mask_compression] = C_comp / (volume[mask_compression] ** GAMMA)
 
-        # Power: motored expansion plus heat release
-        C_power = C_comp  # same constant continues across TDC
+        C_power = C_comp
         pressure_mot_power = C_power / (volume[mask_power] ** GAMMA)
         pressure[mask_power] = pressure_mot_power + (GAMMA - 1.0) * Q_rel[mask_power] / volume[mask_power]
 
-        # Torque trace scaled by cylinder count
         torque_trace_single = (pressure - P_ATM) * dV_dtheta
         torque_trace = torque_trace_single * self.engine.block.num_cylinders
 
-        # Indicated mean torque via average of trace over full 720 deg
         indicated_torque = float(np.mean(torque_trace))
 
-        # Mechanical friction/pumping losses (simple FMEP-derived torque estimate)
+        # Simple friction estimate (placeholder for calibrated FMEP model)
         friction_torque = 15.0 + (rpm * 0.005) + (rpm ** 2 * 1e-6)
-        brake_torque = indicated_torque - friction_torque
+        brake_torque = max(0.0, indicated_torque - friction_torque)
 
         omega = rpm * 2.0 * math.pi / 60.0
         mean_power_w = brake_torque * omega
