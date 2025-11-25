@@ -105,6 +105,31 @@ class CylinderHead:
 
 
 @dataclass
+class Fuel:
+    type_name: str = "Pump Gas"
+    octane_rating: float = 93.0
+    energy_density: float = 44e6  # J/kg
+    stoich_afr: float = 14.7
+
+    def to_dict(self) -> dict:
+        return {
+            "type_name": self.type_name,
+            "octane_rating": self.octane_rating,
+            "energy_density": self.energy_density,
+            "stoich_afr": self.stoich_afr,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Fuel":
+        return cls(
+            type_name=data.get("type_name", "Pump Gas"),
+            octane_rating=data.get("octane_rating", 93.0),
+            energy_density=data.get("energy_density", 44e6),
+            stoich_afr=data.get("stoich_afr", 14.7),
+        )
+
+
+@dataclass
 class SimulationSettings:
     """Simulation-level tunables such as ignition timing."""
 
@@ -297,6 +322,7 @@ class Engine:
     supercharger: Supercharger = field(default_factory=Supercharger)
     simulation_settings: SimulationSettings = field(default_factory=SimulationSettings)
     friction: Friction = field(default_factory=Friction)
+    fuel: Fuel = field(default_factory=Fuel)
 
     def to_dict(self) -> dict:
         return {
@@ -308,6 +334,7 @@ class Engine:
             "supercharger": self.supercharger.to_dict(),
             "simulation_settings": self.simulation_settings.to_dict(),
             "friction": self.friction.to_dict(),
+            "fuel": self.fuel.to_dict(),
         }
 
     @classmethod
@@ -322,6 +349,7 @@ class Engine:
             supercharger=Supercharger.from_dict(data.get("supercharger", {})),
             simulation_settings=SimulationSettings.from_dict(data.get("simulation_settings", {})),
             friction=Friction.from_dict(data.get("friction", {})),
+            fuel=Fuel.from_dict(data.get("fuel", {})),
         )
 
     def save_to_file(self, filename: str) -> None:
@@ -372,5 +400,6 @@ __all__ = [
     "Supercharger",
     "SimulationSettings",
     "Friction",
+    "Fuel",
     "Engine",
 ]

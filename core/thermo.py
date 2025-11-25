@@ -77,6 +77,10 @@ class CylinderSimulator:
 
         cam = self.engine.camshaft
         ignition = getattr(getattr(self.engine, "simulation_settings", None), "ignition_timing_btdc", 30.0)
+        fuel_cfg = getattr(self.engine, "fuel", None)
+        fuel_lhv = getattr(fuel_cfg, "energy_density", LHV_DEFAULT) or LHV_DEFAULT
+        fuel_stoich = getattr(fuel_cfg, "stoich_afr", AFR_STOICH) or AFR_STOICH
+        fuel_octane = getattr(fuel_cfg, "octane_rating", 93.0)
 
         # Valve centerlines aligned with lift model
         intake_centerline = cam.lobe_separation - cam.advance
@@ -184,8 +188,8 @@ class CylinderSimulator:
         ve = np.clip(ve_base * restriction_penalty, 0.0, 1.2)
 
         m_air = ve * (P_manifold * V_IVC) / (R_AIR * T_charge)
-        fuel_mass = m_air / AFR_STOICH
-        Q_total = fuel_mass * LHV_DEFAULT
+        fuel_mass = m_air / fuel_stoich
+        Q_total = fuel_mass * fuel_lhv
         Q_effective = Q_total * THERMAL_EFFICIENCY
 
         start_angle = 360.0 - float(ignition)
@@ -247,6 +251,16 @@ class CylinderSimulator:
         friction_torque = friction_base * multiplier + accessories
         brake_torque = max(0.0, indicated_torque - friction_torque)
 
+        # Dynamic compression and octane check
+        dynamic_cr = max(V_IVC, 1e-9) / max(Vc, 1e-9)
+        req_octane = dynamic_cr * 12.0 - 20.0
+        knock_warning = False
+        if req_octane > fuel_octane:
+            knock_warning = True
+            knock_gap = req_octane - fuel_octane
+            penalty = max(0.3, 1.0 - 0.05 * knock_gap)
+            brake_torque *= penalty
+
         logger.debug(
             "rpm=%.1f IVC=%.2f EVO=%.2f Vc=%.3e minV=%.3e V_IVC=%.3e ve=%.3f Ti=%.3f Tf=%.3f Tb=%.3f",
             rpm,
@@ -287,4 +301,5 @@ class CylinderSimulator:
             "friction_hp": friction_power_hp,
             "bmep_bar": bmep_bar,
             "airflow_cfm": airflow_cfm,
+            "knock_warning": knock_warning,
         }

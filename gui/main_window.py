@@ -40,6 +40,7 @@ from core.engine_components import (
     CylinderHead,
     Engine,
     ExhaustSystem,
+    Fuel,
     Friction,
     IntakeSystem,
     SimulationSettings,
@@ -283,6 +284,10 @@ class MainWindow(QMainWindow):
         sc_item.setData(0, Qt.UserRole, self.engine.supercharger)
         root_item.addChild(sc_item)
 
+        fuel_item = QTreeWidgetItem(["Fuel"])
+        fuel_item.setData(0, Qt.UserRole, self.engine.fuel)
+        root_item.addChild(fuel_item)
+
         self.navigation_tree.expandAll()
         self.navigation_tree.setCurrentItem(block_item)
 
@@ -319,6 +324,8 @@ class MainWindow(QMainWindow):
             self._build_exhaust_form(component)
         elif isinstance(component, Supercharger):
             self._build_supercharger_form(component)
+        elif isinstance(component, Fuel):
+            self._build_fuel_form(component)
         elif isinstance(component, SimulationSettings):
             self._build_sim_settings_form(component)
         else:
@@ -546,6 +553,58 @@ class MainWindow(QMainWindow):
         boost_spin.valueChanged.connect(lambda val: self._update_value(supercharger, "boost_pressure_bar", val))
         self.property_form.addRow("Boost (bar)", boost_spin)
 
+    def _apply_fuel_preset(self, fuel: Fuel, preset: str) -> None:
+        presets = {
+            "Regular (87)": ("Regular", 87.0, 44e6, 14.7),
+            "Premium (93)": ("Premium", 93.0, 44e6, 14.7),
+            "Race Gas (110)": ("Race Gas", 110.0, 46e6, 14.2),
+            "E85": ("E85", 105.0, 29e6, 9.8),
+            "Methanol": ("Methanol", 110.0, 20e6, 6.4),
+        }
+        if preset in presets:
+            name, octane, energy, afr = presets[preset]
+            fuel.type_name = name
+            fuel.octane_rating = octane
+            fuel.energy_density = energy
+            fuel.stoich_afr = afr
+
+    def _build_fuel_form(self, fuel: Fuel) -> None:
+        self._clear_property_form()
+
+        preset_combo = QComboBox()
+        presets = ["Regular (87)", "Premium (93)", "Race Gas (110)", "E85", "Methanol"]
+        preset_combo.addItems(presets)
+
+        name_edit = QLineEdit(fuel.type_name)
+        octane_spin = self._double_spin(fuel.octane_rating, 70.0, 130.0, 0.5)
+        energy_spin = self._double_spin(fuel.energy_density, 10e6, 50e6, 1e5)
+        energy_spin.setSuffix(" J/kg")
+        energy_spin.setDecimals(1)
+        afr_spin = self._double_spin(fuel.stoich_afr, 5.0, 18.0, 0.05)
+
+        def apply_and_refresh(text: str) -> None:
+            self._apply_fuel_preset(fuel, text)
+            name_edit.setText(fuel.type_name)
+            octane_spin.setValue(fuel.octane_rating)
+            energy_spin.setValue(fuel.energy_density)
+            afr_spin.setValue(fuel.stoich_afr)
+            self.update_overview()
+
+        preset_combo.currentTextChanged.connect(apply_and_refresh)
+        self.property_form.addRow("Presets", preset_combo)
+
+        name_edit.editingFinished.connect(lambda: self._update_value(fuel, "type_name", name_edit.text()))
+        self.property_form.addRow("Fuel Type", name_edit)
+
+        octane_spin.valueChanged.connect(lambda val: self._update_value(fuel, "octane_rating", val))
+        self.property_form.addRow("Octane Rating", octane_spin)
+
+        energy_spin.valueChanged.connect(lambda val: self._update_value(fuel, "energy_density", val))
+        self.property_form.addRow("Energy Density", energy_spin)
+
+        afr_spin.valueChanged.connect(lambda val: self._update_value(fuel, "stoich_afr", val))
+        self.property_form.addRow("Stoich AFR", afr_spin)
+
     def _build_sim_settings_form(self, settings: SimulationSettings) -> None:
         self._clear_property_form()
 
@@ -601,6 +660,7 @@ class MainWindow(QMainWindow):
         intake = self.engine.intake
         exhaust = self.engine.exhaust
         sc = self.engine.supercharger
+        fuel = getattr(self.engine, "fuel", None)
 
         displacement_cc = block.displacement_cc
         displacement_l = displacement_cc / 1000.0
@@ -618,6 +678,18 @@ class MainWindow(QMainWindow):
         induction = "Naturally Aspirated"
         if sc.type != "NA" or sc.boost_pressure_bar > 0.0:
             induction = f"{sc.type} @ {sc.boost_pressure_bar:.2f} bar"
+
+        fuel_html = []
+        if fuel:
+            fuel_html = [
+                "<h3>Fuel</h3>",
+                "<ul>",
+                f"<li><b>Type:</b> {fuel.type_name}</li>",
+                f"<li><b>Octane:</b> {fuel.octane_rating:.1f}</li>",
+                f"<li><b>Energy Density:</b> {fuel.energy_density/1e6:.2f} MJ/kg</li>",
+                f"<li><b>Stoich AFR:</b> {fuel.stoich_afr:.2f}</li>",
+                "</ul>",
+            ]
 
         html_parts = [
             "<h2>Project: PyWaveDyn Engine</h2>",
@@ -658,6 +730,8 @@ class MainWindow(QMainWindow):
             f"<li><b>Collector Length:</b> {exhaust.collector_length:.1f} mm</li>",
             "</ul>",
         ]
+
+        html_parts.extend(fuel_html)
 
         self.overview_browser.setHtml("\n".join(html_parts))
 
