@@ -95,8 +95,8 @@ class CylinderSimulator:
         V_180 = volume_at(180.0)
         V_360 = volume_at(360.0)
 
-        # Volumetric efficiency driven by Taylor's Mach index (valve choke) with a small
-        # resonance tuning overlay to preserve high-rpm breathing trends.
+        # Volumetric efficiency driven by Taylor's Mach index (valve choke) with intake
+        # runner acoustic tuning (Chrysler/Helmholtz-inspired).
         stroke_m = self.engine.block.stroke * 1e-3
         piston_speed = 2.0 * stroke_m * rpm / 60.0  # mean piston speed (m/s)
 
@@ -118,11 +118,25 @@ class CylinderSimulator:
         else:
             ve_penalty = max(0.0, 1.0 - 2.5 * (mach_index - 0.5) ** 2)
 
-        resonance_tuning = np.interp(
-            rpm, [3000.0, 5500.0, 7500.0, 9000.0], [0.95, 1.05, 1.10, 0.98]
-        )
+        # Intake runner tuning based on pulse reflections. Convert runner length to inches
+        # for the classic 84k / L formula.
+        runner_length_m = max(1e-6, self.engine.intake.runner_length * 1e-3)
+        runner_length_in = runner_length_m / 0.0254
+        rpm_tune = 84000.0 / runner_length_in
 
-        ve = np.clip(base_ve * ve_penalty * resonance_tuning, 0.0, 1.2)
+        harmonics = [1.0, 0.7, 0.5]  # 2nd, 3rd, 4th harmonic multipliers
+        peak_boosts = [0.15, 0.1, 0.08]
+        sigma_factors = [0.12, 0.12, 0.12]
+
+        tuning_boost = 0.0
+        for harmonic, boost, sigma_factor in zip(harmonics, peak_boosts, sigma_factors):
+            peak_rpm = rpm_tune * harmonic
+            sigma = max(200.0, peak_rpm * sigma_factor)
+            tuning_boost += boost * math.exp(-0.5 * ((rpm - peak_rpm) / sigma) ** 2)
+
+        tuning_factor = 1.0 + tuning_boost
+
+        ve = np.clip(base_ve * ve_penalty * tuning_factor, 0.0, 1.2)
         m_air = ve * (P_ATM * Vd) / (R_AIR * T_INTAKE)
         fuel_mass = m_air / AFR_STOICH
         Q_total = fuel_mass * LHV_DEFAULT
