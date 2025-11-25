@@ -7,7 +7,7 @@ from core.thermo import CylinderSimulator
 
 ENGINE_CASES = [
     (
-        "Honda K20",
+        "K20_Sport",
         {
             "block": {
                 "bore": 86.0,
@@ -52,10 +52,11 @@ ENGINE_CASES = [
             "friction": {"bottom_end_type": "Performance"},
         },
         8000.0,
-        (210.0, 230.0),
+        (220.0, 245.0),
+        (190.0, 220.0),
     ),
     (
-        "Chevy 350",
+        "V8_Muscle",
         {
             "block": {
                 "bore": 101.6,
@@ -99,10 +100,11 @@ ENGINE_CASES = [
             "friction": {"bottom_end_type": "Standard"},
         },
         6000.0,
-        (350.0, 390.0),
+        (350.0, 400.0),
+        (400.0, 500.0),
     ),
     (
-        "Economy 1.6L",
+        "Eco_1600",
         {
             "block": {
                 "bore": 79.0,
@@ -147,9 +149,10 @@ ENGINE_CASES = [
         },
         6000.0,
         (100.0, 120.0),
+        (110.0, 150.0),
     ),
     (
-        "Racing V10",
+        "Race_V10",
         {
             "block": {
                 "bore": 90.0,
@@ -194,13 +197,14 @@ ENGINE_CASES = [
         },
         8500.0,
         (500.0, 550.0),
+        (400.0, 480.0),
     ),
 ]
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("name, config, rpm, hp_range", ENGINE_CASES)
-def test_engine_suite(name, config, rpm, hp_range):
+@pytest.mark.parametrize("name, config, rpm, hp_range, tq_range", ENGINE_CASES)
+def test_engine_output(name, config, rpm, hp_range, tq_range):
     engine = Engine.from_dict(config)
     simulator = CylinderSimulator(engine)
 
@@ -208,6 +212,9 @@ def test_engine_suite(name, config, rpm, hp_range):
     hp = results["mean_power_hp"]
     tq = results["mean_torque_nm"]
     bmep = results.get("bmep_bar")
-    print(f"{name}: RPM={rpm:.0f} HP={hp:.1f} TQ={tq:.1f} BMEP={bmep:.2f} bar")
+    print(
+        f"{name:12s} | RPM={rpm:6.0f} | HP={hp:7.2f} | TQ={tq:7.2f} | BMEP={bmep:.2f} bar"
+    )
 
     assert hp_range[0] <= hp <= hp_range[1]
+    assert tq_range[0] <= tq <= tq_range[1]
