@@ -39,9 +39,7 @@ def source_terms(U, dx, D, f, Tw):
     mom = U[1]
     energy = U[2]
     u = mom / rho
-    # Friction (Darcy-Weisbach-like), applied to momentum and energy.
     friction = -0.5 * rho * u * np.abs(u) * f / D
-    # Simple heat transfer placeholder (Tw not yet used explicitly)
     heat_transfer = 0.0
     S = np.zeros(3, dtype=np.float64)
     S[1] = friction
@@ -55,21 +53,17 @@ def lax_wendroff_step(U_grid, dt, dx, areas, friction_coeffs):
     n_cells = U_grid.shape[0]
     U_new = np.empty_like(U_grid)
 
-    # Precompute fluxes at cell centers
     F_centers = np.empty_like(U_grid)
     for i in range(n_cells):
         F_centers[i] = flux_vector(U_grid[i])
 
-    # Predictor: interface states
     U_half = np.empty((n_cells - 1, 3), dtype=np.float64)
     F_half = np.empty_like(U_half)
     for i in range(n_cells - 1):
         U_half[i] = 0.5 * (U_grid[i + 1] + U_grid[i]) - 0.5 * dt / dx * (F_centers[i + 1] - F_centers[i])
         F_half[i] = flux_vector(U_half[i])
 
-    # Corrector: update cell averages
     for i in range(n_cells):
-        # Geometric source term for area variation
         if i == 0:
             dA_dx = (areas[i + 1] - areas[i]) / dx
         elif i == n_cells - 1:
@@ -77,25 +71,36 @@ def lax_wendroff_step(U_grid, dt, dx, areas, friction_coeffs):
         else:
             dA_dx = (areas[i + 1] - areas[i - 1]) / (2.0 * dx)
 
-        rho = U_grid[i, 0]
-        u = U_grid[i, 1] / rho
-        geom_source = np.zeros(3, dtype=np.float64)
-        geom_source[1] = -rho * u * u * dA_dx / areas[i]
-        geom_source[2] = -U_grid[i, 2] * u * dA_dx / areas[i]
+        rho_i = U_grid[i, 0]
+        mom_i = U_grid[i, 1]
+        energy_i = U_grid[i, 2]
+        u_i = mom_i / rho_i
 
-        # Friction source term
-        D = 1.0
-        S = source_terms(U_grid[i], dx, D, friction_coeffs[i], 0.0)
+        geom_1 = -rho_i * u_i * u_i * dA_dx / areas[i]
+        geom_2 = -energy_i * u_i * dA_dx / areas[i]
 
-        flux_diff = np.zeros(3, dtype=np.float64)
+        S = source_terms(U_grid[i], dx, 1.0, friction_coeffs[i], 0.0)
+        S0 = S[0]
+        S1 = S[1]
+        S2 = S[2]
+
         if i == 0:
-            flux_diff = F_half[i]
+            flux_diff0 = F_half[i, 0]
+            flux_diff1 = F_half[i, 1]
+            flux_diff2 = F_half[i, 2]
         elif i == n_cells - 1:
-            flux_diff = -F_half[i - 1]
+            flux_diff0 = -F_half[i - 1, 0]
+            flux_diff1 = -F_half[i - 1, 1]
+            flux_diff2 = -F_half[i - 1, 2]
         else:
-            flux_diff = F_half[i] - F_half[i - 1]
+            flux_diff0 = F_half[i, 0] - F_half[i - 1, 0]
+            flux_diff1 = F_half[i, 1] - F_half[i - 1, 1]
+            flux_diff2 = F_half[i, 2] - F_half[i - 1, 2]
 
-        U_new[i] = U_grid[i] - dt / dx * flux_diff + dt * (S + geom_source)
+        coef = dt / dx
+        U_new[i, 0] = U_grid[i, 0] - coef * flux_diff0 + dt * (S0)
+        U_new[i, 1] = U_grid[i, 1] - coef * flux_diff1 + dt * (S1 + geom_1)
+        U_new[i, 2] = U_grid[i, 2] - coef * flux_diff2 + dt * (S2 + geom_2)
 
     return U_new
 
@@ -135,11 +140,9 @@ def calculate_mass_flow_rate(p_up: float, p_down: float, T_up: float, area: floa
     coeff = Cd * area * p_up * np.sqrt(GAMMA / (R * T_up))
 
     if pressure_ratio <= pcrit:
-        # Choked flow (Mach = 1 at throat)
         exponent = (GAMMA + 1.0) / (2.0 * (GAMMA - 1.0))
         mdot = coeff * (2.0 / (GAMMA + 1.0)) ** exponent
     else:
-        # Subsonic isentropic nozzle/orifice flow
         term1 = pressure_ratio ** (2.0 / GAMMA)
         term2 = pressure_ratio ** ((GAMMA + 1.0) / GAMMA)
         delta = term1 - term2
