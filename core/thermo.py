@@ -177,9 +177,13 @@ class CylinderSimulator:
 
         disp_cid = self.engine.block.displacement_cc * 0.0610237  # cc to cubic inches
         required_cfm = (disp_cid * rpm) / 3456.0 * ve_base
-        head_capacity = self.engine.head.port_flow_cfm * self.engine.head.intake_valves
+        head_capacity_total = (
+            self.engine.head.port_flow_cfm
+            * self.engine.head.intake_valves
+            * self.engine.block.num_cylinders
+        )
         throttle_capacity = getattr(self.engine.intake, "throttle_cfm", 500.0)
-        total_capacity = max(1e-6, min(head_capacity, throttle_capacity))
+        total_capacity = max(1e-6, min(head_capacity_total, throttle_capacity))
         if required_cfm <= total_capacity:
             restriction_penalty = 1.0
         else:
