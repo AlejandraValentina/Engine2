@@ -325,6 +325,11 @@ class MainWindow(QMainWindow):
         chamber_spin.valueChanged.connect(lambda val: self._update_value(head, "combustion_chamber_vol", val))
         self.property_form.addRow("Chamber Volume (cc)", chamber_spin)
 
+        port_flow_spin = self._double_spin(head.port_flow_cfm, 50.0, 500.0, 1.0)
+        port_flow_spin.setSuffix(" cfm")
+        port_flow_spin.valueChanged.connect(lambda val: self._update_value(head, "port_flow_cfm", val))
+        self.property_form.addRow("Port Flow @28\" (cfm)", port_flow_spin)
+
     def _build_cam_form(self, cam: Camshaft) -> None:
         self._clear_property_form()
 
@@ -370,6 +375,11 @@ class MainWindow(QMainWindow):
         throttle_dia = self._double_spin(intake.throttle_body_dia, 30.0, 90.0, 0.5)
         throttle_dia.valueChanged.connect(lambda val: self._update_value(intake, "throttle_body_dia", val))
         self.property_form.addRow("Throttle Body Dia (mm)", throttle_dia)
+
+        throttle_cfm = self._double_spin(intake.throttle_cfm, 100.0, 1500.0, 10.0)
+        throttle_cfm.setSuffix(" cfm")
+        throttle_cfm.valueChanged.connect(lambda val: self._update_value(intake, "throttle_cfm", val))
+        self.property_form.addRow("Throttle/Carb Rating (cfm)", throttle_cfm)
 
     def _build_exhaust_form(self, exhaust: ExhaustSystem) -> None:
         self._clear_property_form()

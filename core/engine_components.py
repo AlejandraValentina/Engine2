@@ -64,6 +64,7 @@ class CylinderHead:
     intake_valves: int = 2
     exhaust_valves: int = 2
     combustion_chamber_vol: Optional[float] = None  # cc override
+    port_flow_cfm: float = 200.0  # peak flow at max lift @ 28" H2O per valve
 
     def to_dict(self) -> dict:
         return {
@@ -71,6 +72,7 @@ class CylinderHead:
             "intake_valves": self.intake_valves,
             "exhaust_valves": self.exhaust_valves,
             "combustion_chamber_vol": self.combustion_chamber_vol,
+            "port_flow_cfm": self.port_flow_cfm,
         }
 
     @classmethod
@@ -80,6 +82,7 @@ class CylinderHead:
             intake_valves=data.get("intake_valves", 2),
             exhaust_valves=data.get("exhaust_valves", 2),
             combustion_chamber_vol=data.get("combustion_chamber_vol"),
+            port_flow_cfm=data.get("port_flow_cfm", 200.0),
         )
 
 
@@ -142,6 +145,7 @@ class IntakeSystem:
     runner_diameter: float = 45.0  # millimeters
     plenum_volume: float = 3.0  # liters
     throttle_body_dia: float = 70.0  # millimeters
+    throttle_cfm: float = 500.0  # carb/throttle flow rating
 
     def to_dict(self) -> dict:
         return {
@@ -149,6 +153,7 @@ class IntakeSystem:
             "runner_diameter": self.runner_diameter,
             "plenum_volume": self.plenum_volume,
             "throttle_body_dia": self.throttle_body_dia,
+            "throttle_cfm": self.throttle_cfm,
         }
 
     @classmethod
@@ -158,6 +163,7 @@ class IntakeSystem:
             runner_diameter=data.get("runner_diameter", 45.0),
             plenum_volume=data.get("plenum_volume", 3.0),
             throttle_body_dia=data.get("throttle_body_dia", 70.0),
+            throttle_cfm=data.get("throttle_cfm", 500.0),
         )
 
 

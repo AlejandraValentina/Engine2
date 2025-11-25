@@ -155,7 +155,21 @@ class CylinderSimulator:
         rpm_ratio = min(max(rpm / 7000.0, 0.0), 1.0)
         reversion_factor = max(0.0, 1.0 - (ivc_abdc * 0.005 * (1.0 - rpm_ratio)))
 
-        ve = np.clip(base_ve * ve_penalty * tuning_factor * reversion_factor, 0.0, 1.2)
+        ve_base = np.clip(base_ve * ve_penalty * tuning_factor * reversion_factor, 0.0, 1.2)
+
+        # Flowbench/throttle restriction using CFM limits
+        disp_cid = self.engine.block.displacement_cc * 0.0610237  # cc to cubic inches
+        required_cfm = (disp_cid * rpm) / 3456.0 * ve_base
+        head_capacity = self.engine.head.port_flow_cfm * self.engine.head.intake_valves
+        throttle_capacity = getattr(self.engine.intake, "throttle_cfm", 500.0)
+        total_capacity = max(1e-6, min(head_capacity, throttle_capacity))
+        if required_cfm <= total_capacity:
+            restriction_penalty = 1.0
+        else:
+            restriction_penalty = (total_capacity / required_cfm) ** 0.5
+
+        ve = np.clip(ve_base * restriction_penalty, 0.0, 1.2)
+
         m_air = ve * (P_manifold * Vd) / (R_AIR * T_charge)
         fuel_mass = m_air / AFR_STOICH
         Q_total = fuel_mass * LHV_DEFAULT
