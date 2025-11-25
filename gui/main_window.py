@@ -140,11 +140,13 @@ class MainWindow(QMainWindow):
             [
                 "Camshaft: Intake Duration (deg)",
                 "Camshaft: Max Lift (mm)",
+                "Ignition Timing (deg BTDC)",
                 "Intake: Runner Length (mm)",
                 "Intake: Runner Diameter (mm)",
                 "Exhaust: Primary Length (mm)",
                 "Exhaust: Primary Diameter (mm)",
-                "Block: Compression Ratio",
+                "Head: Compression Ratio",
+                "Head: Port Flow (CFM)",
             ]
         )
         target_layout.addRow("Target Parameter", self.optimizer_param_combo)
@@ -551,12 +553,14 @@ class MainWindow(QMainWindow):
     def _parameter_mapping(self) -> dict[str, tuple[Any, str]]:
         return {
             "Camshaft: Intake Duration (deg)": (self.engine.camshaft, "intake_duration"),
-            "Camshaft: Max Lift (mm)": (self.engine.camshaft, "intake_lift"),
+            "Camshaft: Max Lift (mm)": (self.engine.camshaft, "both_lifts"),
+            "Ignition Timing (deg BTDC)": (self.engine.simulation_settings, "ignition_timing_btdc"),
             "Intake: Runner Length (mm)": (self.engine.intake, "runner_length"),
             "Intake: Runner Diameter (mm)": (self.engine.intake, "runner_diameter"),
             "Exhaust: Primary Length (mm)": (self.engine.exhaust, "header_primary_length"),
             "Exhaust: Primary Diameter (mm)": (self.engine.exhaust, "header_primary_diameter"),
-            "Block: Compression Ratio": (self.engine.head, "compression_ratio"),
+            "Head: Compression Ratio": (self.engine.head, "compression_ratio"),
+            "Head: Port Flow (CFM)": (self.engine.head, "port_flow_cfm"),
         }
 
     def _compute_peak_hp(self) -> float:
@@ -575,7 +579,7 @@ class MainWindow(QMainWindow):
             return
 
         obj, attr = mapping[target]
-        if not hasattr(obj, attr):
+        if attr != "both_lifts" and not hasattr(obj, attr):
             return
 
         start = self.optimizer_start_spin.value()
@@ -595,7 +599,11 @@ class MainWindow(QMainWindow):
         results: list[float] = []
         total = max(len(values), 1)
         for idx, val in enumerate(values):
-            setattr(obj, attr, val)
+            if attr == "both_lifts":
+                obj.intake_lift = val
+                obj.exhaust_lift = val
+            else:
+                setattr(obj, attr, val)
             peak_hp = self._compute_peak_hp()
             results.append(peak_hp)
             progress = int((idx + 1) / total * 100)

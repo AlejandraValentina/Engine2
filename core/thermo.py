@@ -157,6 +157,14 @@ class CylinderSimulator:
 
         tuning_factor = 1.0 + tuning_boost
 
+        # Exhaust tuning (hot gas -> higher sound speed, slightly different constant)
+        exhaust_length_m = max(1e-6, self.engine.exhaust.header_primary_length * 1e-3)
+        exhaust_length_in = exhaust_length_m / 0.0254
+        exhaust_tuned_rpm = 115000.0 / exhaust_length_in
+        exhaust_sigma = max(300.0, exhaust_tuned_rpm * 0.15)
+        exhaust_boost = 0.05 * math.exp(-0.5 * ((rpm - exhaust_tuned_rpm) / exhaust_sigma) ** 2)
+        tuning_factor *= 1.0 + exhaust_boost
+
         ivc_abdc = max(0.0, IVC - 180.0)
         rpm_ratio = min(max(rpm / 7000.0, 0.0), 1.0)
         reversion_factor = max(0.0, 1.0 - (ivc_abdc * 0.002 * (1.0 - rpm_ratio)))
