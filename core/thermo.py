@@ -101,6 +101,15 @@ class CylinderSimulator:
 
         V_IVC = volume_at(IVC)
 
+        boost_bar = getattr(self.engine.supercharger, "boost_pressure_bar", 0.0)
+        boost_pa = float(boost_bar) * 100000.0
+        is_boosted = (getattr(self.engine.supercharger, "type", "NA") or "NA") != "NA"
+        P_manifold = P_ATM + boost_pa if is_boosted and boost_pa > 0.0 else P_ATM
+        # Account for charge heating from compression with simple exponent (k-1)/k ~= 0.28
+        T_boost = T_INTAKE * (P_manifold / P_ATM) ** 0.28
+        intercooler_eff = 0.7
+        T_charge = T_INTAKE + (T_boost - T_INTAKE) * (1.0 - intercooler_eff)
+
         # Volumetric efficiency driven by Taylor's Mach index (valve choke) with intake
         # runner acoustic tuning (Chrysler/Helmholtz-inspired).
         stroke_m = self.engine.block.stroke * 1e-3
@@ -147,7 +156,7 @@ class CylinderSimulator:
         reversion_factor = max(0.0, 1.0 - (ivc_abdc * 0.005 * (1.0 - rpm_ratio)))
 
         ve = np.clip(base_ve * ve_penalty * tuning_factor * reversion_factor, 0.0, 1.2)
-        m_air = ve * (P_ATM * Vd) / (R_AIR * T_INTAKE)
+        m_air = ve * (P_manifold * Vd) / (R_AIR * T_charge)
         fuel_mass = m_air / AFR_STOICH
         Q_total = fuel_mass * LHV_DEFAULT
         Q_effective = Q_total * THERMAL_EFFICIENCY
@@ -167,14 +176,14 @@ class CylinderSimulator:
 
         pressure = np.zeros_like(volume)
 
-        # Intake: slight vacuum to account for throttling losses
-        pressure[mask_intake] = 0.95 * P_ATM
+        # Intake: manifold pressure (atmospheric for NA, elevated for boost)
+        pressure[mask_intake] = P_manifold
 
         # Exhaust: elevated backpressure
         pressure[mask_exhaust] = 1.05 * P_ATM
 
         # Compression: adiabatic from intake valve closing forward
-        C_comp = (0.95 * P_ATM) * (V_IVC**GAMMA)
+        C_comp = P_manifold * (V_IVC**GAMMA)
         pressure[mask_compression] = C_comp / (volume[mask_compression] ** GAMMA)
 
         # Power: motored expansion plus heat release
