@@ -80,7 +80,7 @@ class CylinderSimulator:
         IVC = intake_centerline + (cam.intake_duration / 2.0)
         EVO = exhaust_centerline - (cam.exhaust_duration / 2.0)
         IVC = float(np.clip(IVC, 180.0, 360.0))
-        EVO = float(np.clip(EVO, 540.0, 720.0))
+        EVO = float(np.clip(EVO, 480.0, 720.0))
 
         volume_swept, dV_dtheta, _ = piston_geometry(
             angle_arr,
@@ -93,7 +93,12 @@ class CylinderSimulator:
         stroke_m = self.engine.block.stroke * 1e-3
         area = math.pi * bore_m ** 2 / 4.0
         Vd = area * stroke_m  # swept volume per cylinder (m^3)
-        Vc = Vd / (self.engine.head.compression_ratio - 1.0)
+
+        head = self.engine.head
+        if head.combustion_chamber_vol is not None:
+            Vc = head.combustion_chamber_vol * 1e-6  # cc -> m^3
+        else:
+            Vc = Vd / (head.compression_ratio - 1.0)
         volume = volume_swept + Vc
 
         def volume_at(angle_deg: float) -> float:
@@ -147,7 +152,7 @@ class CylinderSimulator:
 
         tuning_factor = 1.0 + tuning_boost
 
-        ivc_abdc = max(0.0, IVC - 540.0)
+        ivc_abdc = max(0.0, IVC - 180.0)
         rpm_ratio = min(max(rpm / 7000.0, 0.0), 1.0)
         reversion_factor = max(0.0, 1.0 - (ivc_abdc * 0.002 * (1.0 - rpm_ratio)))
 
