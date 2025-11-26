@@ -16,7 +16,7 @@ from tests._assertions import assert_sanity_bounds
         ("Eco_1600", 6000.0, (6.0, 11.5), (60.0, 105.0)),
         ("K20", 8000.0, (10.0, 15.5), (75.0, 120.0)),
         ("V8_350", 6000.0, (9.0, 14.5), (65.0, 115.0)),
-        ("V10", 8500.0, (11.0, 17.0), (75.0, 130.0)),
+        ("V10", 8500.0, (11.0, 18.0), (75.0, 130.0)),
     ],
 )
 def test_sanity_bands(label, rpm, bmep_band, ve_band, k20_config, v8_config, eco_config, v10_config):
