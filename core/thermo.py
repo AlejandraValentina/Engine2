@@ -234,7 +234,7 @@ class CylinderSimulator:
         torque_trace = torque_trace_single * self.engine.block.num_cylinders
         indicated_torque = float(np.mean(torque_trace))
 
-        fmep_kpa = 50.0 + (rpm / 1000.0) ** 2 * 4.0
+        fmep_kpa = 20.0 + (rpm * 0.01) + (rpm ** 2 * 1.5e-6)
         bottom = getattr(getattr(self.engine, "friction", None), "bottom_end_type", "Standard") or "Standard"
         bottom_lower = bottom.lower()
         fmep_multiplier = 1.0

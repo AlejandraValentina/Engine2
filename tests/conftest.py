@@ -71,7 +71,7 @@ def k20_config() -> Dict:
         "simulation_settings": {"ignition_timing_btdc": 30.0},
         "fuel": {"type_name": "Pump Gas", "octane_rating": 93.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
-            "thermal_efficiency": 0.58,
+            "thermal_efficiency": 0.55,
             "burn_duration": 40.0,
             "ignition_advance": 30.0,
             "afr": 13.0,
@@ -197,7 +197,7 @@ def eco_config() -> Dict:
         "simulation_settings": {"ignition_timing_btdc": 30.0},
         "fuel": {"type_name": "Pump Gas", "octane_rating": 93.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
-            "thermal_efficiency": 0.45,
+            "thermal_efficiency": 0.48,
             "burn_duration": 65.0,
             "ignition_advance": 25.0,
             "afr": 14.2,
@@ -260,7 +260,7 @@ def v10_config() -> Dict:
         "simulation_settings": {"ignition_timing_btdc": 30.0},
         "fuel": {"type_name": "Pump Gas", "octane_rating": 100.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
-            "thermal_efficiency": 0.62,
+            "thermal_efficiency": 0.58,
             "burn_duration": 35.0,
             "ignition_advance": 32.0,
             "afr": 12.8,
