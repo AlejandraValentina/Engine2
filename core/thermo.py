@@ -70,7 +70,11 @@ class CylinderSimulator:
         """Estimate volumetric efficiency and Mach index with configurable choking."""
         cam_peak = max(getattr(self.engine.camshaft, "peak_rpm", 5500.0), 1500.0)
         rpm_points = [1000.0, cam_peak, cam_peak + 1500.0]
-        base_curve = np.interp(rpm, rpm_points, [0.88, 1.02, 0.90])
+
+        cam_duration = duration
+        peak_ve = np.interp(cam_duration, [200.0, 230.0, 260.0, 300.0], [1.0, 1.0, 1.1, 1.15])
+        shape = [0.85 * peak_ve, 1.0 * peak_ve, 0.85 * peak_ve]
+        base_curve = np.interp(rpm, rpm_points, shape)
 
         head = self.engine.head
         valve_mm = getattr(head, "intake_valve_diameter_mm", None)
