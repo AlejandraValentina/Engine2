@@ -285,6 +285,9 @@ class Friction:
     alternator: bool = True
     power_steering: bool = True
     mechanical_fan: bool = False
+    friction_base_kpa: float = 35.0
+    friction_linear_factor: float = 0.02
+    friction_quadratic_factor: float = 1.8e-6
 
     def to_dict(self) -> dict:
         return {
@@ -293,6 +296,9 @@ class Friction:
             "alternator": self.alternator,
             "power_steering": self.power_steering,
             "mechanical_fan": self.mechanical_fan,
+            "friction_base_kpa": self.friction_base_kpa,
+            "friction_linear_factor": self.friction_linear_factor,
+            "friction_quadratic_factor": self.friction_quadratic_factor,
         }
 
     @classmethod
@@ -303,6 +309,9 @@ class Friction:
             alternator=data.get("alternator", True),
             power_steering=data.get("power_steering", True),
             mechanical_fan=data.get("mechanical_fan", False),
+            friction_base_kpa=data.get("friction_base_kpa", 35.0),
+            friction_linear_factor=data.get("friction_linear_factor", 0.02),
+            friction_quadratic_factor=data.get("friction_quadratic_factor", 1.8e-6),
         )
 
 

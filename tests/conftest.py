@@ -70,7 +70,12 @@ def k20_config() -> Dict:
             "collector_length": 150.0,
         },
         "supercharger": {"type": "NA", "boost_pressure_bar": 0.0},
-        "friction": {"bottom_end_type": "Performance"},
+        "friction": {
+            "bottom_end_type": "Performance",
+            "friction_base_kpa": 35.0,
+            "friction_linear_factor": 0.02,
+            "friction_quadratic_factor": 1.8e-6,
+        },
         "simulation_settings": {"ignition_timing_btdc": 30.0},
         "fuel": {"type_name": "Pump Gas", "octane_rating": 93.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
@@ -133,7 +138,12 @@ def v8_config() -> Dict:
             "collector_length": 500.0,
         },
         "supercharger": {"type": "NA", "boost_pressure_bar": 0.0},
-        "friction": {"bottom_end_type": "Standard"},
+        "friction": {
+            "bottom_end_type": "Standard",
+            "friction_base_kpa": 45.0,
+            "friction_linear_factor": 0.03,
+            "friction_quadratic_factor": 2.5e-6,
+        },
         "simulation_settings": {"ignition_timing_btdc": 30.0},
         "fuel": {"type_name": "Pump Gas", "octane_rating": 93.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
@@ -196,7 +206,12 @@ def eco_config() -> Dict:
             "collector_length": 400.0,
         },
         "supercharger": {"type": "NA", "boost_pressure_bar": 0.0},
-        "friction": {"bottom_end_type": "Standard"},
+        "friction": {
+            "bottom_end_type": "Standard",
+            "friction_base_kpa": 45.0,
+            "friction_linear_factor": 0.03,
+            "friction_quadratic_factor": 2.5e-6,
+        },
         "simulation_settings": {"ignition_timing_btdc": 30.0},
         "fuel": {"type_name": "Pump Gas", "octane_rating": 93.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
@@ -259,7 +274,12 @@ def v10_config() -> Dict:
             "collector_length": 450.0,
         },
         "supercharger": {"type": "NA", "boost_pressure_bar": 0.0},
-        "friction": {"bottom_end_type": "Race"},
+        "friction": {
+            "bottom_end_type": "Race",
+            "friction_base_kpa": 25.0,
+            "friction_linear_factor": 0.015,
+            "friction_quadratic_factor": 0.9e-6,
+        },
         "simulation_settings": {"ignition_timing_btdc": 30.0},
         "fuel": {"type_name": "Pump Gas", "octane_rating": 100.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
@@ -322,7 +342,12 @@ def f1_v12_config() -> Dict:
             "collector_length": 400.0,
         },
         "supercharger": {"type": "NA", "boost_pressure_bar": 0.0},
-        "friction": {"bottom_end_type": "Race"},
+        "friction": {
+            "bottom_end_type": "Race",
+            "friction_base_kpa": 25.0,
+            "friction_linear_factor": 0.015,
+            "friction_quadratic_factor": 0.9e-6,
+        },
         "simulation_settings": {"ignition_timing_btdc": 35.0},
         "fuel": {"type_name": "Race Gas", "octane_rating": 110.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
@@ -385,7 +410,12 @@ def kart_125_config() -> Dict:
             "collector_length": 350.0,
         },
         "supercharger": {"type": "NA", "boost_pressure_bar": 0.0},
-        "friction": {"bottom_end_type": "Performance"},
+        "friction": {
+            "bottom_end_type": "Performance",
+            "friction_base_kpa": 25.0,
+            "friction_linear_factor": 0.015,
+            "friction_quadratic_factor": 0.9e-6,
+        },
         "simulation_settings": {"ignition_timing_btdc": 28.0},
         "fuel": {"type_name": "Pump Gas", "octane_rating": 95.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {

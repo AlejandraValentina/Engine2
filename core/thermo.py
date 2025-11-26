@@ -238,29 +238,24 @@ class CylinderSimulator:
         torque_trace = torque_trace_single * self.engine.block.num_cylinders
         indicated_torque = float(np.mean(torque_trace))
 
-        # Stronger friction curve to better cap high-RPM brake torque
-        fmep_kpa = 45.0 + 0.03 * rpm + 2.5e-6 * rpm * rpm
-        bottom = getattr(getattr(self.engine, "friction", None), "bottom_end_type", "Standard") or "Standard"
-        bottom_lower = bottom.lower()
-        fmep_multiplier = 1.0
-        if bottom_lower == "performance":
-            fmep_multiplier = 0.85
-        elif bottom_lower == "race":
-            fmep_multiplier = 0.70
-        fmep_pa = fmep_kpa * fmep_multiplier * 1000.0
+        f_cfg = getattr(self.engine, "friction", None)
+        f_base = getattr(f_cfg, "friction_base_kpa", 35.0)
+        f_lin = getattr(f_cfg, "friction_linear_factor", 0.02)
+        f_quad = getattr(f_cfg, "friction_quadratic_factor", 1.8e-6)
+        fmep_kpa = f_base + f_lin * rpm + f_quad * rpm * rpm
+        fmep_pa = fmep_kpa * 1000.0
 
         displacement_m3 = max(self.engine.block.displacement_cc * 1e-6, 1e-9)
         friction_torque = fmep_pa * displacement_m3 / (4.0 * math.pi)
 
-        fr_cfg = getattr(self.engine, "friction", None)
         accessories = 0.0
-        if getattr(fr_cfg, "water_pump", True):
+        if getattr(f_cfg, "water_pump", True):
             accessories += 0.5 + (rpm / 10000.0) ** 2 * 2.0
-        if getattr(fr_cfg, "alternator", True):
+        if getattr(f_cfg, "alternator", True):
             accessories += 2.0
-        if getattr(fr_cfg, "power_steering", True):
+        if getattr(f_cfg, "power_steering", True):
             accessories += 3.0
-        if getattr(fr_cfg, "mechanical_fan", False):
+        if getattr(f_cfg, "mechanical_fan", False):
             accessories += 0.1 + (rpm / 5000.0) ** 3 * 5.0
 
         total_friction_torque = friction_torque + accessories

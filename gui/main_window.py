@@ -590,10 +590,53 @@ class MainWindow(QMainWindow):
         bottom_combo = QComboBox()
         bottom_combo.addItems(["Standard", "Performance", "Race"])
         bottom_combo.setCurrentText(friction.bottom_end_type)
-        bottom_combo.currentTextChanged.connect(
-            lambda text: self._update_value(friction, "bottom_end_type", text)
-        )
         self.property_form.addRow("Bottom End Type", bottom_combo)
+
+        base_spin = self._double_spin(friction.friction_base_kpa, 0.0, 150.0, 0.5)
+        base_spin.setSuffix(" kPa")
+        lin_spin = self._double_spin(friction.friction_linear_factor, 0.0, 0.2, 0.001)
+        lin_spin.setDecimals(5)
+        quad_spin = self._double_spin(friction.friction_quadratic_factor, 0.0, 1e-4, 1e-7)
+        quad_spin.setDecimals(8)
+
+        base_spin.valueChanged.connect(
+            lambda val: self._update_value(friction, "friction_base_kpa", val)
+        )
+        lin_spin.valueChanged.connect(
+            lambda val: self._update_value(friction, "friction_linear_factor", val)
+        )
+        quad_spin.valueChanged.connect(
+            lambda val: self._update_value(friction, "friction_quadratic_factor", val)
+        )
+
+        self.property_form.addRow("Base FMEP (kPa)", base_spin)
+        self.property_form.addRow("Linear Coeff", lin_spin)
+        self.property_form.addRow("Quadratic Coeff", quad_spin)
+
+        presets = {
+            "Standard": (45.0, 0.03, 2.5e-6),
+            "Performance": (35.0, 0.02, 1.8e-6),
+            "Race": (25.0, 0.015, 0.9e-6),
+        }
+
+        def apply_preset(text: str) -> None:
+            self._update_value(friction, "bottom_end_type", text)
+            preset = presets.get(text)
+            if not preset:
+                return
+            base, lin, quad = preset
+            for spin, val, attr in (
+                (base_spin, base, "friction_base_kpa"),
+                (lin_spin, lin, "friction_linear_factor"),
+                (quad_spin, quad, "friction_quadratic_factor"),
+            ):
+                spin.blockSignals(True)
+                spin.setValue(val)
+                spin.blockSignals(False)
+                setattr(friction, attr, val)
+            self.update_overview()
+
+        bottom_combo.currentTextChanged.connect(apply_preset)
 
         def _checkbox_row(label: str, attr: str) -> None:
             box = QCheckBox(label)
