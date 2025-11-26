@@ -186,23 +186,8 @@ class MainWindow(QMainWindow):
         optimizer_layout = QVBoxLayout()
 
         target_layout = QFormLayout()
-        self.optimizer_param_combo.addItems(
-            [
-                "Camshaft: Intake Duration (deg)",
-                "Camshaft: Max Lift (mm)",
-                "Camshaft: Lobe Separation (deg)",
-                "Camshaft: Advance (deg)",
-                "Tuning: Ignition Timing (deg BTDC)",
-                "Head: Compression Ratio",
-                "Head: Port Flow (CFM)",
-                "Intake: Runner Length (mm)",
-                "Intake: Runner Diameter (mm)",
-                "Intake: Throttle Flow (CFM)",
-                "Exhaust: Primary Length (mm)",
-                "Exhaust: Primary Diameter (mm)",
-                "Turbo: Boost Pressure (Bar)",
-            ]
-        )
+        optimizer_params = list(self._parameter_mapping().keys())
+        self.optimizer_param_combo.addItems(optimizer_params)
         target_layout.addRow("Target Parameter", self.optimizer_param_combo)
 
         self.optimizer_start_spin.setRange(0.0, 10000.0)
