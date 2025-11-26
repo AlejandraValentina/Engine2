@@ -483,7 +483,7 @@ class MainWindow(QMainWindow):
         port_cd_spin.valueChanged.connect(lambda val: self._update_value(head, "port_flow_efficiency", val))
         self.property_form.addRow("Port Flow Efficiency", port_cd_spin)
 
-        mach_tol = self._double_spin(head.mach_tolerance, 0.3, 1.2, 0.01)
+        mach_tol = self._double_spin(head.mach_tolerance, 0.5, 1.0, 0.05)
         mach_tol.valueChanged.connect(lambda val: self._update_value(head, "mach_tolerance", val))
         self.property_form.addRow("Mach Tolerance", mach_tol)
 
@@ -514,7 +514,7 @@ class MainWindow(QMainWindow):
         adv_spin.valueChanged.connect(lambda val: self._update_value(cam, "advance", val))
         self.property_form.addRow("Advance (deg)", adv_spin)
 
-        peak_spin = self._double_spin(cam.peak_rpm, 2000.0, 12000.0, 50.0)
+        peak_spin = self._double_spin(cam.peak_rpm, 1000.0, 20000.0, 50.0)
         peak_spin.setSuffix(" rpm")
         peak_spin.valueChanged.connect(lambda val: self._update_value(cam, "peak_rpm", val))
         self.property_form.addRow("Peak RPM", peak_spin)

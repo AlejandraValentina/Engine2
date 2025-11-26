@@ -80,8 +80,7 @@ class CylinderSimulator:
     def _calculate_dynamic_ve(self, rpm: float, piston_speed: float, bore_m: float, duration: float):
         """Estimate volumetric efficiency and Mach index with configurable choking."""
         cam_peak = max(getattr(self.engine.camshaft, "peak_rpm", 5500.0), 1500.0)
-        redline = max(getattr(self.engine.block, "redline_rpm", cam_peak + 2000.0), cam_peak + 500.0)
-        rpm_points = [1000.0, cam_peak, redline]
+        rpm_points = [1000.0, cam_peak, cam_peak + 1500.0]
         base_curve = np.interp(rpm, rpm_points, [0.88, 1.02, 0.90])
 
         head = self.engine.head
