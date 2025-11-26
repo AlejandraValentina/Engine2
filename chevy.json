@@ -2,12 +2,11 @@
   "block": {
     "bore": 101.6,
     "stroke": 88.4,
-    "conrod_length": 146.1,
+    "conrod_length": 145.0,
     "num_cylinders": 8,
     "config": "V",
     "bank_angle": 90.0,
-    "firing_order": [1, 8, 4, 3, 6, 5, 7, 2],
-    "redline_rpm": 6000.0
+    "firing_order": [1, 8, 4, 3, 6, 5, 7, 2]
   },
   "head": {
     "compression_ratio": 9.5,
@@ -15,67 +14,41 @@
     "exhaust_valves": 2,
     "intake_valve_diameter": 48.0,
     "exhaust_valve_diameter": 40.0,
-    "intake_valve_diameter_mm": 48.0,
-    "exhaust_valve_diameter_mm": 40.0,
-    "combustion_chamber_vol": 72.0,
-    "port_flow_cfm": 240.0,
-    "port_flow_efficiency": 0.65,
-    "mach_tolerance": 0.70,
-    "gasket_thickness_mm": 1.0,
-    "gasket_bore_mm": 104.0,
-    "deck_clearance_mm": 0.5,
-    "piston_dome_cc": 0.0,
-    "chamber_design": "Typical Wedge"
+    "port_flow_efficiency": 0.62,
+    "mach_tolerance": 0.65
   },
   "camshaft": {
-    "intake_lift": 12.0,
-    "exhaust_lift": 12.0,
-    "intake_duration": 270.0,
-    "exhaust_duration": 270.0,
+    "intake_lift": 11.5,
+    "exhaust_lift": 11.0,
+    "intake_duration": 240.0,
+    "exhaust_duration": 245.0,
     "lobe_separation": 110.0,
     "advance": 0.0,
-    "peak_rpm": 5400.0
+    "peak_rpm": 5200.0
   },
   "intake": {
-    "runner_length": 280.0,
-    "runner_diameter": 50.0,
-    "plenum_volume": 6.0,
-    "throttle_body_dia": 75.0,
-    "throttle_cfm": 750.0,
-    "flow_loss_coefficient": 0.0
+    "runner_length": 250.0,
+    "runner_diameter": 42.0,
+    "plenum_volume": 5.0,
+    "throttle_body_dia": 75.0
   },
   "exhaust": {
-    "header_primary_length": 600.0,
-    "header_primary_diameter": 45.0,
-    "collector_length": 200.0
+    "header_primary_length": 500.0,
+    "header_primary_diameter": 44.0,
+    "collector_length": 250.0
   },
   "supercharger": {
-    "type": "NA",
-    "boost_pressure_bar": 0.0
+    "type": "NA"
   },
-  "simulation_settings": {
-    "ignition_timing_btdc": 30.0
+  "combustion": {
+    "thermal_efficiency": 0.48,
+    "burn_duration": 55.0,
+    "ignition_advance": 28.0,
+    "afr": 12.8
   },
   "friction": {
-    "bottom_end_type": "Standard",
-    "water_pump": true,
-    "alternator": true,
-    "power_steering": true,
-    "mechanical_fan": false,
     "friction_base_kpa": 45.0,
     "friction_linear_factor": 0.03,
     "friction_quadratic_factor": 2.5e-6
-  },
-  "fuel": {
-    "type_name": "Pump Gas",
-    "octane_rating": 93.0,
-    "energy_density": 44000000.0,
-    "stoich_afr": 14.7
-  },
-  "combustion": {
-    "thermal_efficiency": 0.50,
-    "burn_duration": 55.0,
-    "ignition_advance": 30.0,
-    "afr": 12.8
   }
 }
