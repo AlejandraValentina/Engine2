@@ -69,7 +69,7 @@ class CylinderHead:
     exhaust_valve_diameter_mm: float = 30.0  # millimeters
     combustion_chamber_vol: Optional[float] = None  # cc override
     port_flow_cfm: float = 200.0  # peak flow at max lift @ 28" H2O per valve
-    port_flow_efficiency: float = 0.7  # 0.1 (very restrictive) .. 1.0 (race)
+    port_flow_efficiency: float = 0.65  # 0.1 (very restrictive) .. 1.0 (race)
     mach_tolerance: float = 0.75  # Mach index where choking begins
     gasket_thickness_mm: float = 1.0
     gasket_bore_mm: float = 88.0
@@ -129,7 +129,7 @@ class CylinderHead:
             exhaust_valve_diameter_mm=exhaust_dia,
             combustion_chamber_vol=data.get("combustion_chamber_vol"),
             port_flow_cfm=data.get("port_flow_cfm", 200.0),
-            port_flow_efficiency=data.get("port_flow_efficiency", 0.7),
+            port_flow_efficiency=data.get("port_flow_efficiency", 0.65),
             mach_tolerance=data.get("mach_tolerance", 0.75),
             gasket_thickness_mm=data.get("gasket_thickness_mm", 1.0),
             gasket_bore_mm=data.get("gasket_bore_mm", 88.0),
