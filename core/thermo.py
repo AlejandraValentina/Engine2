@@ -239,10 +239,17 @@ class CylinderSimulator:
         indicated_torque = float(np.mean(torque_trace))
 
         f_cfg = getattr(self.engine, "friction", None)
-        f_base = getattr(f_cfg, "friction_base_kpa", 35.0)
+        f_base = getattr(f_cfg, "friction_base_kpa", 35.0) + 5.0  # bump base by 5 kPa
         f_lin = getattr(f_cfg, "friction_linear_factor", 0.02)
         f_quad = getattr(f_cfg, "friction_quadratic_factor", 1.8e-6)
+
         fmep_kpa = f_base + f_lin * rpm + f_quad * rpm * rpm
+
+        be_type = (getattr(f_cfg, "bottom_end_type", "Standard") or "Standard").lower()
+        if be_type == "performance":
+            fmep_kpa *= 0.9
+        elif be_type == "race":
+            fmep_kpa *= 0.72
         fmep_pa = fmep_kpa * 1000.0
 
         displacement_m3 = max(self.engine.block.displacement_cc * 1e-6, 1e-9)
