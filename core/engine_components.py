@@ -69,6 +69,7 @@ class CylinderHead:
     exhaust_valve_diameter_mm: float = 30.0  # millimeters
     combustion_chamber_vol: Optional[float] = None  # cc override
     port_flow_cfm: float = 200.0  # peak flow at max lift @ 28" H2O per valve
+    port_flow_efficiency: float = 0.7  # 0.5 (restrictive) .. 0.95 (race)
     gasket_thickness_mm: float = 1.0
     gasket_bore_mm: float = 88.0
     deck_clearance_mm: float = 0.0
@@ -98,6 +99,7 @@ class CylinderHead:
             "exhaust_valve_diameter_mm": self.exhaust_valve_diameter_mm,
             "combustion_chamber_vol": self.combustion_chamber_vol,
             "port_flow_cfm": self.port_flow_cfm,
+            "port_flow_efficiency": self.port_flow_efficiency,
             "gasket_thickness_mm": self.gasket_thickness_mm,
             "gasket_bore_mm": self.gasket_bore_mm,
             "deck_clearance_mm": self.deck_clearance_mm,
@@ -125,6 +127,7 @@ class CylinderHead:
             exhaust_valve_diameter_mm=exhaust_dia,
             combustion_chamber_vol=data.get("combustion_chamber_vol"),
             port_flow_cfm=data.get("port_flow_cfm", 200.0),
+            port_flow_efficiency=data.get("port_flow_efficiency", 0.7),
             gasket_thickness_mm=data.get("gasket_thickness_mm", 1.0),
             gasket_bore_mm=data.get("gasket_bore_mm", 88.0),
             deck_clearance_mm=data.get("deck_clearance_mm", 0.0),

@@ -97,17 +97,18 @@ class CylinderSimulator:
             valve_mm = getattr(head, "intake_valve_diameter", 35.0)
         valve_diameter_m = valve_mm * 1e-3
 
-        flow_coeff = 1.0  # geometric area for Mach estimate
-        Av = max(1e-9, head.intake_valves * math.pi * (valve_diameter_m / 2.0) ** 2 * flow_coeff)
+        eff = min(max(getattr(head, "port_flow_efficiency", 0.7), 0.5), 0.95)
+        Av_geom = max(1e-9, head.intake_valves * math.pi * (valve_diameter_m / 2.0) ** 2)
+        Av = Av_geom * eff
         Ap = max(1e-9, math.pi * (bore_m / 2.0) ** 2)
-        V_gas = piston_speed * Ap / Av
+        V_gas = piston_speed * (Ap / Av)
         mach_index = V_gas / SPEED_OF_SOUND
 
-        if mach_index < 0.55:
+        if mach_index < 0.6:
             choke_factor = 1.0
         else:
-            choke_factor = 1.0 - 2.0 * (mach_index - 0.55) ** 2
-            choke_factor = max(0.3, choke_factor)
+            choke_factor = 1.0 - 1.5 * (mach_index - 0.6) ** 2
+            choke_factor = max(0.35, choke_factor)
 
         print(
             f"[DEBUG VE] RPM={rpm:.0f} PistonSpd={piston_speed:.1f} GasVel={V_gas:.1f} Mach={mach_index:.2f} ChokeFactor={choke_factor:.2f}"
