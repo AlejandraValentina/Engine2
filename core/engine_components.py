@@ -69,7 +69,7 @@ class CylinderHead:
     exhaust_valve_diameter_mm: float = 30.0  # millimeters
     combustion_chamber_vol: Optional[float] = None  # cc override
     port_flow_cfm: float = 200.0  # peak flow at max lift @ 28" H2O per valve
-    port_flow_efficiency: float = 0.7  # 0.5 (restrictive) .. 0.95 (race)
+    port_flow_efficiency: float = 0.7  # 0.1 (very restrictive) .. 1.0 (race)
     gasket_thickness_mm: float = 1.0
     gasket_bore_mm: float = 88.0
     deck_clearance_mm: float = 0.0

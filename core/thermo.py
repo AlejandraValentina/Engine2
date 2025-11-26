@@ -97,7 +97,7 @@ class CylinderSimulator:
             valve_mm = getattr(head, "intake_valve_diameter", 35.0)
         valve_diameter_m = valve_mm * 1e-3
 
-        eff = min(max(getattr(head, "port_flow_efficiency", 0.7), 0.5), 0.95)
+        eff = min(max(getattr(head, "port_flow_efficiency", 0.7), 0.1), 1.0)
         Av_geom = max(1e-9, head.intake_valves * math.pi * (valve_diameter_m / 2.0) ** 2)
         Av = Av_geom * eff
         Ap = max(1e-9, math.pi * (bore_m / 2.0) ** 2)

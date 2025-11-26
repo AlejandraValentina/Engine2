@@ -479,6 +479,10 @@ class MainWindow(QMainWindow):
         port_flow_spin.valueChanged.connect(lambda val: self._update_value(head, "port_flow_cfm", val))
         self.property_form.addRow("Port Flow @28\" (cfm)", port_flow_spin)
 
+        port_cd_spin = self._double_spin(head.port_flow_efficiency, 0.1, 1.0, 0.01)
+        port_cd_spin.valueChanged.connect(lambda val: self._update_value(head, "port_flow_efficiency", val))
+        self.property_form.addRow("Port Flow Efficiency", port_cd_spin)
+
     def _build_cam_form(self, cam: Camshaft) -> None:
         self._clear_property_form()
 
