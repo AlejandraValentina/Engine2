@@ -350,21 +350,21 @@ class MainWindow(QMainWindow):
         self.property_form.addRow(self._label_value("Displacement (cc)", f"{block.displacement_cc:.1f}"))
 
         bore_spin = self._double_spin(block.bore, 50.0, 110.0, 0.1)
-        bore_spin.valueChanged.connect(lambda val: self._update_value(block, "bore", val))
+        self._bind_spin(bore_spin, lambda val: self._update_value(block, "bore", val))
         self.property_form.addRow("Bore (mm)", bore_spin)
 
         stroke_spin = self._double_spin(block.stroke, 40.0, 120.0, 0.1)
-        stroke_spin.valueChanged.connect(lambda val: self._update_value(block, "stroke", val))
+        self._bind_spin(stroke_spin, lambda val: self._update_value(block, "stroke", val))
         self.property_form.addRow("Stroke (mm)", stroke_spin)
 
         rod_spin = self._double_spin(block.conrod_length, 80.0, 200.0, 0.5)
-        rod_spin.valueChanged.connect(lambda val: self._update_value(block, "conrod_length", val))
+        self._bind_spin(rod_spin, lambda val: self._update_value(block, "conrod_length", val))
         self.property_form.addRow("Conrod Length (mm)", rod_spin)
 
         cyl_spin = QSpinBox()
         cyl_spin.setRange(1, 16)
         cyl_spin.setValue(block.num_cylinders)
-        cyl_spin.valueChanged.connect(lambda val: self._update_value(block, "num_cylinders", val))
+        self._bind_spin(cyl_spin, lambda val: self._update_value(block, "num_cylinders", val))
         self.property_form.addRow("Cylinders", cyl_spin)
 
         config_combo = QComboBox()
@@ -374,7 +374,7 @@ class MainWindow(QMainWindow):
         self.property_form.addRow("Configuration", config_combo)
 
         bank_spin = self._double_spin(block.bank_angle, 0.0, 120.0, 0.5)
-        bank_spin.valueChanged.connect(lambda val: self._update_value(block, "bank_angle", val))
+        self._bind_spin(bank_spin, lambda val: self._update_value(block, "bank_angle", val))
         self.property_form.addRow("Bank Angle (deg)", bank_spin)
 
         redline_spin = QSpinBox()
@@ -382,9 +382,7 @@ class MainWindow(QMainWindow):
         redline_spin.setSingleStep(100)
         redline_spin.setSuffix(" rpm")
         redline_spin.setValue(int(block.redline_rpm))
-        redline_spin.valueChanged.connect(
-            lambda val: self._update_value(block, "redline_rpm", float(val))
-        )
+        self._bind_spin(redline_spin, lambda val: self._update_value(block, "redline_rpm", float(val)))
         self.property_form.addRow("Redline RPM", redline_spin)
 
         firing_edit = QLineEdit(",".join(str(x) for x in block.firing_order))
@@ -395,7 +393,7 @@ class MainWindow(QMainWindow):
         self._clear_property_form()
 
         cr_spin = self._double_spin(head.compression_ratio, 5.0, 18.0, 0.1)
-        cr_spin.valueChanged.connect(lambda val: self._update_value(head, "compression_ratio", val))
+        self._bind_spin(cr_spin, lambda val: self._update_value(head, "compression_ratio", val))
         cr_row = QWidget()
         cr_layout = QHBoxLayout()
         cr_layout.setContentsMargins(0, 0, 0, 0)
@@ -409,166 +407,197 @@ class MainWindow(QMainWindow):
         intake_valves_spin = QSpinBox()
         intake_valves_spin.setRange(1, 5)
         intake_valves_spin.setValue(head.intake_valves)
-        intake_valves_spin.valueChanged.connect(lambda val: self._update_value(head, "intake_valves", val))
+        self._bind_spin(intake_valves_spin, lambda val: self._update_value(head, "intake_valves", val))
         self.property_form.addRow("Intake Valves", intake_valves_spin)
 
         exhaust_valves_spin = QSpinBox()
         exhaust_valves_spin.setRange(1, 5)
         exhaust_valves_spin.setValue(head.exhaust_valves)
-        exhaust_valves_spin.valueChanged.connect(lambda val: self._update_value(head, "exhaust_valves", val))
+        self._bind_spin(exhaust_valves_spin, lambda val: self._update_value(head, "exhaust_valves", val))
         self.property_form.addRow("Exhaust Valves", exhaust_valves_spin)
-
-        chamber_options = ["Pent Roof", "Hemi", "Compact Wedge", "Typical Wedge", "Flat Head"]
-        chamber_combo = QComboBox()
-        chamber_combo.addItems(chamber_options)
-        if head.chamber_design in chamber_options:
-            chamber_combo.setCurrentText(head.chamber_design)
-        chamber_combo.currentTextChanged.connect(lambda text: self._update_value(head, "chamber_design", text))
-        self.property_form.addRow("Chamber Design", chamber_combo)
 
         intake_dia_val = getattr(head, "intake_valve_diameter_mm", head.intake_valve_diameter)
         intake_dia = self._double_spin(intake_dia_val, 15.0, 60.0, 0.1)
         intake_dia.setSuffix(" mm")
-        intake_dia.valueChanged.connect(lambda val: self._update_valve_size(head, "intake", val))
+        self._bind_spin(intake_dia, lambda val: self._update_valve_size(head, "intake", val))
         self.property_form.addRow("Intake Valve Dia", intake_dia)
 
         exhaust_dia_val = getattr(head, "exhaust_valve_diameter_mm", head.exhaust_valve_diameter)
         exhaust_dia = self._double_spin(exhaust_dia_val, 15.0, 60.0, 0.1)
         exhaust_dia.setSuffix(" mm")
-        exhaust_dia.valueChanged.connect(lambda val: self._update_valve_size(head, "exhaust", val))
+        self._bind_spin(exhaust_dia, lambda val: self._update_valve_size(head, "exhaust", val))
         self.property_form.addRow("Exhaust Valve Dia", exhaust_dia)
 
         chamber_spin = self._double_spin(head.combustion_chamber_vol or 40.0, 20.0, 80.0, 0.1)
-        chamber_spin.valueChanged.connect(lambda val: self._update_value(head, "combustion_chamber_vol", val))
+        self._bind_spin(chamber_spin, lambda val: self._update_value(head, "combustion_chamber_vol", val))
         self.property_form.addRow("Chamber Volume (cc)", chamber_spin)
 
         gasket_thickness = self._double_spin(head.gasket_thickness_mm, 0.1, 5.0, 0.05)
         gasket_thickness.setSuffix(" mm")
-        gasket_thickness.valueChanged.connect(
-            lambda val: self._update_value(head, "gasket_thickness_mm", val)
-        )
+        self._bind_spin(gasket_thickness, lambda val: self._update_value(head, "gasket_thickness_mm", val))
         self.property_form.addRow("Gasket Thickness", gasket_thickness)
 
         gasket_bore = self._double_spin(head.gasket_bore_mm, 50.0, 120.0, 0.1)
         gasket_bore.setSuffix(" mm")
-        gasket_bore.valueChanged.connect(lambda val: self._update_value(head, "gasket_bore_mm", val))
+        self._bind_spin(gasket_bore, lambda val: self._update_value(head, "gasket_bore_mm", val))
         self.property_form.addRow("Gasket Bore", gasket_bore)
 
         deck_clearance = self._double_spin(head.deck_clearance_mm, -2.0, 5.0, 0.05)
         deck_clearance.setSuffix(" mm")
-        deck_clearance.valueChanged.connect(
-            lambda val: self._update_value(head, "deck_clearance_mm", val)
-        )
+        self._bind_spin(deck_clearance, lambda val: self._update_value(head, "deck_clearance_mm", val))
         self.property_form.addRow("Deck Clearance", deck_clearance)
 
         piston_dome = self._double_spin(head.piston_dome_cc, -30.0, 30.0, 0.1)
         piston_dome.setSuffix(" cc")
-        piston_dome.valueChanged.connect(lambda val: self._update_value(head, "piston_dome_cc", val))
+        self._bind_spin(piston_dome, lambda val: self._update_value(head, "piston_dome_cc", val))
         self.property_form.addRow("Piston Dome Volume", piston_dome)
 
         port_flow_spin = self._double_spin(head.port_flow_cfm, 50.0, 500.0, 1.0)
         port_flow_spin.setSuffix(" cfm")
-        port_flow_spin.valueChanged.connect(lambda val: self._update_value(head, "port_flow_cfm", val))
+        self._bind_spin(port_flow_spin, lambda val: self._update_value(head, "port_flow_cfm", val))
         self.property_form.addRow("Port Flow @28\" (cfm)", port_flow_spin)
 
         port_cd_spin = self._double_spin(head.port_flow_efficiency, 0.1, 1.0, 0.01)
-        port_cd_spin.valueChanged.connect(lambda val: self._update_value(head, "port_flow_efficiency", val))
+        self._bind_spin(port_cd_spin, lambda val: self._update_value(head, "port_flow_efficiency", val))
         self.property_form.addRow("Port Flow Efficiency", port_cd_spin)
 
         mach_tol = self._double_spin(head.mach_tolerance, 0.5, 1.0, 0.05)
-        mach_tol.valueChanged.connect(lambda val: self._update_value(head, "mach_tolerance", val))
+        self._bind_spin(mach_tol, lambda val: self._update_value(head, "mach_tolerance", val))
         self.property_form.addRow("Mach Tolerance", mach_tol)
 
     def _build_cam_form(self, cam: Camshaft) -> None:
         self._clear_property_form()
 
         int_lift = self._double_spin(cam.intake_lift, 1.0, 20.0, 0.1)
-        int_lift.valueChanged.connect(lambda val: self._update_value(cam, "intake_lift", val))
+        self._bind_spin(int_lift, lambda val: self._update_value(cam, "intake_lift", val))
         self.property_form.addRow("Intake Lift (mm)", int_lift)
 
         exh_lift = self._double_spin(cam.exhaust_lift, 1.0, 20.0, 0.1)
-        exh_lift.valueChanged.connect(lambda val: self._update_value(cam, "exhaust_lift", val))
+        self._bind_spin(exh_lift, lambda val: self._update_value(cam, "exhaust_lift", val))
         self.property_form.addRow("Exhaust Lift (mm)", exh_lift)
 
         int_dur = self._double_spin(cam.intake_duration, 180.0, 320.0, 0.5)
-        int_dur.valueChanged.connect(lambda val: self._update_value(cam, "intake_duration", val))
+        self._bind_spin(int_dur, lambda val: self._update_value(cam, "intake_duration", val))
         self.property_form.addRow("Intake Duration (deg)", int_dur)
 
         exh_dur = self._double_spin(cam.exhaust_duration, 180.0, 320.0, 0.5)
-        exh_dur.valueChanged.connect(lambda val: self._update_value(cam, "exhaust_duration", val))
+        self._bind_spin(exh_dur, lambda val: self._update_value(cam, "exhaust_duration", val))
         self.property_form.addRow("Exhaust Duration (deg)", exh_dur)
 
         lsa_spin = self._double_spin(cam.lobe_separation, 90.0, 125.0, 0.5)
-        lsa_spin.valueChanged.connect(lambda val: self._update_value(cam, "lobe_separation", val))
+        self._bind_spin(lsa_spin, lambda val: self._update_value(cam, "lobe_separation", val))
         self.property_form.addRow("Lobe Separation (deg)", lsa_spin)
 
         adv_spin = self._double_spin(cam.advance, -20.0, 20.0, 0.5)
-        adv_spin.valueChanged.connect(lambda val: self._update_value(cam, "advance", val))
+        self._bind_spin(adv_spin, lambda val: self._update_value(cam, "advance", val))
         self.property_form.addRow("Advance (deg)", adv_spin)
 
         peak_spin = self._double_spin(cam.peak_rpm, 1000.0, 20000.0, 50.0)
         peak_spin.setSuffix(" rpm")
-        peak_spin.valueChanged.connect(lambda val: self._update_value(cam, "peak_rpm", val))
+        self._bind_spin(peak_spin, lambda val: self._update_value(cam, "peak_rpm", val))
         self.property_form.addRow("Peak RPM", peak_spin)
 
     def _build_combustion_form(self, combustion: Combustion) -> None:
         self._clear_property_form()
+        presets = {
+            "Old Wedge": {"thermal_efficiency": 0.45, "burn_duration": 65.0, "ignition_advance": 25.0},
+            "Modern Pentroof": {"thermal_efficiency": 0.54, "burn_duration": 45.0, "ignition_advance": 30.0},
+            "Race / Hemi": {"thermal_efficiency": 0.60, "burn_duration": 35.0, "ignition_advance": 35.0},
+            "Custom": {},
+        }
+
+        chamber_combo = QComboBox()
+        chamber_combo.addItems(list(presets.keys()))
+        chamber_combo.setCurrentText(
+            combustion.chamber_type if combustion.chamber_type in presets else "Custom"
+        )
 
         eff_spin = self._double_spin(combustion.thermal_efficiency, 0.3, 0.7, 0.01)
-        eff_spin.valueChanged.connect(lambda val: self._update_value(combustion, "thermal_efficiency", val))
-        self.property_form.addRow("Thermal Efficiency", eff_spin)
-
         burn_spin = self._double_spin(combustion.burn_duration, 20.0, 90.0, 0.5)
         burn_spin.setSuffix(" deg")
-        burn_spin.valueChanged.connect(lambda val: self._update_value(combustion, "burn_duration", val))
-        self.property_form.addRow("Burn Duration", burn_spin)
-
         advance_spin = self._double_spin(combustion.ignition_advance, 0.0, 60.0, 0.5)
         advance_spin.setSuffix(" deg")
-        advance_spin.valueChanged.connect(lambda val: self._update_value(combustion, "ignition_advance", val))
-        self.property_form.addRow("Ignition Advance", advance_spin)
-
         afr_spin = self._double_spin(combustion.afr, 10.0, 18.0, 0.05)
-        afr_spin.valueChanged.connect(lambda val: self._update_value(combustion, "afr", val))
+
+        def set_custom() -> None:
+            if chamber_combo.currentText() != "Custom":
+                chamber_combo.blockSignals(True)
+                chamber_combo.setCurrentText("Custom")
+                chamber_combo.blockSignals(False)
+
+        self._bind_spin(
+            eff_spin, lambda val: (self._update_value(combustion, "thermal_efficiency", val), set_custom())
+        )
+        self._bind_spin(
+            burn_spin, lambda val: (self._update_value(combustion, "burn_duration", val), set_custom())
+        )
+        self._bind_spin(
+            advance_spin, lambda val: (self._update_value(combustion, "ignition_advance", val), set_custom())
+        )
+        self._bind_spin(afr_spin, lambda val: (self._update_value(combustion, "afr", val), set_custom()))
+
+        def apply_preset(name: str) -> None:
+            preset = presets.get(name, {})
+            if not preset:
+                self._update_value(combustion, "chamber_type", name)
+                return
+            combustion.chamber_type = name
+            for attr, val in preset.items():
+                self._update_value(combustion, attr, val)
+            for spin, attr in (
+                (eff_spin, "thermal_efficiency"),
+                (burn_spin, "burn_duration"),
+                (advance_spin, "ignition_advance"),
+            ):
+                spin.blockSignals(True)
+                spin.setValue(getattr(combustion, attr))
+                spin.blockSignals(False)
+
+        chamber_combo.currentTextChanged.connect(apply_preset)
+
+        self.property_form.addRow("Chamber Type", chamber_combo)
+        self.property_form.addRow("Thermal Efficiency", eff_spin)
+        self.property_form.addRow("Burn Duration", burn_spin)
+        self.property_form.addRow("Ignition Advance", advance_spin)
         self.property_form.addRow("AFR", afr_spin)
 
     def _build_intake_form(self, intake: IntakeSystem) -> None:
         self._clear_property_form()
 
         runner_len = self._double_spin(intake.runner_length, 50.0, 800.0, 1.0)
-        runner_len.valueChanged.connect(lambda val: self._update_value(intake, "runner_length", val))
+        self._bind_spin(runner_len, lambda val: self._update_value(intake, "runner_length", val))
         self.property_form.addRow("Runner Length (mm)", runner_len)
 
         runner_dia = self._double_spin(intake.runner_diameter, 20.0, 120.0, 0.5)
-        runner_dia.valueChanged.connect(lambda val: self._update_value(intake, "runner_diameter", val))
+        self._bind_spin(runner_dia, lambda val: self._update_value(intake, "runner_diameter", val))
         self.property_form.addRow("Runner Diameter (mm)", runner_dia)
 
         plenum_vol = self._double_spin(intake.plenum_volume, 0.5, 10.0, 0.1)
-        plenum_vol.valueChanged.connect(lambda val: self._update_value(intake, "plenum_volume", val))
+        self._bind_spin(plenum_vol, lambda val: self._update_value(intake, "plenum_volume", val))
         self.property_form.addRow("Plenum Volume (L)", plenum_vol)
 
         throttle_dia = self._double_spin(intake.throttle_body_dia, 30.0, 90.0, 0.5)
-        throttle_dia.valueChanged.connect(lambda val: self._update_value(intake, "throttle_body_dia", val))
+        self._bind_spin(throttle_dia, lambda val: self._update_value(intake, "throttle_body_dia", val))
         self.property_form.addRow("Throttle Body Dia (mm)", throttle_dia)
 
         throttle_cfm = self._double_spin(intake.throttle_cfm, 100.0, 1500.0, 10.0)
         throttle_cfm.setSuffix(" cfm")
-        throttle_cfm.valueChanged.connect(lambda val: self._update_value(intake, "throttle_cfm", val))
+        self._bind_spin(throttle_cfm, lambda val: self._update_value(intake, "throttle_cfm", val))
         self.property_form.addRow("Throttle/Carb Rating (cfm)", throttle_cfm)
 
     def _build_exhaust_form(self, exhaust: ExhaustSystem) -> None:
         self._clear_property_form()
 
         primary_len = self._double_spin(exhaust.header_primary_length, 100.0, 1200.0, 1.0)
-        primary_len.valueChanged.connect(lambda val: self._update_value(exhaust, "header_primary_length", val))
+        self._bind_spin(primary_len, lambda val: self._update_value(exhaust, "header_primary_length", val))
         self.property_form.addRow("Primary Length (mm)", primary_len)
 
         primary_dia = self._double_spin(exhaust.header_primary_diameter, 20.0, 100.0, 0.5)
-        primary_dia.valueChanged.connect(lambda val: self._update_value(exhaust, "header_primary_diameter", val))
+        self._bind_spin(primary_dia, lambda val: self._update_value(exhaust, "header_primary_diameter", val))
         self.property_form.addRow("Primary Diameter (mm)", primary_dia)
 
         collector_len = self._double_spin(exhaust.collector_length, 100.0, 1200.0, 1.0)
-        collector_len.valueChanged.connect(lambda val: self._update_value(exhaust, "collector_length", val))
+        self._bind_spin(collector_len, lambda val: self._update_value(exhaust, "collector_length", val))
         self.property_form.addRow("Collector Length (mm)", collector_len)
 
     def _build_supercharger_form(self, supercharger: Supercharger) -> None:
@@ -581,7 +610,7 @@ class MainWindow(QMainWindow):
         self.property_form.addRow("Type", type_combo)
 
         boost_spin = self._double_spin(supercharger.boost_pressure_bar, 0.0, 3.0, 0.05)
-        boost_spin.valueChanged.connect(lambda val: self._update_value(supercharger, "boost_pressure_bar", val))
+        self._bind_spin(boost_spin, lambda val: self._update_value(supercharger, "boost_pressure_bar", val))
         self.property_form.addRow("Boost (bar)", boost_spin)
 
     def _build_friction_form(self, friction: Friction) -> None:
@@ -599,15 +628,9 @@ class MainWindow(QMainWindow):
         quad_spin = self._double_spin(friction.friction_quadratic_factor, 0.0, 1e-4, 1e-7)
         quad_spin.setDecimals(8)
 
-        base_spin.valueChanged.connect(
-            lambda val: self._update_value(friction, "friction_base_kpa", val)
-        )
-        lin_spin.valueChanged.connect(
-            lambda val: self._update_value(friction, "friction_linear_factor", val)
-        )
-        quad_spin.valueChanged.connect(
-            lambda val: self._update_value(friction, "friction_quadratic_factor", val)
-        )
+        self._bind_spin(base_spin, lambda val: self._update_value(friction, "friction_base_kpa", val))
+        self._bind_spin(lin_spin, lambda val: self._update_value(friction, "friction_linear_factor", val))
+        self._bind_spin(quad_spin, lambda val: self._update_value(friction, "friction_quadratic_factor", val))
 
         self.property_form.addRow("Base FMEP (kPa)", base_spin)
         self.property_form.addRow("Linear Coeff", lin_spin)
@@ -692,13 +715,13 @@ class MainWindow(QMainWindow):
         name_edit.editingFinished.connect(lambda: self._update_value(fuel, "type_name", name_edit.text()))
         self.property_form.addRow("Fuel Type", name_edit)
 
-        octane_spin.valueChanged.connect(lambda val: self._update_value(fuel, "octane_rating", val))
+        self._bind_spin(octane_spin, lambda val: self._update_value(fuel, "octane_rating", val))
         self.property_form.addRow("Octane Rating", octane_spin)
 
-        energy_spin.valueChanged.connect(lambda val: self._update_value(fuel, "energy_density", val))
+        self._bind_spin(energy_spin, lambda val: self._update_value(fuel, "energy_density", val))
         self.property_form.addRow("Energy Density", energy_spin)
 
-        afr_spin.valueChanged.connect(lambda val: self._update_value(fuel, "stoich_afr", val))
+        self._bind_spin(afr_spin, lambda val: self._update_value(fuel, "stoich_afr", val))
         self.property_form.addRow("Stoich AFR", afr_spin)
 
     def _build_sim_settings_form(self, settings: SimulationSettings) -> None:
@@ -706,9 +729,7 @@ class MainWindow(QMainWindow):
 
         ign_spin = self._double_spin(settings.ignition_timing_btdc, -10.0, 60.0, 0.5)
         ign_spin.setSuffix(" deg BTDC")
-        ign_spin.valueChanged.connect(
-            lambda val: self._update_value(settings, "ignition_timing_btdc", val)
-        )
+        self._bind_spin(ign_spin, lambda val: self._update_value(settings, "ignition_timing_btdc", val))
         self.property_form.addRow("Ignition Timing", ign_spin)
 
     # -------------------------- Helpers -----------------------------------
@@ -719,6 +740,15 @@ class MainWindow(QMainWindow):
         spin.setSingleStep(step)
         spin.setValue(value)
         return spin
+
+    def _bind_spin(self, spin: Any, setter: Any) -> None:
+        def handler() -> None:
+            try:
+                setter(spin.value())
+            except Exception:
+                pass
+
+        spin.editingFinished.connect(handler)
 
     def _label_value(self, label: str, value: str) -> QWidget:
         container = QWidget()
@@ -1121,7 +1151,7 @@ class CompressionDialog(QDialog):
             self.deck_clearance_spin,
             self.piston_dome_spin,
         ):
-            spin.valueChanged.connect(self._update_result)
+            spin.editingFinished.connect(self._update_result)
 
         self._update_result()
 

@@ -75,7 +75,6 @@ class CylinderHead:
     gasket_bore_mm: float = 88.0
     deck_clearance_mm: float = 0.0
     piston_dome_cc: float = 0.0
-    chamber_design: str = "Pent Roof"
 
     def __post_init__(self) -> None:
         # Keep legacy/non-legacy valve diameter fields in sync for backward compatibility.
@@ -106,7 +105,6 @@ class CylinderHead:
             "gasket_bore_mm": self.gasket_bore_mm,
             "deck_clearance_mm": self.deck_clearance_mm,
             "piston_dome_cc": self.piston_dome_cc,
-            "chamber_design": self.chamber_design,
         }
 
     @classmethod
@@ -135,7 +133,6 @@ class CylinderHead:
             gasket_bore_mm=data.get("gasket_bore_mm", 88.0),
             deck_clearance_mm=data.get("deck_clearance_mm", 0.0),
             piston_dome_cc=data.get("piston_dome_cc", 0.0),
-            chamber_design=data.get("chamber_design", "Pent Roof"),
         )
 
 
@@ -188,6 +185,7 @@ class Combustion:
     burn_duration: float = 50.0  # crank degrees
     ignition_advance: float = 30.0  # degrees BTDC
     afr: float = 13.0  # air-fuel ratio
+    chamber_type: str = "Modern Pentroof"
 
     def to_dict(self) -> dict:
         return {
@@ -195,6 +193,7 @@ class Combustion:
             "burn_duration": self.burn_duration,
             "ignition_advance": self.ignition_advance,
             "afr": self.afr,
+            "chamber_type": self.chamber_type,
         }
 
     @classmethod
@@ -204,6 +203,7 @@ class Combustion:
             burn_duration=data.get("burn_duration", 50.0),
             ignition_advance=data.get("ignition_advance", 30.0),
             afr=data.get("afr", 13.0),
+            chamber_type=data.get("chamber_type", "Modern Pentroof"),
         )
 
 
