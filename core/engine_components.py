@@ -63,8 +63,10 @@ class CylinderHead:
     compression_ratio: float = 10.5
     intake_valves: int = 2
     exhaust_valves: int = 2
-    intake_valve_diameter: float = 35.0  # millimeters
-    exhaust_valve_diameter: float = 30.0  # millimeters
+    intake_valve_diameter: float = 35.0  # millimeters (legacy alias)
+    exhaust_valve_diameter: float = 30.0  # millimeters (legacy alias)
+    intake_valve_diameter_mm: float = 35.0  # millimeters
+    exhaust_valve_diameter_mm: float = 30.0  # millimeters
     combustion_chamber_vol: Optional[float] = None  # cc override
     port_flow_cfm: float = 200.0  # peak flow at max lift @ 28" H2O per valve
     gasket_thickness_mm: float = 1.0
@@ -73,6 +75,18 @@ class CylinderHead:
     piston_dome_cc: float = 0.0
     chamber_design: str = "Pent Roof"
 
+    def __post_init__(self) -> None:
+        # Keep legacy/non-legacy valve diameter fields in sync for backward compatibility.
+        if self.intake_valve_diameter_mm is None:
+            self.intake_valve_diameter_mm = self.intake_valve_diameter
+        if self.intake_valve_diameter is None:
+            self.intake_valve_diameter = self.intake_valve_diameter_mm
+
+        if self.exhaust_valve_diameter_mm is None:
+            self.exhaust_valve_diameter_mm = self.exhaust_valve_diameter
+        if self.exhaust_valve_diameter is None:
+            self.exhaust_valve_diameter = self.exhaust_valve_diameter_mm
+
     def to_dict(self) -> dict:
         return {
             "compression_ratio": self.compression_ratio,
@@ -80,6 +94,8 @@ class CylinderHead:
             "exhaust_valves": self.exhaust_valves,
             "intake_valve_diameter": self.intake_valve_diameter,
             "exhaust_valve_diameter": self.exhaust_valve_diameter,
+            "intake_valve_diameter_mm": self.intake_valve_diameter_mm,
+            "exhaust_valve_diameter_mm": self.exhaust_valve_diameter_mm,
             "combustion_chamber_vol": self.combustion_chamber_vol,
             "port_flow_cfm": self.port_flow_cfm,
             "gasket_thickness_mm": self.gasket_thickness_mm,
@@ -91,12 +107,22 @@ class CylinderHead:
 
     @classmethod
     def from_dict(cls, data: dict) -> "CylinderHead":
+        intake_dia = data.get(
+            "intake_valve_diameter_mm",
+            data.get("intake_valve_diameter", 35.0),
+        )
+        exhaust_dia = data.get(
+            "exhaust_valve_diameter_mm",
+            data.get("exhaust_valve_diameter", 30.0),
+        )
         return cls(
             compression_ratio=data.get("compression_ratio", 10.5),
             intake_valves=data.get("intake_valves", 2),
             exhaust_valves=data.get("exhaust_valves", 2),
-            intake_valve_diameter=data.get("intake_valve_diameter", 35.0),
-            exhaust_valve_diameter=data.get("exhaust_valve_diameter", 30.0),
+            intake_valve_diameter=intake_dia,
+            exhaust_valve_diameter=exhaust_dia,
+            intake_valve_diameter_mm=intake_dia,
+            exhaust_valve_diameter_mm=exhaust_dia,
             combustion_chamber_vol=data.get("combustion_chamber_vol"),
             port_flow_cfm=data.get("port_flow_cfm", 200.0),
             gasket_thickness_mm=data.get("gasket_thickness_mm", 1.0),

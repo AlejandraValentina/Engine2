@@ -434,18 +434,16 @@ class MainWindow(QMainWindow):
         chamber_combo.currentTextChanged.connect(lambda text: self._update_value(head, "chamber_design", text))
         self.property_form.addRow("Chamber Design", chamber_combo)
 
-        intake_dia = self._double_spin(head.intake_valve_diameter, 15.0, 60.0, 0.1)
+        intake_dia_val = getattr(head, "intake_valve_diameter_mm", head.intake_valve_diameter)
+        intake_dia = self._double_spin(intake_dia_val, 15.0, 60.0, 0.1)
         intake_dia.setSuffix(" mm")
-        intake_dia.valueChanged.connect(
-            lambda val: self._update_value(head, "intake_valve_diameter", val)
-        )
+        intake_dia.valueChanged.connect(lambda val: self._update_valve_size(head, "intake", val))
         self.property_form.addRow("Intake Valve Dia", intake_dia)
 
-        exhaust_dia = self._double_spin(head.exhaust_valve_diameter, 15.0, 60.0, 0.1)
+        exhaust_dia_val = getattr(head, "exhaust_valve_diameter_mm", head.exhaust_valve_diameter)
+        exhaust_dia = self._double_spin(exhaust_dia_val, 15.0, 60.0, 0.1)
         exhaust_dia.setSuffix(" mm")
-        exhaust_dia.valueChanged.connect(
-            lambda val: self._update_value(head, "exhaust_valve_diameter", val)
-        )
+        exhaust_dia.valueChanged.connect(lambda val: self._update_valve_size(head, "exhaust", val))
         self.property_form.addRow("Exhaust Valve Dia", exhaust_dia)
 
         chamber_spin = self._double_spin(head.combustion_chamber_vol or 40.0, 20.0, 80.0, 0.1)
@@ -668,6 +666,11 @@ class MainWindow(QMainWindow):
         current_item = self.navigation_tree.currentItem()
         if current_item and isinstance(obj, Block):
             self._build_block_form(obj)
+        self.update_overview()
+
+    def _update_valve_size(self, head: CylinderHead, attr_base: str, value: float) -> None:
+        setattr(head, f"{attr_base}_valve_diameter", value)
+        setattr(head, f"{attr_base}_valve_diameter_mm", value)
         self.update_overview()
 
     def _update_firing_order(self, block: Block, text: str) -> None:

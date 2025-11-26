@@ -77,6 +77,36 @@ class CylinderSimulator:
         design = getattr(self.engine.head, "chamber_design", "Pent Roof") or "Pent Roof"
         return CHAMBER_SPECS.get(design, CHAMBER_SPECS["Pent Roof"])
 
+    def _calculate_dynamic_ve(self, rpm: float, piston_speed: float, bore_m: float, duration: float):
+        """Estimate volumetric efficiency and Mach index with valve choking."""
+        dur = max(duration, 150.0)
+        if dur <= 230.0:
+            rpm_peak = 3000.0
+        elif dur >= 280.0:
+            rpm_peak = 7000.0
+        else:
+            rpm_peak = 3000.0 + (dur - 230.0) * (7000.0 - 3000.0) / (280.0 - 230.0)
+
+        spread = max(1200.0, rpm_peak * 0.35)
+        max_base = 0.88 + min(max((dur - 200.0) * 0.0025, 0.0), 0.3)
+        base_curve = max_base * math.exp(-0.5 * ((rpm - rpm_peak) / spread) ** 2)
+
+        head = self.engine.head
+        valve_mm = getattr(head, "intake_valve_diameter_mm", None)
+        if valve_mm is None:
+            valve_mm = getattr(head, "intake_valve_diameter", 35.0)
+        valve_diameter_m = valve_mm * 1e-3
+
+        flow_coeff = 0.7
+        Av = max(1e-9, head.intake_valves * math.pi * (valve_diameter_m / 2.0) ** 2 * flow_coeff)
+        Ap = max(1e-9, math.pi * (bore_m / 2.0) ** 2)
+        V_gas = piston_speed * Ap / Av
+        mach_index = V_gas / SPEED_OF_SOUND
+
+        choke_factor = 1.0 if mach_index <= 0.5 else max(0.2, 1.0 - 2.5 * (mach_index - 0.5) ** 2)
+        ve = max(0.2, base_curve * choke_factor)
+        return ve, mach_index
+
     def run_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
         """Run a 720° four-stroke cycle and return pressure/torque traces."""
         angle_arr = np.arange(0.0, 720.0 + 0.5, 0.5)
@@ -132,15 +162,7 @@ class CylinderSimulator:
         T_charge = T_INTAKE + (T_boost - T_INTAKE) * (1.0 - intercooler_eff)
 
         piston_speed = 2.0 * stroke_m * rpm / 60.0
-
-        valve_diameter_m = self.engine.head.intake_valve_diameter * 1e-3
-        flow_coeff = 0.7
-        Av = max(1e-9, self.engine.head.intake_valves * math.pi * (valve_diameter_m / 2.0) ** 2 * flow_coeff)
-        Ap = max(1e-9, math.pi * (bore_m / 2.0) ** 2)
-        mach_index = (Ap / Av) * (piston_speed / SPEED_OF_SOUND)
-
-        base_ve = 0.95
-        ve_penalty = 1.0 if mach_index <= 0.5 else max(0.0, 1.0 - 2.5 * (mach_index - 0.5) ** 2)
+        base_ve, mach_index = self._calculate_dynamic_ve(rpm, piston_speed, bore_m, cam.intake_duration)
 
         runner_length_in = max(self.engine.intake.runner_length * 1e-3, 1e-6) / 0.0254
         rpm_tune = 84000.0 / runner_length_in
@@ -163,7 +185,7 @@ class CylinderSimulator:
         rpm_ratio = min(max(rpm / 7000.0, 0.0), 1.0)
         reversion_factor = max(0.0, 1.0 - (ivc_abdc * 0.002 * (1.0 - rpm_ratio)))
 
-        ve_prelim = np.clip(base_ve * ve_penalty * tuning_factor * reversion_factor, 0.0, 1.2)
+        ve_prelim = np.clip(base_ve * tuning_factor * reversion_factor, 0.0, 1.5)
 
         disp_cid = self.engine.block.displacement_cc * 0.0610237
         required_cfm = (disp_cid * rpm) / 3456.0 * ve_prelim
@@ -177,7 +199,7 @@ class CylinderSimulator:
         total_capacity = max(1e-6, min(head_capacity_total, throttle_capacity))
         restriction_penalty = 1.0 if required_cfm <= total_capacity else (total_capacity / required_cfm) ** 0.5
 
-        ve = np.clip(ve_prelim * restriction_penalty, 0.0, 1.2)
+        ve = np.clip(ve_prelim * restriction_penalty, 0.2, 1.2)
 
         m_air = ve * (P_manifold * V_IVC) / (R_AIR * T_charge)
         fuel_mass = m_air / fuel_stoich
