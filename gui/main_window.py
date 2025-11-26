@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 from typing import Any, Optional
 
@@ -925,7 +926,10 @@ class MainWindow(QMainWindow):
     def load_project(self) -> None:
         filename, _ = QFileDialog.getOpenFileName(self, "Load Engine", "", "JSON Files (*.json)")
         if filename:
-            self.engine = Engine.load_from_file(filename)
+            with open(filename, "r") as f:
+                data = json.load(f)
+
+            self.engine = Engine.from_dict(data)
             self.refresh_tree()
             self.update_properties_panel(None)
             self.update_overview()
