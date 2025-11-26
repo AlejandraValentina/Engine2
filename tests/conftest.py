@@ -15,6 +15,9 @@ if np is not None:
     np.random.seed(0)
     # TODO: allow injecting RNG into simulators if they ever use numpy randomness
 
+# Combustion thermal efficiencies are explicitly tuned per fixture to match
+# conservative, real-world baselines for each engine archetype.
+
 
 @pytest.fixture(scope="module")
 def k20_config() -> Dict:
