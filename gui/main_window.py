@@ -112,6 +112,23 @@ class MainWindow(QMainWindow):
         save_action.triggered.connect(self.save_engine)
         self.toolbar.addAction(save_action)
 
+        self.toolbar.addSeparator()
+
+        quick_icon = self.style().standardIcon(QStyle.SP_ComputerIcon)
+        quick_action = QAction(quick_icon, "Quick Dyno", self)
+        quick_action.triggered.connect(lambda: self.tab_widget.setCurrentIndex(2))
+        self.toolbar.addAction(quick_action)
+
+        pro_icon = self.style().standardIcon(QStyle.SP_DesktopIcon)
+        pro_action = QAction(pro_icon, "Pro Dyno", self)
+        pro_action.triggered.connect(lambda: self.tab_widget.setCurrentIndex(3))
+        self.toolbar.addAction(pro_action)
+
+        optimizer_icon = self.style().standardIcon(QStyle.SP_FileDialogListView)
+        optimizer_action = QAction(optimizer_icon, "Optimizer", self)
+        optimizer_action.triggered.connect(lambda: self.tab_widget.setCurrentIndex(5))
+        self.toolbar.addAction(optimizer_action)
+
     def _create_left_panel(self) -> None:
         left_dock = QDockWidget("Project Explorer", self)
         left_dock.setWidget(self.navigation_tree)
@@ -223,25 +240,6 @@ class MainWindow(QMainWindow):
         self.optimizer_plot.setLabel("left", "Peak HP")
         optimizer_layout.addWidget(self.optimizer_plot)
         optimizer_tab.setLayout(optimizer_layout)
-
-        nav_layout = QHBoxLayout()
-        nav_layout.setContentsMargins(0, 0, 0, 0)
-        nav_layout.setSpacing(12)
-        go_dyno = QPushButton("📉 Go to Dyno")
-        go_dyno.clicked.connect(lambda: self.tab_widget.setCurrentWidget(dyno_tab))
-        go_pro = QPushButton("🧠 Pro Dyno")
-        go_pro.clicked.connect(lambda: self.tab_widget.setCurrentWidget(pro_dyno_tab))
-        go_analysis = QPushButton("📊 Analysis Data")
-        go_analysis.clicked.connect(lambda: self.tab_widget.setCurrentWidget(analysis_tab))
-        go_optimizer = QPushButton("⚡ Optimizer")
-        go_optimizer.clicked.connect(lambda: self.tab_widget.setCurrentWidget(optimizer_tab))
-        nav_layout.addWidget(go_dyno)
-        nav_layout.addWidget(go_pro)
-        nav_layout.addWidget(go_analysis)
-        nav_layout.addWidget(go_optimizer)
-        nav_container = QWidget()
-        nav_container.setLayout(nav_layout)
-        overview_layout.addWidget(nav_container)
 
         self.tab_widget.addTab(overview_tab, "Overview")
         self.tab_widget.addTab(self.properties_tab, "Properties")
@@ -812,6 +810,8 @@ class MainWindow(QMainWindow):
         exhaust = self.engine.exhaust
         sc = self.engine.supercharger
         fuel = getattr(self.engine, "fuel", None)
+        combustion = getattr(self.engine, "combustion", None)
+        friction = getattr(self.engine, "friction", None)
 
         displacement_cc = block.displacement_cc
         displacement_l = displacement_cc / 1000.0
@@ -860,6 +860,8 @@ class MainWindow(QMainWindow):
             f"<li><b>Intake Valve Dia:</b> {head.intake_valve_diameter:.1f} mm</li>",
             f"<li><b>Exhaust Valve Dia:</b> {head.exhaust_valve_diameter:.1f} mm</li>",
             f"<li><b>Port Flow:</b> {head.port_flow_cfm:.1f} cfm</li>",
+            f"<li><b>Port Flow Efficiency:</b> {head.port_flow_efficiency:.2f}</li>",
+            f"<li><b>Mach Tolerance:</b> {head.mach_tolerance:.2f}</li>",
             "</ul>",
             "<h3>Camshaft</h3>",
             "<ul>",
@@ -867,6 +869,7 @@ class MainWindow(QMainWindow):
             f"<li><b>Lifts (I/E):</b> {cam.intake_lift:.2f} / {cam.exhaust_lift:.2f} mm</li>",
             f"<li><b>LSA:</b> {cam.lobe_separation:.1f} deg</li>",
             f"<li><b>Advance:</b> {cam.advance:.1f} deg</li>",
+            f"<li><b>Peak RPM:</b> {cam.peak_rpm:.0f}</li>",
             "</ul>",
             "<h3>Induction</h3>",
             "<ul>",
@@ -883,6 +886,29 @@ class MainWindow(QMainWindow):
         ]
 
         html_parts.extend(fuel_html)
+
+        if combustion:
+            html_parts.extend(
+                [
+                    "<h3>Combustion</h3>",
+                    "<ul>",
+                    f"<li><b>Thermal Efficiency:</b> {combustion.thermal_efficiency:.2f}</li>",
+                    f"<li><b>Burn Duration:</b> {combustion.burn_duration:.1f} deg</li>",
+                    f"<li><b>Ignition Advance:</b> {combustion.ignition_advance:.1f} deg BTDC</li>",
+                    f"<li><b>AFR:</b> {combustion.afr:.2f}</li>",
+                    "</ul>",
+                ]
+            )
+
+        if friction:
+            html_parts.extend(
+                [
+                    "<h3>Friction</h3>",
+                    "<ul>",
+                    f"<li><b>Base FMEP:</b> {friction.friction_base_kpa:.1f} kPa</li>",
+                    "</ul>",
+                ]
+            )
 
         self.overview_browser.setHtml("\n".join(html_parts))
 
