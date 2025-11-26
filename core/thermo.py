@@ -78,19 +78,11 @@ class CylinderSimulator:
         return CHAMBER_SPECS.get(design, CHAMBER_SPECS["Pent Roof"])
 
     def _calculate_dynamic_ve(self, rpm: float, piston_speed: float, bore_m: float, duration: float):
-        """Estimate volumetric efficiency and Mach index with valve choking."""
-        dur = max(duration, 150.0)
-        if dur <= 230.0:
-            rpm_peak = 3000.0
-        elif dur >= 280.0:
-            rpm_peak = 7000.0
-        else:
-            rpm_peak = 3000.0 + (dur - 230.0) * (7000.0 - 3000.0) / (280.0 - 230.0)
-
-        spread = max(1200.0, rpm_peak * 0.35)
-        max_base = 0.88 + min(max((dur - 200.0) * 0.0025, 0.0), 0.3)
-        base_interp = np.interp(rpm, [1000.0, 5500.0, 8500.0], [0.88, 1.02, 0.90])
-        base_curve = base_interp * math.exp(-0.5 * ((rpm - rpm_peak) / spread) ** 2)
+        """Estimate volumetric efficiency and Mach index with configurable choking."""
+        cam_peak = max(getattr(self.engine.camshaft, "peak_rpm", 5500.0), 1500.0)
+        redline = max(getattr(self.engine.block, "redline_rpm", cam_peak + 2000.0), cam_peak + 500.0)
+        rpm_points = [1000.0, cam_peak, redline]
+        base_curve = np.interp(rpm, rpm_points, [0.88, 1.02, 0.90])
 
         head = self.engine.head
         valve_mm = getattr(head, "intake_valve_diameter_mm", None)
@@ -105,10 +97,11 @@ class CylinderSimulator:
         V_gas = piston_speed * (Ap / Av)
         mach_index = V_gas / SPEED_OF_SOUND
 
-        if mach_index < 0.75:
+        mach_limit = getattr(head, "mach_tolerance", 0.75) or 0.75
+        if mach_index < mach_limit:
             choke_factor = 1.0
         else:
-            choke_factor = 1.0 - 1.2 * (mach_index - 0.75) ** 2
+            choke_factor = 1.0 - 1.2 * (mach_index - mach_limit) ** 2
             choke_factor = max(0.4, choke_factor)
 
         print(
@@ -116,6 +109,10 @@ class CylinderSimulator:
         )
 
         ve = max(0.2, base_curve * choke_factor)
+
+        flow_loss = getattr(self.engine.intake, "flow_loss_coefficient", 0.0)
+        ve *= max(0.0, 1.0 - flow_loss)
+
         return ve, mach_index
 
     def run_cycle(self, rpm: float) -> Dict[str, np.ndarray]:

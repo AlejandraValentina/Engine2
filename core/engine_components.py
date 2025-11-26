@@ -70,6 +70,7 @@ class CylinderHead:
     combustion_chamber_vol: Optional[float] = None  # cc override
     port_flow_cfm: float = 200.0  # peak flow at max lift @ 28" H2O per valve
     port_flow_efficiency: float = 0.7  # 0.1 (very restrictive) .. 1.0 (race)
+    mach_tolerance: float = 0.75  # Mach index where choking begins
     gasket_thickness_mm: float = 1.0
     gasket_bore_mm: float = 88.0
     deck_clearance_mm: float = 0.0
@@ -100,6 +101,7 @@ class CylinderHead:
             "combustion_chamber_vol": self.combustion_chamber_vol,
             "port_flow_cfm": self.port_flow_cfm,
             "port_flow_efficiency": self.port_flow_efficiency,
+            "mach_tolerance": self.mach_tolerance,
             "gasket_thickness_mm": self.gasket_thickness_mm,
             "gasket_bore_mm": self.gasket_bore_mm,
             "deck_clearance_mm": self.deck_clearance_mm,
@@ -128,6 +130,7 @@ class CylinderHead:
             combustion_chamber_vol=data.get("combustion_chamber_vol"),
             port_flow_cfm=data.get("port_flow_cfm", 200.0),
             port_flow_efficiency=data.get("port_flow_efficiency", 0.7),
+            mach_tolerance=data.get("mach_tolerance", 0.75),
             gasket_thickness_mm=data.get("gasket_thickness_mm", 1.0),
             gasket_bore_mm=data.get("gasket_bore_mm", 88.0),
             deck_clearance_mm=data.get("deck_clearance_mm", 0.0),
@@ -187,6 +190,7 @@ class Camshaft:
     exhaust_duration: float = 260.0  # degrees
     lobe_separation: float = 110.0  # degrees
     advance: float = 0.0  # degrees
+    peak_rpm: float = 5500.0  # rpm where cam is tuned to breathe best
 
     def get_lift(self, angle_deg: float, intake: bool = True) -> float:
         """Approximate valve lift (mm) at a given crank angle using harmonic profile.
@@ -233,6 +237,7 @@ class Camshaft:
             "exhaust_duration": self.exhaust_duration,
             "lobe_separation": self.lobe_separation,
             "advance": self.advance,
+            "peak_rpm": self.peak_rpm,
         }
 
     @classmethod
@@ -244,6 +249,7 @@ class Camshaft:
             exhaust_duration=data.get("exhaust_duration", 260.0),
             lobe_separation=data.get("lobe_separation", 110.0),
             advance=data.get("advance", 0.0),
+            peak_rpm=data.get("peak_rpm", 5500.0),
         )
 
 
@@ -282,6 +288,7 @@ class IntakeSystem:
     plenum_volume: float = 3.0  # liters
     throttle_body_dia: float = 70.0  # millimeters
     throttle_cfm: float = 500.0  # carb/throttle flow rating
+    flow_loss_coefficient: float = 0.0  # additional restriction factor
 
     def to_dict(self) -> dict:
         return {
@@ -290,6 +297,7 @@ class IntakeSystem:
             "plenum_volume": self.plenum_volume,
             "throttle_body_dia": self.throttle_body_dia,
             "throttle_cfm": self.throttle_cfm,
+            "flow_loss_coefficient": self.flow_loss_coefficient,
         }
 
     @classmethod
@@ -300,6 +308,7 @@ class IntakeSystem:
             plenum_volume=data.get("plenum_volume", 3.0),
             throttle_body_dia=data.get("throttle_body_dia", 70.0),
             throttle_cfm=data.get("throttle_cfm", 500.0),
+            flow_loss_coefficient=data.get("flow_loss_coefficient", 0.0),
         )
 
 

@@ -38,6 +38,7 @@ def k20_config() -> Dict:
             "combustion_chamber_vol": 47.6,
             "port_flow_cfm": 290.0,
             "port_flow_efficiency": 0.82,
+            "mach_tolerance": 0.85,
             "gasket_thickness_mm": 0.7,
             "gasket_bore_mm": 87.0,
             "deck_clearance_mm": 0.0,
@@ -51,6 +52,7 @@ def k20_config() -> Dict:
             "exhaust_duration": 260.0,
             "lobe_separation": 107.0,
             "advance": 0.0,
+            "peak_rpm": 8000.0,
         },
         "intake": {
             "runner_length": 230.0,
@@ -93,6 +95,7 @@ def v8_config() -> Dict:
             "combustion_chamber_vol": 80.0,
             "port_flow_cfm": 230.0,
             "port_flow_efficiency": 0.65,
+            "mach_tolerance": 0.70,
             "gasket_thickness_mm": 1.0,
             "gasket_bore_mm": 103.0,
             "deck_clearance_mm": 0.1,
@@ -106,6 +109,7 @@ def v8_config() -> Dict:
             "exhaust_duration": 245.0,
             "lobe_separation": 108.0,
             "advance": 2.0,
+            "peak_rpm": 5200.0,
         },
         "intake": {
             "runner_length": 280.0,
@@ -148,6 +152,7 @@ def eco_config() -> Dict:
             "combustion_chamber_vol": 46.0,
             "port_flow_cfm": 160.0,
             "port_flow_efficiency": 0.6,
+            "mach_tolerance": 0.65,
             "gasket_thickness_mm": 1.0,
             "gasket_bore_mm": 80.0,
             "deck_clearance_mm": 0.1,
@@ -161,6 +166,7 @@ def eco_config() -> Dict:
             "exhaust_duration": 210.0,
             "lobe_separation": 110.0,
             "advance": 0.0,
+            "peak_rpm": 4500.0,
         },
         "intake": {
             "runner_length": 320.0,
@@ -203,6 +209,7 @@ def v10_config() -> Dict:
             "combustion_chamber_vol": 40.0,
             "port_flow_cfm": 320.0,
             "port_flow_efficiency": 0.88,
+            "mach_tolerance": 0.90,
             "gasket_thickness_mm": 0.9,
             "gasket_bore_mm": 92.0,
             "deck_clearance_mm": 0.05,
@@ -216,6 +223,7 @@ def v10_config() -> Dict:
             "exhaust_duration": 280.0,
             "lobe_separation": 110.0,
             "advance": 0.0,
+            "peak_rpm": 8800.0,
         },
         "intake": {
             "runner_length": 220.0,
