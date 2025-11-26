@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
 from core.engine_components import (
     Block,
     Camshaft,
+    Combustion,
     CylinderHead,
     Engine,
     ExhaustSystem,
@@ -304,6 +305,10 @@ class MainWindow(QMainWindow):
         fuel_item.setData(0, Qt.UserRole, self.engine.fuel)
         root_item.addChild(fuel_item)
 
+        combustion_item = QTreeWidgetItem(["Combustion"])
+        combustion_item.setData(0, Qt.UserRole, self.engine.combustion)
+        root_item.addChild(combustion_item)
+
         friction_item = QTreeWidgetItem(["Mechanical Losses"])
         friction_item.setData(0, Qt.UserRole, self.engine.friction)
         root_item.addChild(friction_item)
@@ -348,6 +353,8 @@ class MainWindow(QMainWindow):
             self._build_fuel_form(component)
         elif isinstance(component, SimulationSettings):
             self._build_sim_settings_form(component)
+        elif isinstance(component, Combustion):
+            self._build_combustion_form(component)
         elif isinstance(component, Friction):
             self._build_friction_form(component)
         else:
@@ -518,6 +525,27 @@ class MainWindow(QMainWindow):
         peak_spin.setSuffix(" rpm")
         peak_spin.valueChanged.connect(lambda val: self._update_value(cam, "peak_rpm", val))
         self.property_form.addRow("Peak RPM", peak_spin)
+
+    def _build_combustion_form(self, combustion: Combustion) -> None:
+        self._clear_property_form()
+
+        eff_spin = self._double_spin(combustion.thermal_efficiency, 0.3, 0.7, 0.01)
+        eff_spin.valueChanged.connect(lambda val: self._update_value(combustion, "thermal_efficiency", val))
+        self.property_form.addRow("Thermal Efficiency", eff_spin)
+
+        burn_spin = self._double_spin(combustion.burn_duration, 20.0, 90.0, 0.5)
+        burn_spin.setSuffix(" deg")
+        burn_spin.valueChanged.connect(lambda val: self._update_value(combustion, "burn_duration", val))
+        self.property_form.addRow("Burn Duration", burn_spin)
+
+        advance_spin = self._double_spin(combustion.ignition_advance, 0.0, 60.0, 0.5)
+        advance_spin.setSuffix(" deg")
+        advance_spin.valueChanged.connect(lambda val: self._update_value(combustion, "ignition_advance", val))
+        self.property_form.addRow("Ignition Advance", advance_spin)
+
+        afr_spin = self._double_spin(combustion.afr, 10.0, 18.0, 0.05)
+        afr_spin.valueChanged.connect(lambda val: self._update_value(combustion, "afr", val))
+        self.property_form.addRow("AFR", afr_spin)
 
     def _build_intake_form(self, intake: IntakeSystem) -> None:
         self._clear_property_form()

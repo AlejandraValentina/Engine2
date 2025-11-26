@@ -183,6 +183,31 @@ class SimulationSettings:
 
 
 @dataclass
+class Combustion:
+    thermal_efficiency: float = 0.50  # 0.3 .. 0.7
+    burn_duration: float = 50.0  # crank degrees
+    ignition_advance: float = 30.0  # degrees BTDC
+    afr: float = 13.0  # air-fuel ratio
+
+    def to_dict(self) -> dict:
+        return {
+            "thermal_efficiency": self.thermal_efficiency,
+            "burn_duration": self.burn_duration,
+            "ignition_advance": self.ignition_advance,
+            "afr": self.afr,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Combustion":
+        return cls(
+            thermal_efficiency=data.get("thermal_efficiency", 0.50),
+            burn_duration=data.get("burn_duration", 50.0),
+            ignition_advance=data.get("ignition_advance", 30.0),
+            afr=data.get("afr", 13.0),
+        )
+
+
+@dataclass
 class Camshaft:
     intake_lift: float = 10.0  # millimeters
     exhaust_lift: float = 10.0  # millimeters
@@ -364,6 +389,7 @@ class Engine:
     simulation_settings: SimulationSettings = field(default_factory=SimulationSettings)
     friction: Friction = field(default_factory=Friction)
     fuel: Fuel = field(default_factory=Fuel)
+    combustion: Combustion = field(default_factory=Combustion)
 
     def to_dict(self) -> dict:
         return {
@@ -376,6 +402,7 @@ class Engine:
             "simulation_settings": self.simulation_settings.to_dict(),
             "friction": self.friction.to_dict(),
             "fuel": self.fuel.to_dict(),
+            "combustion": self.combustion.to_dict(),
         }
 
     @classmethod
@@ -391,6 +418,7 @@ class Engine:
             simulation_settings=SimulationSettings.from_dict(data.get("simulation_settings", {})),
             friction=Friction.from_dict(data.get("friction", {})),
             fuel=Fuel.from_dict(data.get("fuel", {})),
+            combustion=Combustion.from_dict(data.get("combustion", {})),
         )
 
     def save_to_file(self, filename: str) -> None:
@@ -442,5 +470,6 @@ __all__ = [
     "SimulationSettings",
     "Friction",
     "Fuel",
+    "Combustion",
     "Engine",
 ]

@@ -17,16 +17,6 @@ P_ATM = 101325.0
 T_INTAKE = 300.0
 SPEED_OF_SOUND = 340.0  # m/s approximate at 300 K
 
-CHAMBER_SPECS = {
-    "Pent Roof": {"eff": 0.68, "burn_rate": 1.0},
-    "Hemi": {"eff": 0.64, "burn_rate": 0.9},
-    "Typical Wedge": {"eff": 0.58, "burn_rate": 0.85},
-    "Flat Head": {"eff": 0.45, "burn_rate": 0.7},
-}
-
-# Aggregate real-cycle losses (heat transfer, blow-by, finite burn duration)
-REAL_CYCLE_EFFICIENCY = 0.60
-
 logger = logging.getLogger(__name__)
 
 
@@ -76,10 +66,6 @@ class CylinderSimulator:
     def __init__(self, engine: Engine):
         self.engine = engine
 
-    def _chamber_params(self):
-        design = getattr(self.engine.head, "chamber_design", "Pent Roof") or "Pent Roof"
-        return CHAMBER_SPECS.get(design, CHAMBER_SPECS["Pent Roof"])
-
     def _calculate_dynamic_ve(self, rpm: float, piston_speed: float, bore_m: float, duration: float):
         """Estimate volumetric efficiency and Mach index with configurable choking."""
         cam_peak = max(getattr(self.engine.camshaft, "peak_rpm", 5500.0), 1500.0)
@@ -122,17 +108,16 @@ class CylinderSimulator:
         angle_arr = np.arange(0.0, 720.0 + 0.5, 0.5)
 
         cam = self.engine.camshaft
-        ignition = getattr(getattr(self.engine, "simulation_settings", None), "ignition_timing_btdc", 30.0)
+        comb = getattr(self.engine, "combustion", None)
+        ignition = getattr(comb, "ignition_advance", 30.0)
+        burn_duration = getattr(comb, "burn_duration", 50.0)
+        thermal_eff = getattr(comb, "thermal_efficiency", 0.5)
+        afr_user = getattr(comb, "afr", AFR_STOICH)
+
         fuel_cfg = getattr(self.engine, "fuel", None)
         fuel_lhv = getattr(fuel_cfg, "energy_density", LHV_DEFAULT) or LHV_DEFAULT
-        fuel_stoich = getattr(fuel_cfg, "stoich_afr", AFR_STOICH) or AFR_STOICH
+        fuel_stoich = afr_user
         fuel_octane = getattr(fuel_cfg, "octane_rating", 93.0)
-
-        chamber = self._chamber_params()
-        thermal_eff = chamber["eff"]
-        burn_rate = chamber["burn_rate"]
-        base_burn = 60.0
-        burn_duration = base_burn / burn_rate
 
         icl = cam.lobe_separation - cam.advance
         ecl = 720.0 - (cam.lobe_separation + cam.advance)
@@ -237,7 +222,7 @@ class CylinderSimulator:
 
         C_power = C_comp
         pressure_mot_power = C_power / (vol_pow ** GAMMA)
-        pressure_combustion_rise = (GAMMA - 1.0) * Q_rel[mask_power] * REAL_CYCLE_EFFICIENCY / vol_pow
+        pressure_combustion_rise = (GAMMA - 1.0) * Q_rel[mask_power] / vol_pow
         pressure[mask_power] = pressure_mot_power + pressure_combustion_rise
 
         if (not np.isfinite(pressure).all()) or (not np.isfinite(volume).all()):

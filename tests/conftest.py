@@ -70,6 +70,12 @@ def k20_config() -> Dict:
         "friction": {"bottom_end_type": "Performance"},
         "simulation_settings": {"ignition_timing_btdc": 30.0},
         "fuel": {"type_name": "Pump Gas", "octane_rating": 93.0, "energy_density": 44e6, "stoich_afr": 14.7},
+        "combustion": {
+            "thermal_efficiency": 0.58,
+            "burn_duration": 40.0,
+            "ignition_advance": 30.0,
+            "afr": 13.0,
+        },
     }
 
 
@@ -127,6 +133,12 @@ def v8_config() -> Dict:
         "friction": {"bottom_end_type": "Standard"},
         "simulation_settings": {"ignition_timing_btdc": 30.0},
         "fuel": {"type_name": "Pump Gas", "octane_rating": 93.0, "energy_density": 44e6, "stoich_afr": 14.7},
+        "combustion": {
+            "thermal_efficiency": 0.50,
+            "burn_duration": 55.0,
+            "ignition_advance": 28.0,
+            "afr": 13.5,
+        },
     }
 
 
@@ -184,6 +196,12 @@ def eco_config() -> Dict:
         "friction": {"bottom_end_type": "Standard"},
         "simulation_settings": {"ignition_timing_btdc": 30.0},
         "fuel": {"type_name": "Pump Gas", "octane_rating": 93.0, "energy_density": 44e6, "stoich_afr": 14.7},
+        "combustion": {
+            "thermal_efficiency": 0.45,
+            "burn_duration": 65.0,
+            "ignition_advance": 25.0,
+            "afr": 14.2,
+        },
     }
 
 
@@ -241,4 +259,10 @@ def v10_config() -> Dict:
         "friction": {"bottom_end_type": "Race"},
         "simulation_settings": {"ignition_timing_btdc": 30.0},
         "fuel": {"type_name": "Pump Gas", "octane_rating": 100.0, "energy_density": 44e6, "stoich_afr": 14.7},
+        "combustion": {
+            "thermal_efficiency": 0.62,
+            "burn_duration": 35.0,
+            "ignition_advance": 32.0,
+            "afr": 12.8,
+        },
     }
