@@ -269,3 +269,129 @@ def v10_config() -> Dict:
             "afr": 12.8,
         },
     }
+
+
+@pytest.fixture(scope="module")
+def f1_v12_config() -> Dict:
+    return {
+        "block": {
+            "bore": 96.0,
+            "stroke": 34.5,
+            "conrod_length": 110.0,
+            "num_cylinders": 12,
+            "config": "V",
+            "bank_angle": 60.0,
+            "firing_order": [1, 7, 5, 11, 3, 9, 6, 12, 2, 8, 4, 10],
+            "redline_rpm": 18000.0,
+        },
+        "head": {
+            "compression_ratio": 13.5,
+            "intake_valves": 2,
+            "exhaust_valves": 2,
+            "intake_valve_diameter": 36.0,
+            "exhaust_valve_diameter": 30.0,
+            "combustion_chamber_vol": 28.0,
+            "port_flow_cfm": 420.0,
+            "port_flow_efficiency": 0.92,
+            "mach_tolerance": 0.85,
+            "gasket_thickness_mm": 0.8,
+            "gasket_bore_mm": 97.0,
+            "deck_clearance_mm": 0.05,
+            "piston_dome_cc": 0.0,
+            "chamber_design": "Pent Roof",
+        },
+        "camshaft": {
+            "intake_lift": 14.5,
+            "exhaust_lift": 14.0,
+            "intake_duration": 300.0,
+            "exhaust_duration": 300.0,
+            "lobe_separation": 110.0,
+            "advance": 0.0,
+            "peak_rpm": 17000.0,
+        },
+        "intake": {
+            "runner_length": 180.0,
+            "runner_diameter": 45.0,
+            "plenum_volume": 5.0,
+            "throttle_body_dia": 70.0,
+            "throttle_cfm": 1500.0,
+        },
+        "exhaust": {
+            "header_primary_length": 350.0,
+            "header_primary_diameter": 38.0,
+            "collector_length": 400.0,
+        },
+        "supercharger": {"type": "NA", "boost_pressure_bar": 0.0},
+        "friction": {"bottom_end_type": "Race"},
+        "simulation_settings": {"ignition_timing_btdc": 35.0},
+        "fuel": {"type_name": "Race Gas", "octane_rating": 110.0, "energy_density": 44e6, "stoich_afr": 14.7},
+        "combustion": {
+            "thermal_efficiency": 0.58,
+            "burn_duration": 35.0,
+            "ignition_advance": 35.0,
+            "afr": 12.6,
+        },
+    }
+
+
+@pytest.fixture(scope="module")
+def kart_125_config() -> Dict:
+    return {
+        "block": {
+            "bore": 54.0,
+            "stroke": 54.0,
+            "conrod_length": 110.0,
+            "num_cylinders": 1,
+            "config": "L",
+            "bank_angle": 0.0,
+            "firing_order": [1],
+            "redline_rpm": 11000.0,
+        },
+        "head": {
+            "compression_ratio": 12.0,
+            "intake_valves": 2,
+            "exhaust_valves": 2,
+            "intake_valve_diameter": 28.0,
+            "exhaust_valve_diameter": 24.0,
+            "combustion_chamber_vol": 12.0,
+            "port_flow_cfm": 120.0,
+            "port_flow_efficiency": 0.70,
+            "mach_tolerance": 0.80,
+            "gasket_thickness_mm": 0.7,
+            "gasket_bore_mm": 55.0,
+            "deck_clearance_mm": 0.05,
+            "piston_dome_cc": 0.0,
+            "chamber_design": "Pent Roof",
+        },
+        "camshaft": {
+            "intake_lift": 9.5,
+            "exhaust_lift": 9.0,
+            "intake_duration": 240.0,
+            "exhaust_duration": 240.0,
+            "lobe_separation": 108.0,
+            "advance": 0.0,
+            "peak_rpm": 10500.0,
+        },
+        "intake": {
+            "runner_length": 200.0,
+            "runner_diameter": 30.0,
+            "plenum_volume": 0.8,
+            "throttle_body_dia": 28.0,
+            "throttle_cfm": 150.0,
+        },
+        "exhaust": {
+            "header_primary_length": 300.0,
+            "header_primary_diameter": 30.0,
+            "collector_length": 350.0,
+        },
+        "supercharger": {"type": "NA", "boost_pressure_bar": 0.0},
+        "friction": {"bottom_end_type": "Performance"},
+        "simulation_settings": {"ignition_timing_btdc": 28.0},
+        "fuel": {"type_name": "Pump Gas", "octane_rating": 95.0, "energy_density": 44e6, "stoich_afr": 14.7},
+        "combustion": {
+            "thermal_efficiency": 0.50,
+            "burn_duration": 50.0,
+            "ignition_advance": 28.0,
+            "afr": 13.5,
+        },
+    }

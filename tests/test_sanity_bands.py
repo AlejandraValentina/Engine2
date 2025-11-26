@@ -17,14 +17,29 @@ from tests._assertions import assert_sanity_bounds
         ("K20", 8000.0, (10.0, 15.5), (75.0, 120.0)),
         ("V8_350", 6000.0, (9.0, 14.5), (65.0, 115.0)),
         ("V10", 8500.0, (11.0, 18.0), (75.0, 130.0)),
+        ("F1_V12", 17000.0, (14.0, 16.0), (75.0, 135.0)),
+        ("Kart_125", 10500.0, (10.0, 13.0), (60.0, 120.0)),
     ],
 )
-def test_sanity_bands(label, rpm, bmep_band, ve_band, k20_config, v8_config, eco_config, v10_config):
+def test_sanity_bands(
+    label,
+    rpm,
+    bmep_band,
+    ve_band,
+    k20_config,
+    v8_config,
+    eco_config,
+    v10_config,
+    f1_v12_config,
+    kart_125_config,
+):
     cfg_map = {
         "Eco_1600": eco_config,
         "K20": k20_config,
         "V8_350": v8_config,
         "V10": v10_config,
+        "F1_V12": f1_v12_config,
+        "Kart_125": kart_125_config,
     }
     cfg = copy.deepcopy(cfg_map[label])
     engine = Engine.from_dict(cfg)
