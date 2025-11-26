@@ -89,7 +89,8 @@ class CylinderSimulator:
 
         spread = max(1200.0, rpm_peak * 0.35)
         max_base = 0.88 + min(max((dur - 200.0) * 0.0025, 0.0), 0.3)
-        base_curve = max_base * math.exp(-0.5 * ((rpm - rpm_peak) / spread) ** 2)
+        base_interp = np.interp(rpm, [1000.0, 5500.0, 8500.0], [0.88, 1.02, 0.90])
+        base_curve = base_interp * math.exp(-0.5 * ((rpm - rpm_peak) / spread) ** 2)
 
         head = self.engine.head
         valve_mm = getattr(head, "intake_valve_diameter_mm", None)
@@ -104,11 +105,11 @@ class CylinderSimulator:
         V_gas = piston_speed * (Ap / Av)
         mach_index = V_gas / SPEED_OF_SOUND
 
-        if mach_index < 0.6:
+        if mach_index < 0.75:
             choke_factor = 1.0
         else:
-            choke_factor = 1.0 - 1.5 * (mach_index - 0.6) ** 2
-            choke_factor = max(0.35, choke_factor)
+            choke_factor = 1.0 - 1.2 * (mach_index - 0.75) ** 2
+            choke_factor = max(0.4, choke_factor)
 
         print(
             f"[DEBUG VE] RPM={rpm:.0f} PistonSpd={piston_speed:.1f} GasVel={V_gas:.1f} Mach={mach_index:.2f} ChokeFactor={choke_factor:.2f}"
