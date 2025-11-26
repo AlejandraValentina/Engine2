@@ -115,20 +115,29 @@ class MainWindow(QMainWindow):
 
         self.toolbar.addSeparator()
 
-        quick_icon = self.style().standardIcon(QStyle.SP_ComputerIcon)
-        quick_action = QAction(quick_icon, "Quick Dyno", self)
-        quick_action.triggered.connect(lambda: self.tab_widget.setCurrentIndex(2))
-        self.toolbar.addAction(quick_action)
+        nav_container = QWidget()
+        nav_layout = QHBoxLayout()
+        nav_layout.setContentsMargins(6, 0, 6, 0)
+        nav_layout.setSpacing(8)
+        nav_container.setLayout(nav_layout)
 
-        pro_icon = self.style().standardIcon(QStyle.SP_DesktopIcon)
-        pro_action = QAction(pro_icon, "Pro Dyno", self)
-        pro_action.triggered.connect(lambda: self.tab_widget.setCurrentIndex(3))
-        self.toolbar.addAction(pro_action)
+        btn_quick = QPushButton("📉 Go to Dyno")
+        btn_quick.clicked.connect(lambda: self.tab_widget.setCurrentIndex(2))
+        nav_layout.addWidget(btn_quick)
 
-        optimizer_icon = self.style().standardIcon(QStyle.SP_FileDialogListView)
-        optimizer_action = QAction(optimizer_icon, "Optimizer", self)
-        optimizer_action.triggered.connect(lambda: self.tab_widget.setCurrentIndex(5))
-        self.toolbar.addAction(optimizer_action)
+        btn_pro = QPushButton("🧠 Pro Dyno")
+        btn_pro.clicked.connect(lambda: self.tab_widget.setCurrentIndex(3))
+        nav_layout.addWidget(btn_pro)
+
+        btn_analysis = QPushButton("📊 Analysis Data")
+        btn_analysis.clicked.connect(lambda: self.tab_widget.setCurrentIndex(4))
+        nav_layout.addWidget(btn_analysis)
+
+        btn_optimizer = QPushButton("⚡ Optimizer")
+        btn_optimizer.clicked.connect(lambda: self.tab_widget.setCurrentIndex(5))
+        nav_layout.addWidget(btn_optimizer)
+
+        self.toolbar.addWidget(nav_container)
 
     def _create_left_panel(self) -> None:
         left_dock = QDockWidget("Project Explorer", self)
