@@ -24,6 +24,9 @@ CHAMBER_SPECS = {
     "Flat Head": {"eff": 0.45, "burn_rate": 0.7},
 }
 
+# Aggregate real-cycle losses (heat transfer, blow-by, finite burn duration)
+REAL_CYCLE_EFFICIENCY = 0.60
+
 logger = logging.getLogger(__name__)
 
 
@@ -234,7 +237,8 @@ class CylinderSimulator:
 
         C_power = C_comp
         pressure_mot_power = C_power / (vol_pow ** GAMMA)
-        pressure[mask_power] = pressure_mot_power + (GAMMA - 1.0) * Q_rel[mask_power] / vol_pow
+        pressure_combustion_rise = (GAMMA - 1.0) * Q_rel[mask_power] * REAL_CYCLE_EFFICIENCY / vol_pow
+        pressure[mask_power] = pressure_mot_power + pressure_combustion_rise
 
         if (not np.isfinite(pressure).all()) or (not np.isfinite(volume).all()):
             raise ValueError(
