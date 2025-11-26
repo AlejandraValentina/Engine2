@@ -239,7 +239,7 @@ class CylinderSimulator:
         indicated_torque = float(np.mean(torque_trace))
 
         # Stronger friction curve to better cap high-RPM brake torque
-        fmep_kpa = 20.0 + 0.01 * rpm + 1.5e-6 * rpm * rpm
+        fmep_kpa = 35.0 + 0.02 * rpm + 2.0e-6 * rpm * rpm
         bottom = getattr(getattr(self.engine, "friction", None), "bottom_end_type", "Standard") or "Standard"
         bottom_lower = bottom.lower()
         fmep_multiplier = 1.0
