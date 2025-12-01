@@ -81,6 +81,7 @@ class MainWindow(QMainWindow):
         self.optimizer_start_spin = QDoubleSpinBox()
         self.optimizer_end_spin = QDoubleSpinBox()
         self.optimizer_step_spin = QDoubleSpinBox()
+        self.opt_rpm_spin = QDoubleSpinBox()
         self.optimizer_progress = QProgressBar()
         self._setup_tabs()
 
@@ -234,6 +235,12 @@ class MainWindow(QMainWindow):
         self.optimizer_step_spin.setSingleStep(1.0)
         self.optimizer_step_spin.setValue(25.0)
         target_layout.addRow("Step", self.optimizer_step_spin)
+
+        self.opt_rpm_spin.setRange(1000.0, 20000.0)
+        self.opt_rpm_spin.setDecimals(0)
+        self.opt_rpm_spin.setSingleStep(100.0)
+        self.opt_rpm_spin.setValue(6000.0)
+        target_layout.addRow("Target RPM", self.opt_rpm_spin)
 
         optimizer_layout.addLayout(target_layout)
 
@@ -1098,6 +1105,7 @@ class MainWindow(QMainWindow):
         start = self.optimizer_start_spin.value()
         end = self.optimizer_end_spin.value()
         step = self.optimizer_step_spin.value()
+        target_rpm = self.opt_rpm_spin.value()
         if step <= 0:
             return
         if attr == "both_lifts":
@@ -1119,8 +1127,9 @@ class MainWindow(QMainWindow):
                 obj.exhaust_lift = val
             else:
                 setattr(obj, attr, val)
-            peak_hp = self._compute_peak_hp()
-            results.append(peak_hp)
+            simulator = CylinderSimulator(self.engine)
+            result = simulator.run_cycle(target_rpm)
+            results.append(result.get("mean_power_hp", 0.0))
             progress = int((idx + 1) / total * 100)
             self.optimizer_progress.setValue(progress)
             QApplication.processEvents()
