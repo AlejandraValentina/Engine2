@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QTabWidget,
     QTableWidget,
     QTableWidgetItem,
+    QStackedWidget,
     QTreeWidget,
     QTreeWidgetItem,
     QVBoxLayout,
@@ -77,7 +78,8 @@ class MainWindow(QMainWindow):
         self.property_form = QFormLayout()
         self.property_widget.setLayout(self.property_form)
 
-        self.tab_widget = QTabWidget()
+        self.tabs = QTabWidget()
+        self.main_stack = QStackedWidget()
         self.scope_tab = ScopeWidget()
         self.fabrication_table = QTableWidget()
         self.collector_type_combo = QComboBox()
@@ -99,7 +101,7 @@ class MainWindow(QMainWindow):
         self.wave_solver: Optional[PipeSolver] = None
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_wave_simulation)
-        self._setup_tabs()
+        self._setup_views()
 
         self.toolbar = self.addToolBar("Main Toolbar")
         self._create_toolbar()
@@ -109,7 +111,7 @@ class MainWindow(QMainWindow):
         self.refresh_tree()
         self._show_placeholder("Select a component to edit its properties")
         self.update_overview()
-        self.tab_widget.setCurrentIndex(0)
+        self.tabs.setCurrentIndex(0)
 
     # -------------------------- UI Construction ---------------------------
     def _create_menu(self) -> None:
@@ -138,40 +140,20 @@ class MainWindow(QMainWindow):
         nav_layout.setSpacing(8)
         nav_container.setLayout(nav_layout)
 
-        btn_overview = QPushButton("🏠 Overview")
-        btn_overview.clicked.connect(lambda: self.tab_widget.setCurrentIndex(0))
-        nav_layout.addWidget(btn_overview)
-
-        btn_properties = QPushButton("⚙️ Properties")
-        btn_properties.clicked.connect(lambda: self.tab_widget.setCurrentIndex(1))
-        nav_layout.addWidget(btn_properties)
-
-        btn_save_wav = QPushButton("💾 Save WAV")
-        btn_save_wav.clicked.connect(self.save_wav_audio)
-        nav_layout.addWidget(btn_save_wav)
-
-        btn_wave = QPushButton("🌊 Wave Sim")
-        btn_wave.clicked.connect(lambda: self.tab_widget.setCurrentIndex(3))
-        nav_layout.addWidget(btn_wave)
-
-        btn_quick = QPushButton("📉 Go to Dyno")
-        btn_quick.clicked.connect(lambda: self.tab_widget.setCurrentIndex(4))
-        nav_layout.addWidget(btn_quick)
+        btn_standard = QPushButton("🏠 Standard View")
+        btn_standard.clicked.connect(lambda: self.main_stack.setCurrentIndex(0))
+        nav_layout.addWidget(btn_standard)
 
         btn_pro = QPushButton("🧠 Pro Dyno")
-        btn_pro.clicked.connect(lambda: self.tab_widget.setCurrentIndex(5))
+        btn_pro.clicked.connect(lambda: self.main_stack.setCurrentIndex(1))
         nav_layout.addWidget(btn_pro)
 
-        btn_analysis = QPushButton("📊 Analysis Data")
-        btn_analysis.clicked.connect(lambda: self.tab_widget.setCurrentIndex(6))
-        nav_layout.addWidget(btn_analysis)
-
-        btn_optimizer = QPushButton("⚡ Optimizer")
-        btn_optimizer.clicked.connect(lambda: self.tab_widget.setCurrentIndex(7))
-        nav_layout.addWidget(btn_optimizer)
+        btn_wave = QPushButton("🌊 Wave Sim")
+        btn_wave.clicked.connect(lambda: self.main_stack.setCurrentIndex(2))
+        nav_layout.addWidget(btn_wave)
 
         btn_fabrication = QPushButton("🛠️ Fabrication")
-        btn_fabrication.clicked.connect(lambda: self.tab_widget.setCurrentIndex(2))
+        btn_fabrication.clicked.connect(lambda: self.main_stack.setCurrentIndex(3))
         nav_layout.addWidget(btn_fabrication)
 
         self.toolbar.addWidget(nav_container)
@@ -182,7 +164,7 @@ class MainWindow(QMainWindow):
         left_dock.setAllowedAreas(Qt.LeftDockWidgetArea)
         self.addDockWidget(Qt.LeftDockWidgetArea, left_dock)
 
-    def _setup_tabs(self) -> None:
+    def _setup_views(self) -> None:
         overview_tab = QWidget()
         overview_layout = QVBoxLayout()
         self.overview_browser = QTextBrowser()
@@ -197,42 +179,6 @@ class MainWindow(QMainWindow):
         properties_layout.addStretch()
         self.properties_tab.setLayout(properties_layout)
 
-        fabrication_tab = QWidget()
-        fabrication_layout = QVBoxLayout()
-        self.fabrication_table.setColumnCount(5)
-        self.fabrication_table.setHorizontalHeaderLabels(
-            ["Cylinder #", "Target Length (mm)", "Actual Length (mm)", "Diameter (mm)", "Bend Angle Est."]
-        )
-        self.fabrication_table.itemChanged.connect(self._on_fabrication_cell_changed)
-        fabrication_layout.addWidget(self.fabrication_table)
-
-        collector_layout = QFormLayout()
-        self.collector_type_combo.addItems(["4-into-1", "4-2-1", "6-into-1", "Custom"])
-        self.collector_type_combo.currentTextChanged.connect(lambda _text: self.update_fabrication_data())
-        collector_layout.addRow("Collector Type", self.collector_type_combo)
-        collector_layout.addRow("Collector Inlet Diameter", self.collector_inlet_label)
-        collector_layout.addRow("Tailpipe Length", self.tailpipe_length_label)
-        fabrication_layout.addLayout(collector_layout)
-
-        report_btn = QPushButton("📄 Generate Fabrication Report")
-        report_btn.clicked.connect(self._generate_fabrication_report)
-        fabrication_layout.addWidget(report_btn)
-        fabrication_tab.setLayout(fabrication_layout)
-
-        scope_container = QWidget()
-        scope_layout = QVBoxLayout()
-        controls_layout = QHBoxLayout()
-        start_btn = QPushButton("Start")
-        start_btn.clicked.connect(self._start_wave_sim)
-        stop_btn = QPushButton("Stop")
-        stop_btn.clicked.connect(self.timer.stop)
-        controls_layout.addWidget(start_btn)
-        controls_layout.addWidget(stop_btn)
-        controls_layout.addStretch()
-        scope_layout.addLayout(controls_layout)
-        scope_layout.addWidget(self.scope_tab)
-        scope_container.setLayout(scope_layout)
-
         dyno_tab = QWidget()
         dyno_layout = QVBoxLayout()
         run_button = QPushButton("Run Power Sweep")
@@ -245,19 +191,6 @@ class MainWindow(QMainWindow):
         self.dyno_plot.setLabel("left", "Output")
         dyno_layout.addWidget(self.dyno_plot)
         dyno_tab.setLayout(dyno_layout)
-
-        pro_dyno_tab = QWidget()
-        pro_dyno_layout = QVBoxLayout()
-        pro_run_button = QPushButton("Run Pro Simulation (Slower)")
-        pro_run_button.clicked.connect(self.run_pro_dyno_sweep)
-        pro_dyno_layout.addWidget(pro_run_button)
-
-        self.pro_dyno_plot.showGrid(x=True, y=True, alpha=0.2)
-        self.pro_dyno_plot.addLegend()
-        self.pro_dyno_plot.setLabel("bottom", "RPM")
-        self.pro_dyno_plot.setLabel("left", "Output")
-        pro_dyno_layout.addWidget(self.pro_dyno_plot)
-        pro_dyno_tab.setLayout(pro_dyno_layout)
 
         analysis_tab = QWidget()
         analysis_layout = QVBoxLayout()
@@ -331,16 +264,73 @@ class MainWindow(QMainWindow):
         optimizer_layout.addWidget(self.optimizer_plot)
         optimizer_tab.setLayout(optimizer_layout)
 
-        self.tab_widget.addTab(overview_tab, "Overview")
-        self.tab_widget.addTab(self.properties_tab, "Properties")
-        self.tab_widget.addTab(fabrication_tab, "Fabrication")
-        self.tab_widget.addTab(scope_container, "Wave Scope")
-        self.tab_widget.addTab(dyno_tab, "Quick Dyno")
-        self.tab_widget.addTab(pro_dyno_tab, "Pro Dyno")
-        self.tab_widget.addTab(analysis_tab, "Analysis Data")
-        self.tab_widget.addTab(optimizer_tab, "Optimizer")
-        self.setCentralWidget(self.tab_widget)
-        self.tab_widget.tabBar().hide()
+        self.tabs.addTab(overview_tab, "Overview")
+        self.tabs.addTab(self.properties_tab, "Properties")
+        self.tabs.addTab(dyno_tab, "Quick Dyno")
+        self.tabs.addTab(analysis_tab, "Analysis")
+        self.tabs.addTab(optimizer_tab, "Optimizer")
+
+        standard_container = QWidget()
+        standard_layout = QVBoxLayout()
+        standard_layout.setContentsMargins(0, 0, 0, 0)
+        standard_layout.addWidget(self.tabs)
+        standard_container.setLayout(standard_layout)
+
+        pro_dyno_tab = QWidget()
+        pro_dyno_layout = QVBoxLayout()
+        pro_run_button = QPushButton("Run Pro Simulation (Slower)")
+        pro_run_button.clicked.connect(self.run_pro_dyno_sweep)
+        pro_dyno_layout.addWidget(pro_run_button)
+
+        self.pro_dyno_plot.showGrid(x=True, y=True, alpha=0.2)
+        self.pro_dyno_plot.addLegend()
+        self.pro_dyno_plot.setLabel("bottom", "RPM")
+        self.pro_dyno_plot.setLabel("left", "Output")
+        pro_dyno_layout.addWidget(self.pro_dyno_plot)
+        pro_dyno_tab.setLayout(pro_dyno_layout)
+
+        fabrication_tab = QWidget()
+        fabrication_layout = QVBoxLayout()
+        self.fabrication_table.setColumnCount(5)
+        self.fabrication_table.setHorizontalHeaderLabels(
+            ["Cylinder #", "Target Length (mm)", "Actual Length (mm)", "Diameter (mm)", "Bend Angle Est."]
+        )
+        self.fabrication_table.itemChanged.connect(self._on_fabrication_cell_changed)
+        fabrication_layout.addWidget(self.fabrication_table)
+
+        collector_layout = QFormLayout()
+        self.collector_type_combo.addItems(["4-into-1", "4-2-1", "6-into-1", "Custom"])
+        self.collector_type_combo.currentTextChanged.connect(lambda _text: self.update_fabrication_data())
+        collector_layout.addRow("Collector Type", self.collector_type_combo)
+        collector_layout.addRow("Collector Inlet Diameter", self.collector_inlet_label)
+        collector_layout.addRow("Tailpipe Length", self.tailpipe_length_label)
+        fabrication_layout.addLayout(collector_layout)
+
+        report_btn = QPushButton("📄 Generate Fabrication Report")
+        report_btn.clicked.connect(self._generate_fabrication_report)
+        fabrication_layout.addWidget(report_btn)
+        fabrication_tab.setLayout(fabrication_layout)
+
+        scope_container = QWidget()
+        scope_layout = QVBoxLayout()
+        controls_layout = QHBoxLayout()
+        start_btn = QPushButton("Start")
+        start_btn.clicked.connect(self._start_wave_sim)
+        stop_btn = QPushButton("Stop")
+        stop_btn.clicked.connect(self.timer.stop)
+        controls_layout.addWidget(start_btn)
+        controls_layout.addWidget(stop_btn)
+        controls_layout.addStretch()
+        scope_layout.addLayout(controls_layout)
+        scope_layout.addWidget(self.scope_tab)
+        scope_container.setLayout(scope_layout)
+
+        self.main_stack.addWidget(standard_container)
+        self.main_stack.addWidget(pro_dyno_tab)
+        self.main_stack.addWidget(scope_container)
+        self.main_stack.addWidget(fabrication_tab)
+        self.setCentralWidget(self.main_stack)
+        self.main_stack.setCurrentIndex(0)
 
     # -------------------------- Tree Handling -----------------------------
     def refresh_tree(self) -> None:
@@ -413,7 +403,8 @@ class MainWindow(QMainWindow):
             self._show_placeholder("Select a component to edit its properties")
             return
 
-        self.tab_widget.setCurrentWidget(self.properties_tab)
+        self.main_stack.setCurrentIndex(0)
+        self.tabs.setCurrentWidget(self.properties_tab)
 
         component = current.data(0, Qt.UserRole)
         if isinstance(component, Block):
@@ -1063,7 +1054,8 @@ class MainWindow(QMainWindow):
             self.refresh_tree()
             self.update_properties_panel(None)
             self.update_overview()
-            self.tab_widget.setCurrentIndex(0)
+            self.main_stack.setCurrentIndex(0)
+            self.tabs.setCurrentIndex(0)
 
     # Backwards compatibility with older action wiring
     def load_engine(self) -> None:  # pragma: no cover - retained for older menu hookups
@@ -1114,6 +1106,7 @@ class MainWindow(QMainWindow):
     def _start_wave_sim(self) -> None:
         if self.wave_solver is None:
             self._init_wave_solver()
+        self.main_stack.setCurrentIndex(2)
         self.timer.start(16)
 
     def update_wave_simulation(self) -> None:
@@ -1126,12 +1119,16 @@ class MainWindow(QMainWindow):
         diameter_m = max(exhaust.header_primary_diameter * 0.001, 0.005)
         max_area = math.pi * (diameter_m / 2.0) ** 2
         rpm = 6000.0
+        cam = self.engine.camshaft
+        exhaust_center = 360.0 + cam.lobe_separation / 2.0 + cam.advance
+        evo = exhaust_center - cam.exhaust_duration / 2.0
+        evc = exhaust_center + cam.exhaust_duration / 2.0
         valve_state = "CLOSED"
 
         for _ in range(20):
             angle = (self.wave_solver.time * rpm * 6.0) % 720.0
-            if 140.0 < angle < 360.0:
-                phase = (angle - 140.0) / (360.0 - 140.0)
+            if evo <= angle <= evc:
+                phase = (angle - evo) / max(evc - evo, 1e-3)
                 lift = max(math.sin(math.pi * phase), 0.0)
                 area = max_area * lift
                 p_cyl = 15.0 * 100000.0
@@ -1139,7 +1136,7 @@ class MainWindow(QMainWindow):
                 valve_state = "OPEN"
             else:
                 area = 0.0
-                p_cyl = 100000.0
+                p_cyl = 15.0 * 100000.0
                 T_cyl = 300.0
                 valve_state = "CLOSED"
 
