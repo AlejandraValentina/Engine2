@@ -81,6 +81,10 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.main_stack = QStackedWidget()
         self.scope_tab = ScopeWidget()
+        self.wave_rpm_spin = QDoubleSpinBox()
+        self.wave_record_btn = QPushButton("🔴 Record")
+        self.wave_record_btn.setCheckable(True)
+        self.wave_save_btn = QPushButton("💾 Save Audio")
         self.fabrication_table = QTableWidget()
         self.collector_type_combo = QComboBox()
         self.collector_inlet_label = QLabel("-")
@@ -311,26 +315,42 @@ class MainWindow(QMainWindow):
         fabrication_layout.addWidget(report_btn)
         fabrication_tab.setLayout(fabrication_layout)
 
-        scope_container = QWidget()
-        scope_layout = QVBoxLayout()
-        controls_layout = QHBoxLayout()
+        self.main_stack.addWidget(standard_container)
+        self.main_stack.addWidget(pro_dyno_tab)
+        self.main_stack.addWidget(self._init_wave_scope_ui())
+        self.main_stack.addWidget(fabrication_tab)
+        self.setCentralWidget(self.main_stack)
+        self.main_stack.setCurrentIndex(0)
+
+    def _init_wave_scope_ui(self) -> QWidget:
+        container = QWidget()
+        layout = QVBoxLayout()
+
+        controls = QHBoxLayout()
+        rpm_label = QLabel("Simulation RPM")
+        self.wave_rpm_spin.setRange(1000.0, 25000.0)
+        self.wave_rpm_spin.setDecimals(0)
+        self.wave_rpm_spin.setSingleStep(100.0)
+        self.wave_rpm_spin.setValue(max(self.engine.camshaft.peak_rpm, 1000.0))
+
         start_btn = QPushButton("Start")
         start_btn.clicked.connect(self._start_wave_sim)
         stop_btn = QPushButton("Stop")
         stop_btn.clicked.connect(self.timer.stop)
-        controls_layout.addWidget(start_btn)
-        controls_layout.addWidget(stop_btn)
-        controls_layout.addStretch()
-        scope_layout.addLayout(controls_layout)
-        scope_layout.addWidget(self.scope_tab)
-        scope_container.setLayout(scope_layout)
+        self.wave_save_btn.clicked.connect(self.save_wave_audio)
 
-        self.main_stack.addWidget(standard_container)
-        self.main_stack.addWidget(pro_dyno_tab)
-        self.main_stack.addWidget(scope_container)
-        self.main_stack.addWidget(fabrication_tab)
-        self.setCentralWidget(self.main_stack)
-        self.main_stack.setCurrentIndex(0)
+        controls.addWidget(rpm_label)
+        controls.addWidget(self.wave_rpm_spin)
+        controls.addWidget(start_btn)
+        controls.addWidget(stop_btn)
+        controls.addWidget(self.wave_record_btn)
+        controls.addWidget(self.wave_save_btn)
+        controls.addStretch()
+
+        layout.addLayout(controls)
+        layout.addWidget(self.scope_tab)
+        container.setLayout(layout)
+        return container
 
     # -------------------------- Tree Handling -----------------------------
     def refresh_tree(self) -> None:
@@ -384,6 +404,11 @@ class MainWindow(QMainWindow):
         self.navigation_tree.expandAll()
         self.navigation_tree.setCurrentItem(block_item)
         self.update_fabrication_data()
+        if self.wave_rpm_spin is not None:
+            try:
+                self.wave_rpm_spin.setValue(max(self.engine.camshaft.peak_rpm, 1000.0))
+            except Exception:
+                pass
 
     # -------------------------- Properties Panel --------------------------
     def _clear_property_form(self) -> None:
@@ -1069,7 +1094,7 @@ class MainWindow(QMainWindow):
         firing_order = self.engine.block.firing_order or list(
             range(1, self.engine.block.num_cylinders + 1)
         )
-        target_rpm = max(self.engine.block.redline_rpm, 1000.0)
+        target_rpm = max(float(self.wave_rpm_spin.value()), 1000.0)
         mixed = generate_full_engine_sound(
             waveform,
             target_rpm,
@@ -1084,6 +1109,7 @@ class MainWindow(QMainWindow):
         )
         if filename:
             self.audio_synth.save_waveform(mixed, filename)
+            self.statusBar().showMessage("Audio saved!", 2000)
 
     # -------------------------- Wave Simulation --------------------------
     def _init_wave_solver(self) -> None:
@@ -1118,7 +1144,7 @@ class MainWindow(QMainWindow):
         exhaust = self.engine.exhaust
         diameter_m = max(exhaust.header_primary_diameter * 0.001, 0.005)
         max_area = math.pi * (diameter_m / 2.0) ** 2
-        rpm = 6000.0
+        rpm = float(self.wave_rpm_spin.value())
         cam = self.engine.camshaft
         exhaust_center = 360.0 + cam.lobe_separation / 2.0 + cam.advance
         evo = exhaust_center - cam.exhaust_duration / 2.0
@@ -1145,7 +1171,8 @@ class MainWindow(QMainWindow):
 
         x_axis = np.linspace(0.0, self.wave_solver.L, self.wave_solver.N)
         energy_density = self.wave_solver.U[:, 2]
-        self.audio_synth.add_sample(self.wave_solver.time, energy_density[-1])
+        if self.wave_record_btn.isChecked():
+            self.audio_synth.add_sample(self.wave_solver.time, energy_density[-1])
         self.scope_tab.update_data(x_axis, energy_density)
         final_angle = (self.wave_solver.time * rpm * 6.0) % 720.0
         self.scope_tab.update_status(final_angle, valve_state, self.wave_solver.time)
