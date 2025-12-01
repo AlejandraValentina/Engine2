@@ -251,13 +251,14 @@ class CylinderSimulator:
         p_current = C_power / (vol_pow[0] ** GAMMA)
         for i, idx in enumerate(power_indices):
             V_curr = vol_pow[i]
-            # piston displacement from TDC
             x_disp = max((V_curr - Vc) / max(area, 1e-12), 0.0)
             area_wall = head_area + piston_area + (math.pi * bore_m * x_disp)
 
             T_gas = p_current * V_curr / max(m_air * R_AIR, 1e-9)
             w_mean = 2.28 * piston_speed_mean
-            h_c = 3.26 * (bore_m ** -0.2) * ((p_current / 1000.0) ** 0.8) * (T_gas ** -0.55) * (w_mean ** 0.8)
+            h_c = 3.26 * (bore_m ** -0.2) * ((max(p_current, 1e-6) / 1000.0) ** 0.8) * (max(T_gas, 1e-3) ** -0.55) * (
+                max(w_mean, 1e-6) ** 0.8
+            )
             Q_loss_rate = h_c * area_wall * max(T_gas - 450.0, 0.0)
             Q_loss = Q_loss_rate * dt
 
