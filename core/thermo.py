@@ -163,7 +163,10 @@ class CylinderSimulator:
         piston_speed = 2.0 * stroke_m * rpm / 60.0
         base_ve, mach_index = self._calculate_dynamic_ve(rpm, piston_speed, bore_m, cam.intake_duration)
 
-        runner_length_in = max(self.engine.intake.runner_length * 1e-3, 1e-6) / 0.0254
+        runner_length_m = max(self.engine.intake.runner_length * 1e-3, 1e-6)
+        runner_dia_m = max(self.engine.intake.runner_diameter * 1e-3, 1e-6)
+
+        runner_length_in = runner_length_m / 0.0254
         rpm_tune = 84000.0 / runner_length_in
         harmonics = [1.0, 0.7, 0.5]
         boosts = [0.15, 0.1, 0.08]
@@ -174,17 +177,25 @@ class CylinderSimulator:
             tuning_boost += b * math.exp(-0.5 * ((rpm - peak) / sigma) ** 2)
         tuning_factor = 1.0 + tuning_boost
 
-        exhaust_length_in = max(self.engine.exhaust.header_primary_length * 1e-3, 1e-6) / 0.0254
+        exhaust_length_m = max(self.engine.exhaust.header_primary_length * 1e-3, 1e-6)
+        exhaust_dia_m = max(self.engine.exhaust.header_primary_diameter * 1e-3, 1e-6)
+
+        exhaust_length_in = exhaust_length_m / 0.0254
         exhaust_peak = 115000.0 / exhaust_length_in
         exhaust_sigma = max(300.0, exhaust_peak * 0.15)
-        exhaust_boost = 0.05 * math.exp(-0.5 * ((rpm - exhaust_peak) / exhaust_sigma) ** 2)
+        exhaust_boost = 0.15 * math.exp(-0.5 * ((rpm - exhaust_peak) / exhaust_sigma) ** 2)
         tuning_factor *= 1.0 + exhaust_boost
+
+        drag_coeff = 1e-7
+        intake_drag = runner_length_m / max(runner_dia_m ** 4.8, 1e-12)
+        exhaust_drag = exhaust_length_m / max(exhaust_dia_m ** 4.8, 1e-12)
+        drag_penalty = max(0.5, 1.0 - drag_coeff * (intake_drag + exhaust_drag))
 
         ivc_abdc = max(0.0, IVC - 180.0)
         rpm_ratio = min(max(rpm / 7000.0, 0.0), 1.0)
         reversion_factor = max(0.0, 1.0 - (ivc_abdc * 0.002 * (1.0 - rpm_ratio)))
 
-        ve_prelim = np.clip(base_ve * tuning_factor * reversion_factor, 0.0, 1.5)
+        ve_prelim = np.clip(base_ve * tuning_factor * reversion_factor * drag_penalty, 0.0, 1.5)
 
         disp_cid = self.engine.block.displacement_cc * 0.0610237
         required_cfm = (disp_cid * rpm) / 3456.0 * ve_prelim
