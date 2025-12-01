@@ -4,8 +4,10 @@ import json
 import math
 from typing import Any, Optional
 
+import numpy as np
+
 import pyqtgraph as pg
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QColor, QBrush, QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -48,7 +50,10 @@ from core.engine_components import (
     SimulationSettings,
     Supercharger,
 )
+from core.model import Pipe
+from core.simulator import PipeSolver
 from core.thermo import CylinderSimulator
+from gui.widgets.scope_widget import ScopeWidget
 
 
 class MainWindow(QMainWindow):
@@ -70,6 +75,7 @@ class MainWindow(QMainWindow):
         self.property_widget.setLayout(self.property_form)
 
         self.tab_widget = QTabWidget()
+        self.scope_tab = ScopeWidget()
         self.dyno_plot = pg.PlotWidget()
         self.power_curve = None
         self.torque_curve = None
@@ -83,6 +89,9 @@ class MainWindow(QMainWindow):
         self.optimizer_step_spin = QDoubleSpinBox()
         self.opt_rpm_spin = QDoubleSpinBox()
         self.optimizer_progress = QProgressBar()
+        self.wave_solver: Optional[PipeSolver] = None
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.update_wave_simulation)
         self._setup_tabs()
 
         self.toolbar = self.addToolBar("Main Toolbar")
@@ -122,20 +131,24 @@ class MainWindow(QMainWindow):
         nav_layout.setSpacing(8)
         nav_container.setLayout(nav_layout)
 
+        btn_wave = QPushButton("🌊 Wave Sim")
+        btn_wave.clicked.connect(lambda: self.tab_widget.setCurrentIndex(2))
+        nav_layout.addWidget(btn_wave)
+
         btn_quick = QPushButton("📉 Go to Dyno")
-        btn_quick.clicked.connect(lambda: self.tab_widget.setCurrentIndex(2))
+        btn_quick.clicked.connect(lambda: self.tab_widget.setCurrentIndex(3))
         nav_layout.addWidget(btn_quick)
 
         btn_pro = QPushButton("🧠 Pro Dyno")
-        btn_pro.clicked.connect(lambda: self.tab_widget.setCurrentIndex(3))
+        btn_pro.clicked.connect(lambda: self.tab_widget.setCurrentIndex(4))
         nav_layout.addWidget(btn_pro)
 
         btn_analysis = QPushButton("📊 Analysis Data")
-        btn_analysis.clicked.connect(lambda: self.tab_widget.setCurrentIndex(4))
+        btn_analysis.clicked.connect(lambda: self.tab_widget.setCurrentIndex(5))
         nav_layout.addWidget(btn_analysis)
 
         btn_optimizer = QPushButton("⚡ Optimizer")
-        btn_optimizer.clicked.connect(lambda: self.tab_widget.setCurrentIndex(5))
+        btn_optimizer.clicked.connect(lambda: self.tab_widget.setCurrentIndex(6))
         nav_layout.addWidget(btn_optimizer)
 
         self.toolbar.addWidget(nav_container)
@@ -160,6 +173,20 @@ class MainWindow(QMainWindow):
         properties_layout.addWidget(self.property_widget)
         properties_layout.addStretch()
         self.properties_tab.setLayout(properties_layout)
+
+        scope_container = QWidget()
+        scope_layout = QVBoxLayout()
+        controls_layout = QHBoxLayout()
+        start_btn = QPushButton("Start")
+        start_btn.clicked.connect(self._start_wave_sim)
+        stop_btn = QPushButton("Stop")
+        stop_btn.clicked.connect(self.timer.stop)
+        controls_layout.addWidget(start_btn)
+        controls_layout.addWidget(stop_btn)
+        controls_layout.addStretch()
+        scope_layout.addLayout(controls_layout)
+        scope_layout.addWidget(self.scope_tab)
+        scope_container.setLayout(scope_layout)
 
         dyno_tab = QWidget()
         dyno_layout = QVBoxLayout()
@@ -261,6 +288,7 @@ class MainWindow(QMainWindow):
 
         self.tab_widget.addTab(overview_tab, "Overview")
         self.tab_widget.addTab(self.properties_tab, "Properties")
+        self.tab_widget.addTab(scope_container, "Wave Scope")
         self.tab_widget.addTab(dyno_tab, "Quick Dyno")
         self.tab_widget.addTab(pro_dyno_tab, "Pro Dyno")
         self.tab_widget.addTab(analysis_tab, "Analysis Data")
@@ -269,6 +297,7 @@ class MainWindow(QMainWindow):
 
     # -------------------------- Tree Handling -----------------------------
     def refresh_tree(self) -> None:
+        self.wave_solver = None
         self.navigation_tree.clear()
 
         root_item = QTreeWidgetItem(["Engine"])
@@ -980,6 +1009,8 @@ class MainWindow(QMainWindow):
                 data = json.load(f)
 
             self.engine = Engine.from_dict(data)
+            self.wave_solver = None
+            self.timer.stop()
             self.refresh_tree()
             self.update_properties_panel(None)
             self.update_overview()
@@ -988,6 +1019,41 @@ class MainWindow(QMainWindow):
     # Backwards compatibility with older action wiring
     def load_engine(self) -> None:  # pragma: no cover - retained for older menu hookups
         self.load_project()
+
+    # -------------------------- Wave Simulation --------------------------
+    def _init_wave_solver(self) -> None:
+        exhaust = self.engine.exhaust
+        length_m = max(exhaust.header_primary_length * 0.001, 0.1)
+        diameter_m = max(exhaust.header_primary_diameter * 0.001, 0.005)
+        pipe = Pipe(
+            length=length_m,
+            diameter_inlet=diameter_m,
+            diameter_outlet=diameter_m,
+            wall_temperature=600.0,
+            friction_coeff=0.02,
+        )
+        self.wave_solver = PipeSolver(pipe, target_dx=0.01)
+
+    def _start_wave_sim(self) -> None:
+        if self.wave_solver is None:
+            self._init_wave_solver()
+        self.timer.start(16)
+
+    def update_wave_simulation(self) -> None:
+        if self.wave_solver is None:
+            self._init_wave_solver()
+        if self.wave_solver is None:
+            return
+
+        for _ in range(10):
+            dt = self.wave_solver.step()
+            if dt <= 0.0:
+                break
+
+        x_axis = np.linspace(0.0, self.wave_solver.L, self.wave_solver.N)
+        energy_density = self.wave_solver.U[:, 2]
+        self.scope_tab.update_data(x_axis, energy_density)
+        self.scope_tab.update_status(0.0, "N/A", self.wave_solver.time)
 
     # -------------------------- Dyno Sweep --------------------------------
     def run_dyno_sweep(self) -> None:
