@@ -115,7 +115,6 @@ class CylinderSimulator:
         comb = getattr(self.engine, "combustion", None)
         ignition = getattr(comb, "ignition_advance", 30.0)
         burn_duration = getattr(comb, "burn_duration", 50.0)
-        thermal_eff = getattr(comb, "thermal_efficiency", 0.5)
         afr_user = getattr(comb, "afr", AFR_STOICH)
 
         fuel_cfg = getattr(self.engine, "fuel", None)
@@ -213,11 +212,10 @@ class CylinderSimulator:
         m_air = ve * (P_manifold * V_IVC) / (R_AIR * T_charge)
         fuel_mass = m_air / fuel_stoich
         Q_total = fuel_mass * fuel_lhv
-        Q_effective = Q_total * thermal_eff
 
         start_angle = 360.0 - float(ignition)
         x = wiebe_function(angle_arr, start_angle, burn_duration, efficiency=1.0)
-        Q_rel = Q_effective * x
+        Q_rel = Q_total * x
 
         mask_intake = angle_arr < IVC
         mask_compression = (angle_arr >= IVC) & (angle_arr < 360.0)
@@ -236,8 +234,44 @@ class CylinderSimulator:
 
         C_power = C_comp
         pressure_mot_power = C_power / (vol_pow ** GAMMA)
-        pressure_combustion_rise = (GAMMA - 1.0) * Q_rel[mask_power] / vol_pow
-        pressure[mask_power] = pressure_mot_power + pressure_combustion_rise
+
+        # Woschni heat transfer integration over the power stroke
+        power_indices = np.where(mask_power)[0]
+        pressure_power = np.zeros_like(power_indices, dtype=float)
+
+        deg_step = angle_arr[1] - angle_arr[0]
+        dt = deg_step / 360.0 * 60.0 / max(rpm, 1e-3)
+        piston_speed_mean = piston_speed  # already mean piston speed
+        head_area = area
+        piston_area = area
+
+        q_rel_pow = Q_rel[mask_power]
+        q_rel_diff = np.diff(q_rel_pow, prepend=0.0)
+
+        p_current = C_power / (vol_pow[0] ** GAMMA)
+        for i, idx in enumerate(power_indices):
+            V_curr = vol_pow[i]
+            # piston displacement from TDC
+            x_disp = max((V_curr - Vc) / max(area, 1e-12), 0.0)
+            area_wall = head_area + piston_area + (math.pi * bore_m * x_disp)
+
+            T_gas = p_current * V_curr / max(m_air * R_AIR, 1e-9)
+            w_mean = 2.28 * piston_speed_mean
+            h_c = 3.26 * (bore_m ** -0.2) * ((p_current / 1000.0) ** 0.8) * (T_gas ** -0.55) * (w_mean ** 0.8)
+            Q_loss_rate = h_c * area_wall * max(T_gas - 450.0, 0.0)
+            Q_loss = Q_loss_rate * dt
+
+            net_q = q_rel_diff[i] - Q_loss
+            p_with_heat = p_current + (GAMMA - 1.0) * net_q / max(V_curr, 1e-9)
+            pressure_power[i] = p_with_heat
+
+            if i < len(power_indices) - 1:
+                V_next = vol_pow[i + 1]
+                p_current = p_with_heat * (V_curr / V_next) ** GAMMA
+            else:
+                p_current = p_with_heat
+
+        pressure[mask_power] = pressure_power
 
         if (not np.isfinite(pressure).all()) or (not np.isfinite(volume).all()):
             raise ValueError(
