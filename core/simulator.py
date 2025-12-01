@@ -63,6 +63,7 @@ class PipeSolver:
         self.U[:, 0] = rho0
         self.U[:, 1] = rho0 * u0
         self.U[:, 2] = rho0 * (e0 + 0.5 * u0 * u0)
+        self._initial_U = self.U.copy()
 
     def apply_boundary_conditions(
         self, p_cyl: float, T_cyl: float, valve_area: float
@@ -149,3 +150,68 @@ class PipeSolver:
 
         self.time += dt
         return dt
+
+    def run_full_simulation(self, rpm: float, cycles: int = 2):
+        """Simulate a full engine cycle (or several) and record state history.
+
+        The simulation uses a simple exhaust-open/closed schedule to drive the
+        boundary conditions, sampling the entire pipe state roughly every
+        crank-degree for later visualization or audio synthesis.
+
+        Returns
+        -------
+        Tuple[list[np.ndarray], list[float], list[float]]
+            history of U snapshots, exhaust pressure samples, and time vector
+            aligned to the history entries.
+        """
+
+        # Reset state to the initialized ambient condition for repeatability.
+        self.U = self._initial_U.copy()
+        self.time = 0.0
+
+        rpm = max(float(rpm), 1.0)
+        total_time = cycles * 120.0 / rpm  # seconds for requested cycles
+        sample_interval = 1.0 / (rpm * 6.0)  # 1 crank-degree in seconds
+        next_sample_time = 0.0
+
+        exhaust_open_start = 140.0
+        exhaust_open_end = 360.0
+        exhaust_pressure = 15.0 * 100000.0
+        ambient_pressure = 101325.0
+        T_hot = 1200.0
+        T_cold = 300.0
+
+        history: list[np.ndarray] = []
+        audio_pressures: list[float] = []
+        time_vector: list[float] = []
+
+        while self.time < total_time:
+            angle = (self.time * rpm * 6.0) % 720.0
+            if exhaust_open_start <= angle <= exhaust_open_end:
+                phase = (angle - exhaust_open_start) / max(
+                    exhaust_open_end - exhaust_open_start, 1e-6
+                )
+                lift = max(math.sin(math.pi * phase), 0.0)
+                diameter = math.sqrt(self.areas[0] / math.pi) * 2.0
+                max_area = math.pi * (diameter * 0.5) ** 2
+                valve_area = max_area * lift
+                p_cyl = exhaust_pressure
+                T_cyl = T_hot
+            else:
+                valve_area = 0.0
+                p_cyl = ambient_pressure
+                T_cyl = T_cold
+
+            dt = self.get_time_step()
+            self.step(dt=dt, p_cyl=p_cyl, T_cyl=T_cyl, valve_area=valve_area)
+
+            while self.time >= next_sample_time and next_sample_time <= total_time:
+                history.append(self.U.copy())
+                time_vector.append(self.time)
+                p_grid = (numerics.GAMMA - 1.0) * (
+                    self.U[:, 2] - 0.5 * (self.U[:, 1] ** 2) / self.U[:, 0]
+                )
+                audio_pressures.append(float(p_grid[-1]))
+                next_sample_time += sample_interval
+
+        return history, audio_pressures, time_vector

@@ -83,7 +83,7 @@ class MainWindow(QMainWindow):
         self.main_stack = QStackedWidget()
         self.scope_tab = ScopeWidget()
         self.wave_rpm_spin = QDoubleSpinBox()
-        self.wave_speed_slider = QSlider(Qt.Horizontal)
+        self.wave_scrub_slider = QSlider(Qt.Horizontal)
         self.wave_record_btn = QPushButton("🔴 Record")
         self.wave_record_btn.setCheckable(True)
         self.wave_save_btn = QPushButton("💾 Save Audio")
@@ -105,8 +105,10 @@ class MainWindow(QMainWindow):
         self.opt_rpm_spin = QDoubleSpinBox()
         self.optimizer_progress = QProgressBar()
         self.wave_solver: Optional[PipeSolver] = None
+        self.wave_history: list[np.ndarray] = []
+        self.wave_time_vector: list[float] = []
+        self.wave_audio_samples: list[float] = []
         self.timer = QTimer(self)
-        self.timer.timeout.connect(self.update_wave_simulation)
         self._setup_views()
 
         self.toolbar = self.addToolBar("Main Toolbar")
@@ -335,22 +337,19 @@ class MainWindow(QMainWindow):
         self.wave_rpm_spin.setSingleStep(100.0)
         self.wave_rpm_spin.setValue(max(self.engine.camshaft.peak_rpm, 1000.0))
 
-        speed_label = QLabel("Playback Speed (Steps/Frame)")
-        self.wave_speed_slider.setRange(1, 500)
-        self.wave_speed_slider.setValue(50)
-
-        start_btn = QPushButton("Start")
-        start_btn.clicked.connect(self._start_wave_sim)
-        stop_btn = QPushButton("Stop")
-        stop_btn.clicked.connect(self.timer.stop)
+        calc_btn = QPushButton("⚡ Calculate Waves")
+        calc_btn.clicked.connect(self.run_wave_calculation)
         self.wave_save_btn.clicked.connect(self.save_wave_audio)
+
+        self.wave_scrub_slider.setRange(0, 0)
+        self.wave_scrub_slider.setEnabled(False)
+        self.wave_scrub_slider.valueChanged.connect(self.update_wave_plot)
 
         controls.addWidget(rpm_label)
         controls.addWidget(self.wave_rpm_spin)
-        controls.addWidget(start_btn)
-        controls.addWidget(stop_btn)
-        controls.addWidget(speed_label)
-        controls.addWidget(self.wave_speed_slider)
+        controls.addWidget(calc_btn)
+        controls.addWidget(QLabel("Crank Angle Scrub"))
+        controls.addWidget(self.wave_scrub_slider)
         controls.addWidget(self.wave_record_btn)
         controls.addWidget(self.wave_save_btn)
         controls.addStretch()
@@ -1137,59 +1136,47 @@ class MainWindow(QMainWindow):
         )
         self.wave_solver = PipeSolver(pipe, target_dx=0.01)
         self.audio_synth = AudioSynthesizer()
-        # Seed a small disturbance so the scope shows traveling waves immediately.
-        mid_idx = self.wave_solver.N // 2
-        self.wave_solver.U[mid_idx, 2] *= 1.1
+        self.wave_history = []
+        self.wave_time_vector = []
+        self.wave_audio_samples = []
 
-    def _start_wave_sim(self) -> None:
-        if self.wave_solver is None:
-            self._init_wave_solver()
-        self.main_stack.setCurrentIndex(2)
-        self.timer.start(16)
-
-    def update_wave_simulation(self) -> None:
+    def run_wave_calculation(self) -> None:
         if self.wave_solver is None:
             self._init_wave_solver()
         if self.wave_solver is None:
             return
 
-        exhaust = self.engine.exhaust
-        diameter_m = max(exhaust.header_primary_diameter * 0.001, 0.005)
-        max_area = math.pi * (diameter_m / 2.0) ** 2
         rpm = float(self.wave_rpm_spin.value())
-        cam = self.engine.camshaft
-        exhaust_center = 360.0 + cam.lobe_separation / 2.0 + cam.advance
-        evo = exhaust_center - cam.exhaust_duration / 2.0
-        evc = exhaust_center + cam.exhaust_duration / 2.0
-        valve_state = "CLOSED"
+        self.audio_synth = AudioSynthesizer()
+        history, audio_pressures, time_vector = self.wave_solver.run_full_simulation(
+            rpm, cycles=2
+        )
+        self.wave_history = history
+        self.wave_time_vector = time_vector
+        self.wave_audio_samples = audio_pressures
+        for t, p in zip(time_vector, audio_pressures):
+            self.audio_synth.add_sample(t, p)
 
-        iterations = max(1, int(self.wave_speed_slider.value()))
+        if self.wave_history:
+            self.wave_scrub_slider.setEnabled(True)
+            self.wave_scrub_slider.setRange(0, len(self.wave_history) - 1)
+            self.wave_scrub_slider.setValue(0)
+            self.update_wave_plot(0)
+            self.statusBar().showMessage("Wave simulation calculated", 2000)
+        else:
+            self.wave_scrub_slider.setEnabled(False)
 
-        for _ in range(iterations):
-            angle = (self.wave_solver.time * rpm * 6.0) % 720.0
-            if evo <= angle <= evc:
-                phase = (angle - evo) / max(evc - evo, 1e-3)
-                lift = max(math.sin(math.pi * phase), 0.0)
-                area = max_area * lift
-                p_cyl = 15.0 * 100000.0
-                T_cyl = 1200.0
-                valve_state = "OPEN"
-            else:
-                area = 0.0
-                p_cyl = 15.0 * 100000.0
-                T_cyl = 300.0
-                valve_state = "CLOSED"
-
-            dt = self.wave_solver.get_time_step()
-            self.wave_solver.step(dt=dt, p_cyl=p_cyl, T_cyl=T_cyl, valve_area=area)
-
+    def update_wave_plot(self, index: int) -> None:
+        if not self.wave_history:
+            return
+        idx = max(0, min(int(index), len(self.wave_history) - 1))
+        state = self.wave_history[idx]
         x_axis = np.linspace(0.0, self.wave_solver.L, self.wave_solver.N)
-        energy_density = self.wave_solver.U[:, 2]
-        if self.wave_record_btn.isChecked():
-            self.audio_synth.add_sample(self.wave_solver.time, energy_density[-1])
+        energy_density = state[:, 2]
         self.scope_tab.update_data(x_axis, energy_density)
-        final_angle = (self.wave_solver.time * rpm * 6.0) % 720.0
-        self.scope_tab.update_status(final_angle, valve_state, self.wave_solver.time)
+        rpm = float(self.wave_rpm_spin.value())
+        angle = (self.wave_time_vector[idx] * rpm * 6.0) % 720.0
+        self.scope_tab.update_status(angle, "PLAYBACK", self.wave_time_vector[idx])
 
     # -------------------------- Dyno Sweep --------------------------------
     def run_dyno_sweep(self) -> None:
