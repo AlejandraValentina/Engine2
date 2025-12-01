@@ -186,16 +186,11 @@ class CylinderSimulator:
         exhaust_boost = 0.15 * math.exp(-0.5 * ((rpm - exhaust_peak) / exhaust_sigma) ** 2)
         tuning_factor *= 1.0 + exhaust_boost
 
-        drag_coeff = 1e-7
-        intake_drag = runner_length_m / max(runner_dia_m ** 4.8, 1e-12)
-        exhaust_drag = exhaust_length_m / max(exhaust_dia_m ** 4.8, 1e-12)
-        drag_penalty = max(0.5, 1.0 - drag_coeff * (intake_drag + exhaust_drag))
-
         ivc_abdc = max(0.0, IVC - 180.0)
         rpm_ratio = min(max(rpm / 7000.0, 0.0), 1.0)
         reversion_factor = max(0.0, 1.0 - (ivc_abdc * 0.002 * (1.0 - rpm_ratio)))
 
-        ve_prelim = np.clip(base_ve * tuning_factor * reversion_factor * drag_penalty, 0.0, 1.5)
+        ve_prelim = np.clip(base_ve * tuning_factor * reversion_factor, 0.0, 1.5)
 
         disp_cid = self.engine.block.displacement_cc * 0.0610237
         required_cfm = (disp_cid * rpm) / 3456.0 * ve_prelim
@@ -209,7 +204,11 @@ class CylinderSimulator:
         total_capacity = max(1e-6, min(head_capacity_total, throttle_capacity))
         restriction_penalty = 1.0 if required_cfm <= total_capacity else (total_capacity / required_cfm) ** 0.5
 
-        ve = np.clip(ve_prelim * restriction_penalty, 0.2, 1.2)
+        intake_loss_factor = (runner_length_m / max(runner_dia_m, 1e-9)) * 0.002
+        exhaust_loss_factor = (exhaust_length_m / max(exhaust_dia_m, 1e-9)) * 0.002
+        total_loss = max(0.0, intake_loss_factor + exhaust_loss_factor)
+
+        ve = np.clip(ve_prelim * restriction_penalty * max(0.0, 1.0 - total_loss), 0.0, 1.2)
 
         m_air = ve * (P_manifold * V_IVC) / (R_AIR * T_charge)
         fuel_mass = m_air / fuel_stoich
