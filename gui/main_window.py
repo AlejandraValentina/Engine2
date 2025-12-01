@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QTreeWidgetItem,
     QVBoxLayout,
     QWidget,
+    QMessageBox,
 )
 
 from acoustics.audio_generator import AudioSynthesizer, generate_full_engine_sound
@@ -78,6 +79,10 @@ class MainWindow(QMainWindow):
 
         self.tab_widget = QTabWidget()
         self.scope_tab = ScopeWidget()
+        self.fabrication_table = QTableWidget()
+        self.collector_type_combo = QComboBox()
+        self.collector_inlet_label = QLabel("-")
+        self.tailpipe_length_label = QLabel("-")
         self.dyno_plot = pg.PlotWidget()
         self.power_curve = None
         self.torque_curve = None
@@ -138,24 +143,28 @@ class MainWindow(QMainWindow):
         nav_layout.addWidget(btn_save_wav)
 
         btn_wave = QPushButton("🌊 Wave Sim")
-        btn_wave.clicked.connect(lambda: self.tab_widget.setCurrentIndex(2))
+        btn_wave.clicked.connect(lambda: self.tab_widget.setCurrentIndex(3))
         nav_layout.addWidget(btn_wave)
 
         btn_quick = QPushButton("📉 Go to Dyno")
-        btn_quick.clicked.connect(lambda: self.tab_widget.setCurrentIndex(3))
+        btn_quick.clicked.connect(lambda: self.tab_widget.setCurrentIndex(4))
         nav_layout.addWidget(btn_quick)
 
         btn_pro = QPushButton("🧠 Pro Dyno")
-        btn_pro.clicked.connect(lambda: self.tab_widget.setCurrentIndex(4))
+        btn_pro.clicked.connect(lambda: self.tab_widget.setCurrentIndex(5))
         nav_layout.addWidget(btn_pro)
 
         btn_analysis = QPushButton("📊 Analysis Data")
-        btn_analysis.clicked.connect(lambda: self.tab_widget.setCurrentIndex(5))
+        btn_analysis.clicked.connect(lambda: self.tab_widget.setCurrentIndex(6))
         nav_layout.addWidget(btn_analysis)
 
         btn_optimizer = QPushButton("⚡ Optimizer")
-        btn_optimizer.clicked.connect(lambda: self.tab_widget.setCurrentIndex(6))
+        btn_optimizer.clicked.connect(lambda: self.tab_widget.setCurrentIndex(7))
         nav_layout.addWidget(btn_optimizer)
+
+        btn_fabrication = QPushButton("🛠️ Fabrication")
+        btn_fabrication.clicked.connect(lambda: self.tab_widget.setCurrentIndex(2))
+        nav_layout.addWidget(btn_fabrication)
 
         self.toolbar.addWidget(nav_container)
 
@@ -179,6 +188,28 @@ class MainWindow(QMainWindow):
         properties_layout.addWidget(self.property_widget)
         properties_layout.addStretch()
         self.properties_tab.setLayout(properties_layout)
+
+        fabrication_tab = QWidget()
+        fabrication_layout = QVBoxLayout()
+        self.fabrication_table.setColumnCount(5)
+        self.fabrication_table.setHorizontalHeaderLabels(
+            ["Cylinder #", "Target Length (mm)", "Actual Length (mm)", "Diameter (mm)", "Bend Angle Est."]
+        )
+        self.fabrication_table.itemChanged.connect(self._on_fabrication_cell_changed)
+        fabrication_layout.addWidget(self.fabrication_table)
+
+        collector_layout = QFormLayout()
+        self.collector_type_combo.addItems(["4-into-1", "4-2-1", "6-into-1", "Custom"])
+        self.collector_type_combo.currentTextChanged.connect(lambda _text: self.update_fabrication_data())
+        collector_layout.addRow("Collector Type", self.collector_type_combo)
+        collector_layout.addRow("Collector Inlet Diameter", self.collector_inlet_label)
+        collector_layout.addRow("Tailpipe Length", self.tailpipe_length_label)
+        fabrication_layout.addLayout(collector_layout)
+
+        report_btn = QPushButton("📄 Generate Fabrication Report")
+        report_btn.clicked.connect(self._generate_fabrication_report)
+        fabrication_layout.addWidget(report_btn)
+        fabrication_tab.setLayout(fabrication_layout)
 
         scope_container = QWidget()
         scope_layout = QVBoxLayout()
@@ -294,6 +325,7 @@ class MainWindow(QMainWindow):
 
         self.tab_widget.addTab(overview_tab, "Overview")
         self.tab_widget.addTab(self.properties_tab, "Properties")
+        self.tab_widget.addTab(fabrication_tab, "Fabrication")
         self.tab_widget.addTab(scope_container, "Wave Scope")
         self.tab_widget.addTab(dyno_tab, "Quick Dyno")
         self.tab_widget.addTab(pro_dyno_tab, "Pro Dyno")
@@ -352,6 +384,7 @@ class MainWindow(QMainWindow):
 
         self.navigation_tree.expandAll()
         self.navigation_tree.setCurrentItem(block_item)
+        self.update_fabrication_data()
 
     # -------------------------- Properties Panel --------------------------
     def _clear_property_form(self) -> None:
@@ -1209,6 +1242,84 @@ class MainWindow(QMainWindow):
             self.analysis_table.setItem(row, col, item)
 
         return knock
+
+    # -------------------------- Fabrication Tab ---------------------------
+    def update_fabrication_data(self) -> None:
+        """Populate the fabrication table based on the current engine."""
+        n_cyl = max(1, int(self.engine.block.num_cylinders))
+        target_len = float(self.engine.exhaust.header_primary_length)
+        diameter = float(self.engine.exhaust.header_primary_diameter)
+
+        self.fabrication_table.blockSignals(True)
+        self.fabrication_table.setRowCount(n_cyl)
+        for i in range(n_cyl):
+            cyl_item = QTableWidgetItem(str(i + 1))
+            cyl_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.fabrication_table.setItem(i, 0, cyl_item)
+
+            tgt_item = QTableWidgetItem(f"{target_len:.1f}")
+            tgt_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.fabrication_table.setItem(i, 1, tgt_item)
+
+            actual_item = QTableWidgetItem(f"{target_len:.1f}")
+            self.fabrication_table.setItem(i, 2, actual_item)
+
+            dia_item = QTableWidgetItem(f"{diameter:.1f}")
+            dia_item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+            self.fabrication_table.setItem(i, 3, dia_item)
+
+            bend_item = QTableWidgetItem("0°")
+            self.fabrication_table.setItem(i, 4, bend_item)
+
+            self._evaluate_fabrication_row(i)
+
+        self.fabrication_table.blockSignals(False)
+
+        inlet = diameter * math.sqrt(max(1, n_cyl))
+        self.collector_inlet_label.setText(f"~{inlet:.1f} mm")
+        self.tailpipe_length_label.setText(f"{self.engine.exhaust.collector_length:.1f} mm")
+
+    def _on_fabrication_cell_changed(self, item: QTableWidgetItem) -> None:
+        if item.column() in (1, 2):
+            self._evaluate_fabrication_row(item.row())
+
+    def _evaluate_fabrication_row(self, row: int) -> None:
+        try:
+            tgt = float(self.fabrication_table.item(row, 1).text())
+            act = float(self.fabrication_table.item(row, 2).text())
+        except Exception:
+            return
+
+        deviation = abs(act - tgt) / max(tgt, 1e-6)
+        item = self.fabrication_table.item(row, 2)
+        if deviation > 0.05:
+            item.setBackground(QBrush(QColor(255, 200, 200)))
+        else:
+            item.setBackground(QBrush(Qt.white))
+
+    def _generate_fabrication_report(self) -> None:
+        rows = self.fabrication_table.rowCount()
+        total_length_mm = 0.0
+        diameter = self.engine.exhaust.header_primary_diameter
+        for i in range(rows):
+            try:
+                total_length_mm += float(self.fabrication_table.item(i, 2).text())
+            except Exception:
+                continue
+
+        total_m = total_length_mm / 1000.0
+        report_lines = [
+            f"You need approximately {total_m:.2f} meters of {diameter:.1f} mm tubing.",
+            "Cut list:",
+        ]
+        for i in range(rows):
+            try:
+                act = float(self.fabrication_table.item(i, 2).text())
+            except Exception:
+                act = 0.0
+            report_lines.append(f"- Cylinder {i+1}: {act:.1f} mm")
+
+        QMessageBox.information(self, "Fabrication Report", "\n".join(report_lines))
 
     def run_pro_dyno_sweep(self) -> None:
         simulator = CylinderSimulator(self.engine)
