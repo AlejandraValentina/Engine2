@@ -1033,6 +1033,9 @@ class MainWindow(QMainWindow):
             friction_coeff=0.02,
         )
         self.wave_solver = PipeSolver(pipe, target_dx=0.01)
+        # Seed a small disturbance so the scope shows traveling waves immediately.
+        mid_idx = self.wave_solver.N // 2
+        self.wave_solver.U[mid_idx, 2] *= 1.1
 
     def _start_wave_sim(self) -> None:
         if self.wave_solver is None:
