@@ -409,7 +409,11 @@ class MainWindow(QMainWindow):
         self._clear_property_form()
 
         cr_spin = self._double_spin(head.compression_ratio, 5.0, 18.0, 0.1)
-        self._bind_spin(cr_spin, lambda val: self._update_value(head, "compression_ratio", val), "compression_ratio")
+        self._bind_spin(
+            cr_spin,
+            lambda val: (self._update_value(head, "compression_ratio", val), self._clear_head_chamber_override(head)),
+            "compression_ratio",
+        )
         cr_row = QWidget()
         cr_layout = QHBoxLayout()
         cr_layout.setContentsMargins(0, 0, 0, 0)
@@ -500,11 +504,11 @@ class MainWindow(QMainWindow):
         self._bind_spin(exh_dur, lambda val: self._update_value(cam, "exhaust_duration", val), "exhaust_duration")
         self.property_form.addRow("Exhaust Duration (deg)", exh_dur)
 
-        lsa_spin = self._double_spin(cam.lobe_separation, 90.0, 125.0, 0.5)
+        lsa_spin = self._double_spin(cam.lobe_separation, 80.0, 120.0, 0.5)
         self._bind_spin(lsa_spin, lambda val: self._update_value(cam, "lobe_separation", val), "lobe_separation")
         self.property_form.addRow("Lobe Separation (deg)", lsa_spin)
 
-        adv_spin = self._double_spin(cam.advance, -20.0, 20.0, 0.5)
+        adv_spin = self._double_spin(cam.advance, -50.0, 50.0, 0.5)
         self._bind_spin(adv_spin, lambda val: self._update_value(cam, "advance", val), "advance")
         self.property_form.addRow("Advance (deg)", adv_spin)
 
@@ -800,6 +804,11 @@ class MainWindow(QMainWindow):
         current_item = self.navigation_tree.currentItem()
         if current_item and isinstance(obj, Block):
             self._build_block_form(obj)
+        self.update_overview()
+
+    def _clear_head_chamber_override(self, head: CylinderHead) -> None:
+        head.combustion_chamber_vol = 0.0
+        self.statusBar().showMessage("Mode: Calculated from Compression Ratio", 2000)
         self.update_overview()
 
     def _update_valve_size(self, head: CylinderHead, attr_base: str, value: float) -> None:
