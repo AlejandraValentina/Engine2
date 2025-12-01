@@ -193,7 +193,7 @@ class MainWindow(QMainWindow):
         self.analysis_summary_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         analysis_layout.addWidget(self.analysis_summary_label)
         self.analysis_table = QTableWidget()
-        self.analysis_table.setColumnCount(9)
+        self.analysis_table.setColumnCount(10)
         self.analysis_table.setHorizontalHeaderLabels(
             [
                 "RPM",
@@ -205,6 +205,7 @@ class MainWindow(QMainWindow):
                 "Mach Z",
                 "Friction (HP)",
                 "Airflow (CFM)",
+                "Knock?",
             ]
         )
         analysis_layout.addWidget(self.analysis_table)
@@ -1001,8 +1002,10 @@ class MainWindow(QMainWindow):
         max_tq_value = -float("inf")
         max_tq_rpm = 0
         max_tq_row = -1
+        knock_detected = False
 
         self.analysis_table.setRowCount(0)
+        self.dyno_plot.setTitle("")
 
         for rpm in rpm_values:
             result = simulator.run_cycle(rpm)
@@ -1021,27 +1024,28 @@ class MainWindow(QMainWindow):
                 max_tq_rpm = rpm
                 max_tq_row = self.analysis_table.rowCount()
 
-            row = self.analysis_table.rowCount()
-            self.analysis_table.insertRow(row)
-            row_data = [
-                rpm,
-                torque,
-                result.get("mean_power_hp", 0.0),
-                result.get("bmep_bar", 0.0),
-                result.get("ve_actual", 0.0) * 100.0,
-                result.get("mean_piston_speed", 0.0),
-                result.get("mach_index", 0.0),
-                result.get("friction_hp", 0.0),
-                result.get("airflow_cfm", 0.0),
-            ]
-            for col, val in enumerate(row_data):
-                item = QTableWidgetItem(f"{val:.2f}" if isinstance(val, (int, float)) else str(val))
-                self.analysis_table.setItem(row, col, item)
+            knock_present = self.update_analysis_table(rpm, result)
+            knock_detected = knock_detected or knock_present
 
+        warning_html = ""
         if rpm_values and max_hp_row >= 0 and max_tq_row >= 0:
-            self.analysis_summary_label.setText(
+            summary = (
                 f"🏆 Max Power: {max_hp_value:.1f} HP @ {max_hp_rpm} RPM | 🚀 Max Torque: {max_tq_value:.1f} Nm @ {max_tq_rpm} RPM"
             )
+            if knock_detected:
+                warning_html = (
+                    "<br><span style='color:red; font-weight:bold;'>WARNING: ENGINE KNOCK DETECTED - Low Octane for this Compression</span>"
+                )
+                self.dyno_plot.setTitle(
+                    "<span style='color:red; font-weight:bold;'>WARNING: ENGINE KNOCK DETECTED - Low Octane for this Compression</span>"
+                )
+                self.statusBar().showMessage(
+                    "WARNING: ENGINE KNOCK DETECTED - Low Octane for this Compression", 5000
+                )
+            else:
+                self.statusBar().clearMessage()
+
+            self.analysis_summary_label.setText(summary + warning_html)
             hp_item = self.analysis_table.item(max_hp_row, 2)
             if hp_item:
                 hp_item.setBackground(QBrush(QColor(255, 200, 200)))
@@ -1057,6 +1061,7 @@ class MainWindow(QMainWindow):
                 tq_item.setFont(font)
         else:
             self.analysis_summary_label.setText("No dyno data yet")
+            self.statusBar().clearMessage()
 
         self.dyno_plot.clear()
         self.dyno_plot.addLegend(clear=True)
@@ -1066,6 +1071,42 @@ class MainWindow(QMainWindow):
         self.dyno_plot.setLabel("left", "Power (HP) / Torque (Nm)")
         if rpm_values:
             self.dyno_plot.setXRange(min(rpm_values), max(rpm_values), padding=0.05)
+        if not knock_detected:
+            self.dyno_plot.setTitle("")
+
+    def update_analysis_table(self, rpm: float, result: dict[str, float]) -> bool:
+        row = self.analysis_table.rowCount()
+        self.analysis_table.insertRow(row)
+
+        knock = bool(result.get("knock_warning", False))
+        row_data = [
+            rpm,
+            result.get("mean_torque_nm", 0.0),
+            result.get("mean_power_hp", 0.0),
+            result.get("bmep_bar", 0.0),
+            result.get("ve_actual", 0.0) * 100.0,
+            result.get("mean_piston_speed", 0.0),
+            result.get("mach_index", 0.0),
+            result.get("friction_hp", 0.0),
+            result.get("airflow_cfm", 0.0),
+            knock,
+        ]
+
+        for col, val in enumerate(row_data):
+            if col == 9:
+                text = "YES" if knock else "No"
+                item = QTableWidgetItem(text)
+                color = QColor(200, 0, 0) if knock else QColor(0, 150, 0)
+                item.setForeground(QBrush(color))
+                if knock:
+                    font = QFont(item.font())
+                    font.setBold(True)
+                    item.setFont(font)
+            else:
+                item = QTableWidgetItem(f"{val:.2f}" if isinstance(val, (int, float)) else str(val))
+            self.analysis_table.setItem(row, col, item)
+
+        return knock
 
     def run_pro_dyno_sweep(self) -> None:
         simulator = CylinderSimulator(self.engine)
