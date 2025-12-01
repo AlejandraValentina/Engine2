@@ -7,7 +7,7 @@ from typing import Any, Optional
 import numpy as np
 
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QRectF
 from PySide6.QtGui import QAction, QColor, QBrush, QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -57,7 +57,6 @@ from core.engine_components import (
 from core.model import Pipe
 from core.simulator import PipeSolver
 from core.thermo import CylinderSimulator
-from gui.widgets.scope_widget import ScopeWidget
 
 
 class MainWindow(QMainWindow):
@@ -81,7 +80,8 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         self.main_stack = QStackedWidget()
-        self.scope_tab = ScopeWidget()
+        self.wave_plot = pg.PlotWidget()
+        self.wave_image = pg.ImageItem()
         self.wave_rpm_spin = QDoubleSpinBox()
         self.wave_scrub_slider = QSlider(Qt.Horizontal)
         self.wave_record_btn = QPushButton("🔴 Record")
@@ -105,6 +105,7 @@ class MainWindow(QMainWindow):
         self.opt_rpm_spin = QDoubleSpinBox()
         self.optimizer_progress = QProgressBar()
         self.wave_solver: Optional[PipeSolver] = None
+        self.wave_matrix: Optional[np.ndarray] = None
         self.wave_history: list[np.ndarray] = []
         self.wave_time_vector: list[float] = []
         self.wave_audio_samples: list[float] = []
@@ -355,7 +356,20 @@ class MainWindow(QMainWindow):
         controls.addStretch()
 
         layout.addLayout(controls)
-        layout.addWidget(self.scope_tab)
+
+        # Heatmap-style wave visualization
+        self.wave_plot = pg.PlotWidget(background="k")
+        self.wave_plot.addItem(self.wave_image)
+        pos = np.array([0.0, 0.5, 1.0])
+        color = np.array(
+            [[0, 0, 255, 255], [0, 0, 0, 255], [255, 255, 0, 255]], dtype=np.ubyte
+        )
+        cmap = pg.ColorMap(pos, color)
+        self.wave_image.setLookupTable(cmap.getLookupTable(0.0, 1.0, 256))
+        self.wave_plot.setLabel("bottom", "Pipe Length (m)")
+        self.wave_plot.setLabel("left", "Crank Angle (deg)")
+
+        layout.addWidget(self.wave_plot)
         container.setLayout(layout)
         return container
 
@@ -1154,29 +1168,44 @@ class MainWindow(QMainWindow):
         self.wave_history = history
         self.wave_time_vector = time_vector
         self.wave_audio_samples = audio_pressures
+        self.wave_matrix = None
         for t, p in zip(time_vector, audio_pressures):
             self.audio_synth.add_sample(t, p)
 
         if self.wave_history:
+            pressures = []
+            for state in self.wave_history:
+                p_grid = (numerics.GAMMA - 1.0) * (
+                    state[:, 2] - 0.5 * (state[:, 1] ** 2) / state[:, 0]
+                )
+                pressures.append(p_grid)
+            self.wave_matrix = np.vstack(pressures)
+
+            levels = (80000.0, 140000.0)
+            self.wave_image.setImage(self.wave_matrix.T, levels=levels)
+            total_degrees = float(self.wave_matrix.shape[0])
+            self.wave_image.setRect(QRectF(0.0, 0.0, self.wave_solver.L, total_degrees))
+            self.wave_plot.setYRange(0.0, total_degrees)
+            self.wave_plot.setXRange(0.0, self.wave_solver.L)
+
             self.wave_scrub_slider.setEnabled(True)
-            self.wave_scrub_slider.setRange(0, len(self.wave_history) - 1)
+            self.wave_scrub_slider.setRange(0, self.wave_matrix.shape[0] - 1)
             self.wave_scrub_slider.setValue(0)
             self.update_wave_plot(0)
             self.statusBar().showMessage("Wave simulation calculated", 2000)
         else:
             self.wave_scrub_slider.setEnabled(False)
+            self.wave_image.clear()
 
     def update_wave_plot(self, index: int) -> None:
-        if not self.wave_history:
+        if self.wave_matrix is None or self.wave_matrix.size == 0:
             return
-        idx = max(0, min(int(index), len(self.wave_history) - 1))
-        state = self.wave_history[idx]
-        x_axis = np.linspace(0.0, self.wave_solver.L, self.wave_solver.N)
-        energy_density = state[:, 2]
-        self.scope_tab.update_data(x_axis, energy_density)
+        idx = max(0, min(int(index), self.wave_matrix.shape[0] - 1))
         rpm = float(self.wave_rpm_spin.value())
         angle = (self.wave_time_vector[idx] * rpm * 6.0) % 720.0
-        self.scope_tab.update_status(angle, "PLAYBACK", self.wave_time_vector[idx])
+        self.statusBar().showMessage(
+            f"Angle {angle:5.1f} deg | Frame {idx+1}/{self.wave_matrix.shape[0]}", 1500
+        )
 
     # -------------------------- Dyno Sweep --------------------------------
     def run_dyno_sweep(self) -> None:
