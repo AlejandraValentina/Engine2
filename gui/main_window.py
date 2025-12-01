@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QTextBrowser,
     QPushButton,
+    QSlider,
     QStyle,
     QSpinBox,
     QTabWidget,
@@ -82,6 +83,7 @@ class MainWindow(QMainWindow):
         self.main_stack = QStackedWidget()
         self.scope_tab = ScopeWidget()
         self.wave_rpm_spin = QDoubleSpinBox()
+        self.wave_speed_slider = QSlider(Qt.Horizontal)
         self.wave_record_btn = QPushButton("🔴 Record")
         self.wave_record_btn.setCheckable(True)
         self.wave_save_btn = QPushButton("💾 Save Audio")
@@ -333,6 +335,10 @@ class MainWindow(QMainWindow):
         self.wave_rpm_spin.setSingleStep(100.0)
         self.wave_rpm_spin.setValue(max(self.engine.camshaft.peak_rpm, 1000.0))
 
+        speed_label = QLabel("Playback Speed (Steps/Frame)")
+        self.wave_speed_slider.setRange(1, 500)
+        self.wave_speed_slider.setValue(50)
+
         start_btn = QPushButton("Start")
         start_btn.clicked.connect(self._start_wave_sim)
         stop_btn = QPushButton("Stop")
@@ -343,6 +349,8 @@ class MainWindow(QMainWindow):
         controls.addWidget(self.wave_rpm_spin)
         controls.addWidget(start_btn)
         controls.addWidget(stop_btn)
+        controls.addWidget(speed_label)
+        controls.addWidget(self.wave_speed_slider)
         controls.addWidget(self.wave_record_btn)
         controls.addWidget(self.wave_save_btn)
         controls.addStretch()
@@ -1155,7 +1163,9 @@ class MainWindow(QMainWindow):
         evc = exhaust_center + cam.exhaust_duration / 2.0
         valve_state = "CLOSED"
 
-        for _ in range(20):
+        iterations = max(1, int(self.wave_speed_slider.value()))
+
+        for _ in range(iterations):
             angle = (self.wave_solver.time * rpm * 6.0) % 720.0
             if evo <= angle <= evc:
                 phase = (angle - evo) / max(evc - evo, 1e-3)
