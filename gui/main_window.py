@@ -1111,6 +1111,10 @@ class MainWindow(QMainWindow):
             self.audio_synth.save_waveform(mixed, filename)
             self.statusBar().showMessage("Audio saved!", 2000)
 
+    # Retained for wiring compatibility with wave scope controls
+    def save_wave_audio(self) -> None:  # pragma: no cover - thin wrapper
+        self.save_wav_audio()
+
     # -------------------------- Wave Simulation --------------------------
     def _init_wave_solver(self) -> None:
         exhaust = self.engine.exhaust
