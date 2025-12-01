@@ -138,6 +138,14 @@ class MainWindow(QMainWindow):
         nav_layout.setSpacing(8)
         nav_container.setLayout(nav_layout)
 
+        btn_overview = QPushButton("🏠 Overview")
+        btn_overview.clicked.connect(lambda: self.tab_widget.setCurrentIndex(0))
+        nav_layout.addWidget(btn_overview)
+
+        btn_properties = QPushButton("⚙️ Properties")
+        btn_properties.clicked.connect(lambda: self.tab_widget.setCurrentIndex(1))
+        nav_layout.addWidget(btn_properties)
+
         btn_save_wav = QPushButton("💾 Save WAV")
         btn_save_wav.clicked.connect(self.save_wav_audio)
         nav_layout.addWidget(btn_save_wav)
@@ -332,6 +340,7 @@ class MainWindow(QMainWindow):
         self.tab_widget.addTab(analysis_tab, "Analysis Data")
         self.tab_widget.addTab(optimizer_tab, "Optimizer")
         self.setCentralWidget(self.tab_widget)
+        self.tab_widget.tabBar().hide()
 
     # -------------------------- Tree Handling -----------------------------
     def refresh_tree(self) -> None:
@@ -1113,16 +1122,36 @@ class MainWindow(QMainWindow):
         if self.wave_solver is None:
             return
 
-        for _ in range(10):
-            dt = self.wave_solver.step()
-            if dt <= 0.0:
-                break
+        exhaust = self.engine.exhaust
+        diameter_m = max(exhaust.header_primary_diameter * 0.001, 0.005)
+        max_area = math.pi * (diameter_m / 2.0) ** 2
+        rpm = 6000.0
+        valve_state = "CLOSED"
+
+        for _ in range(20):
+            angle = (self.wave_solver.time * rpm * 6.0) % 720.0
+            if 140.0 < angle < 360.0:
+                phase = (angle - 140.0) / (360.0 - 140.0)
+                lift = max(math.sin(math.pi * phase), 0.0)
+                area = max_area * lift
+                p_cyl = 15.0 * 100000.0
+                T_cyl = 1200.0
+                valve_state = "OPEN"
+            else:
+                area = 0.0
+                p_cyl = 100000.0
+                T_cyl = 300.0
+                valve_state = "CLOSED"
+
+            dt = self.wave_solver.get_time_step()
+            self.wave_solver.step(dt=dt, p_cyl=p_cyl, T_cyl=T_cyl, valve_area=area)
 
         x_axis = np.linspace(0.0, self.wave_solver.L, self.wave_solver.N)
         energy_density = self.wave_solver.U[:, 2]
         self.audio_synth.add_sample(self.wave_solver.time, energy_density[-1])
         self.scope_tab.update_data(x_axis, energy_density)
-        self.scope_tab.update_status(0.0, "N/A", self.wave_solver.time)
+        final_angle = (self.wave_solver.time * rpm * 6.0) % 720.0
+        self.scope_tab.update_status(final_angle, valve_state, self.wave_solver.time)
 
     # -------------------------- Dyno Sweep --------------------------------
     def run_dyno_sweep(self) -> None:
