@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from acoustics.audio_generator import AudioSynthesizer, generate_full_engine_sound
 from core.engine_components import (
     Block,
     Camshaft,
@@ -65,6 +66,7 @@ class MainWindow(QMainWindow):
         self.resize(1280, 800)
 
         self.engine = Engine()
+        self.audio_synth = AudioSynthesizer()
 
         self.navigation_tree = QTreeWidget()
         self.navigation_tree.setHeaderHidden(True)
@@ -130,6 +132,10 @@ class MainWindow(QMainWindow):
         nav_layout.setContentsMargins(6, 0, 6, 0)
         nav_layout.setSpacing(8)
         nav_container.setLayout(nav_layout)
+
+        btn_save_wav = QPushButton("💾 Save WAV")
+        btn_save_wav.clicked.connect(self.save_wav_audio)
+        nav_layout.addWidget(btn_save_wav)
 
         btn_wave = QPushButton("🌊 Wave Sim")
         btn_wave.clicked.connect(lambda: self.tab_widget.setCurrentIndex(2))
@@ -1010,6 +1016,7 @@ class MainWindow(QMainWindow):
 
             self.engine = Engine.from_dict(data)
             self.wave_solver = None
+            self.audio_synth = AudioSynthesizer()
             self.timer.stop()
             self.refresh_tree()
             self.update_properties_panel(None)
@@ -1019,6 +1026,30 @@ class MainWindow(QMainWindow):
     # Backwards compatibility with older action wiring
     def load_engine(self) -> None:  # pragma: no cover - retained for older menu hookups
         self.load_project()
+
+    def save_wav_audio(self) -> None:
+        waveform = self.audio_synth.render_waveform()
+        if waveform is None:
+            return
+
+        firing_order = self.engine.block.firing_order or list(
+            range(1, self.engine.block.num_cylinders + 1)
+        )
+        target_rpm = max(self.engine.block.redline_rpm, 1000.0)
+        mixed = generate_full_engine_sound(
+            waveform,
+            target_rpm,
+            firing_order,
+            self.audio_synth.sample_rate,
+        )
+        if mixed.size == 0:
+            return
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Save Exhaust Audio", "engine.wav", "WAV Files (*.wav)"
+        )
+        if filename:
+            self.audio_synth.save_waveform(mixed, filename)
 
     # -------------------------- Wave Simulation --------------------------
     def _init_wave_solver(self) -> None:
@@ -1033,6 +1064,7 @@ class MainWindow(QMainWindow):
             friction_coeff=0.02,
         )
         self.wave_solver = PipeSolver(pipe, target_dx=0.01)
+        self.audio_synth = AudioSynthesizer()
         # Seed a small disturbance so the scope shows traveling waves immediately.
         mid_idx = self.wave_solver.N // 2
         self.wave_solver.U[mid_idx, 2] *= 1.1
@@ -1055,6 +1087,7 @@ class MainWindow(QMainWindow):
 
         x_axis = np.linspace(0.0, self.wave_solver.L, self.wave_solver.N)
         energy_density = self.wave_solver.U[:, 2]
+        self.audio_synth.add_sample(self.wave_solver.time, energy_density[-1])
         self.scope_tab.update_data(x_axis, energy_density)
         self.scope_tab.update_status(0.0, "N/A", self.wave_solver.time)
 
