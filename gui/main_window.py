@@ -408,12 +408,27 @@ class MainWindow(QMainWindow):
     def _build_head_form(self, head: CylinderHead) -> None:
         self._clear_property_form()
 
+        chamber_spin = self._double_spin(head.combustion_chamber_vol or 40.0, 20.0, 80.0, 0.1)
+
+        def update_cr(val: float) -> None:
+            try:
+                self._update_value(head, "compression_ratio", val)
+                v_swept = self.calculate_swept_volume()
+                if val > 1.0:
+                    v_c = v_swept / max(val - 1.0, 1e-6)
+                    head.combustion_chamber_vol = v_c
+                    chamber_spin.blockSignals(True)
+                    chamber_spin.setValue(v_c)
+                    chamber_spin.blockSignals(False)
+                    self.statusBar().showMessage(
+                        f"Mode: Calculated from Compression Ratio (Vc={v_c:.2f} cc)", 2000
+                    )
+                self.update_overview()
+            except Exception:
+                pass
+
         cr_spin = self._double_spin(head.compression_ratio, 5.0, 18.0, 0.1)
-        self._bind_spin(
-            cr_spin,
-            lambda val: (self._update_value(head, "compression_ratio", val), self._clear_head_chamber_override(head)),
-            "compression_ratio",
-        )
+        self._bind_spin(cr_spin, update_cr, "compression_ratio")
         cr_row = QWidget()
         cr_layout = QHBoxLayout()
         cr_layout.setContentsMargins(0, 0, 0, 0)
@@ -448,8 +463,11 @@ class MainWindow(QMainWindow):
         self._bind_spin(exhaust_dia, lambda val: self._update_valve_size(head, "exhaust", val), "exhaust_valve_diameter")
         self.property_form.addRow("Exhaust Valve Dia", exhaust_dia)
 
-        chamber_spin = self._double_spin(head.combustion_chamber_vol or 40.0, 20.0, 80.0, 0.1)
-        self._bind_spin(chamber_spin, lambda val: self._update_value(head, "combustion_chamber_vol", val), "combustion_chamber_vol")
+        self._bind_spin(
+            chamber_spin,
+            lambda val: self._update_value(head, "combustion_chamber_vol", val),
+            "combustion_chamber_vol",
+        )
         self.property_form.addRow("Chamber Volume (cc)", chamber_spin)
 
         gasket_thickness = self._double_spin(head.gasket_thickness_mm, 0.1, 5.0, 0.05)
@@ -815,6 +833,12 @@ class MainWindow(QMainWindow):
         setattr(head, f"{attr_base}_valve_diameter", value)
         setattr(head, f"{attr_base}_valve_diameter_mm", value)
         self.update_overview()
+
+    def calculate_swept_volume(self) -> float:
+        """Return per-cylinder swept volume in cc using current block geometry."""
+        bore = self.engine.block.bore
+        stroke = self.engine.block.stroke
+        return math.pi * (bore / 20.0) ** 2 * (stroke / 10.0)
 
     def _update_firing_order(self, block: Block, text: str) -> None:
         try:
