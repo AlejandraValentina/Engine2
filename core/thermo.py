@@ -185,6 +185,9 @@ class CylinderSimulator:
         exhaust_boost = 0.15 * math.exp(-0.5 * ((rpm - exhaust_peak) / exhaust_sigma) ** 2)
         tuning_factor *= 1.0 + exhaust_boost
 
+        if eff < 0.7:
+            tuning_factor *= 0.5
+
         ivc_abdc = max(0.0, IVC - 180.0)
         rpm_ratio = min(max(rpm / 7000.0, 0.0), 1.0)
         reversion_factor = max(0.0, 1.0 - (ivc_abdc * 0.002 * (1.0 - rpm_ratio)))
@@ -246,6 +249,10 @@ class CylinderSimulator:
         head_area = area
         piston_area = area
 
+        bore_mm = max(self.engine.block.bore, 1e-6)
+        scale_factor = 85.0 / bore_mm
+        heat_loss_multiplier = 1.5 * scale_factor
+
         q_rel_pow = Q_rel[mask_power]
         q_rel_diff = np.diff(q_rel_pow, prepend=0.0)
 
@@ -257,7 +264,6 @@ class CylinderSimulator:
 
             T_gas = p_current * V_curr / max(m_air * R_AIR, 1e-9)
             w_mean = 2.28 * piston_speed_mean
-            heat_loss_multiplier = 1.5
             h_c = (
                 heat_loss_multiplier
                 * 3.26
