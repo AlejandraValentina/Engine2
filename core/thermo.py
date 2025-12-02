@@ -211,7 +211,8 @@ class CylinderSimulator:
 
         m_air = ve * (P_manifold * V_IVC) / (R_AIR * T_charge)
         fuel_mass = m_air / fuel_stoich
-        Q_total = fuel_mass * fuel_lhv
+        eta_combustion = 0.95
+        Q_total = fuel_mass * fuel_lhv * eta_combustion
 
         start_angle = 360.0 - float(ignition)
         x = wiebe_function(angle_arr, start_angle, burn_duration, efficiency=1.0)
@@ -256,8 +257,14 @@ class CylinderSimulator:
 
             T_gas = p_current * V_curr / max(m_air * R_AIR, 1e-9)
             w_mean = 2.28 * piston_speed_mean
-            h_c = 3.26 * (bore_m ** -0.2) * ((max(p_current, 1e-6) / 1000.0) ** 0.8) * (max(T_gas, 1e-3) ** -0.55) * (
-                max(w_mean, 1e-6) ** 0.8
+            heat_loss_multiplier = 1.5
+            h_c = (
+                heat_loss_multiplier
+                * 3.26
+                * (bore_m ** -0.2)
+                * ((max(p_current, 1e-6) / 1000.0) ** 0.8)
+                * (max(T_gas, 1e-3) ** -0.55)
+                * (max(w_mean, 1e-6) ** 0.8)
             )
             Q_loss_rate = h_c * area_wall * max(T_gas - 450.0, 0.0)
             Q_loss = Q_loss_rate * dt
