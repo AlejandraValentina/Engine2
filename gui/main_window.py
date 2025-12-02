@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 )
 
 from acoustics.audio_generator import AudioSynthesizer, generate_full_engine_sound
+from core import numerics
 from core.engine_components import (
     Block,
     Camshaft,
@@ -54,8 +55,9 @@ from core.engine_components import (
     SimulationSettings,
     Supercharger,
 )
+from core.junctions import Junction
 from core.model import Pipe
-from core.simulator import PipeSolver
+from core.simulator import Engine1DSolver
 from core.thermo import CylinderSimulator
 
 
@@ -104,7 +106,7 @@ class MainWindow(QMainWindow):
         self.optimizer_step_spin = QDoubleSpinBox()
         self.opt_rpm_spin = QDoubleSpinBox()
         self.optimizer_progress = QProgressBar()
-        self.wave_solver: Optional[PipeSolver] = None
+        self.wave_solver: Optional[Engine1DSolver] = None
         self.wave_matrix: Optional[np.ndarray] = None
         self.wave_history: list[np.ndarray] = []
         self.wave_time_vector: list[float] = []
@@ -1139,16 +1141,44 @@ class MainWindow(QMainWindow):
     # -------------------------- Wave Simulation --------------------------
     def _init_wave_solver(self) -> None:
         exhaust = self.engine.exhaust
-        length_m = max(exhaust.header_primary_length * 0.001, 0.1)
-        diameter_m = max(exhaust.header_primary_diameter * 0.001, 0.005)
-        pipe = Pipe(
-            length=length_m,
-            diameter_inlet=diameter_m,
-            diameter_outlet=diameter_m,
+        block = self.engine.block
+
+        n_cyl = max(block.num_cylinders, 1)
+        primary_length = max(exhaust.header_primary_length * 0.001, 0.1)
+        primary_dia = max(exhaust.header_primary_diameter * 0.001, 0.005)
+
+        primaries: list[Pipe] = []
+        for _ in range(n_cyl):
+            primaries.append(
+                Pipe(
+                    length=primary_length,
+                    diameter_inlet=primary_dia,
+                    diameter_outlet=primary_dia,
+                    wall_temperature=600.0,
+                    friction_coeff=0.02,
+                )
+            )
+
+        collector_area = math.pi * (primary_dia * 0.5) ** 2
+        collector_volume = max(collector_area * 0.1 * n_cyl, 1e-4)
+        collector = Junction(collector_volume, 101325.0, 600.0)
+
+        tail_length = max(exhaust.collector_length * 0.001, 0.2)
+        tail_dia = max(primary_dia * max(math.sqrt(n_cyl) * 0.6, 1.2), primary_dia * 1.2)
+        tailpipe = Pipe(
+            length=tail_length,
+            diameter_inlet=tail_dia,
+            diameter_outlet=tail_dia,
             wall_temperature=600.0,
             friction_coeff=0.02,
         )
-        self.wave_solver = PipeSolver(pipe, target_dx=0.01)
+
+        self.wave_solver = Engine1DSolver(
+            primaries,
+            tailpipe,
+            block.firing_order,
+            collector_volume=collector.volume,
+        )
         self.audio_synth = AudioSynthesizer()
         self.wave_history = []
         self.wave_time_vector = []
@@ -1184,9 +1214,14 @@ class MainWindow(QMainWindow):
             levels = (80000.0, 140000.0)
             self.wave_image.setImage(self.wave_matrix.T, levels=levels)
             total_degrees = float(self.wave_matrix.shape[0])
-            self.wave_image.setRect(QRectF(0.0, 0.0, self.wave_solver.L, total_degrees))
+
+            primary_length = (
+                self.wave_solver.primary_states[0]["dx"]
+                * self.wave_solver.primary_states[0]["U"].shape[0]
+            )
+            self.wave_image.setRect(QRectF(0.0, 0.0, primary_length, total_degrees))
             self.wave_plot.setYRange(0.0, total_degrees)
-            self.wave_plot.setXRange(0.0, self.wave_solver.L)
+            self.wave_plot.setXRange(0.0, primary_length)
 
             self.wave_scrub_slider.setEnabled(True)
             self.wave_scrub_slider.setRange(0, self.wave_matrix.shape[0] - 1)
