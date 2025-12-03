@@ -5,7 +5,7 @@
 - **Constantes**: \(\gamma\) (configurable: aire 1.40, gases de escape 1.35), \(R = 287.0\,\text{J/(kg·K)}\).
 - **Presiones absolutas** en Pa. Manifold absoluto: \(P_{manifold} = (P_{amb,bar} + P_{boost,gauge,bar})\times 100{,}000\).
 - **RPM** siempre en rev/min para todas las ecuaciones (FMEP, velocidad media de pistón, etc.).
-- **FMEP (kPa)**: \(FMEP_{kPa} = A + B\,RPM + C\,RPM^2\). Par de fricción 4T: \(T_{fric}[Nm] = \tfrac{FMEP_{Pa}\,V_{disp,m3}}{4\pi}\).
+- **FMEP (kPa)**: \(FMEP_{kPa} = A + B\,RPM + C\,RPM^2\) con \(A\) [kPa], \(B\) [kPa/RPM], \(C\) [kPa/RPM\(^2\)]. Par de fricción 4T: \(T_{fric}[Nm] = \tfrac{FMEP_{Pa}\,V_{disp,m3}}{4\pi}\).
 - **Índice de Mach**: \(c_{sound} = \sqrt{\gamma R T_{intake}}\); la temperatura de referencia proviene de `SimulationSettings.air_temperature_c`.
 - **Dominio angular 0–720° CA** para cada ciclo: 0° TDC solape, 180° BDC fin admisión / inicio compresión, 360° TDC compresión, 540° BDC expansión, 720° TDC inicio nuevo ciclo.
 
@@ -19,7 +19,7 @@
 - **Masa atrapada**: \(m_{air} = VE \cdot \tfrac{P_{manifold}\,V_{IVC}}{R\,T_{charge}}\), usando volumen real en IVC.
 - **Combustión (Wiebe)**: \(x(\theta)=1-\exp\{-a\big(\tfrac{\theta-\theta_{start}}{\Delta\theta}\big)^{m+1}\}\) con \(a,m\) tomados de `Combustion.wiebe_a/m`. Calor químico \(Q_{chem} = m_{fuel}\,LHV\); eficiencia de combustión \(\eta_{comb}\) aplicada antes de pérdidas térmicas.
 - **Transferencia de calor (Woschni)**: coeficiente \(h_c = k_{w}\,B^{-0.2} P^{0.8} T^{-0.55} w^{0.8}\) escalado por `heat_loss_factor`; \(w\approx2.28\)·velocidad media de pistón. Pérdida: \(Q_{loss} = h_c A_{wall}(T_{gas}-T_{wall})\,dt\); \(T_{wall}\) ≈ 450 K. Para cilindros pequeños se escala con el factor de calibre documentado en el código (raíz de \(85/B\)).
-- **Energía neta**: \(dQ_{net} = \eta_{comb}\,dQ_{Wiebe} - dQ_{loss}\).
+- **Energía neta**: \(dQ_{net} = \eta_{comb}\,dQ_{Wiebe} - dQ_{loss}\). \(U_{int}\) es la energía interna total del gas atrapado [J]; \(m\) es la masa atrapada usada en el cierre (constante en el ciclo 0D si no hay intercambio de masa).
   - Actualización 0D: \(U_{int} \leftarrow U_{int} + dQ_{net}\).
   - Cierre termodinámico (gas ideal): \(T \leftarrow U_{int}/(m c_v)\) con \(c_v = R/(\gamma-1)\); \(p \leftarrow m R T / V\). \(\gamma\) y \(R\) se definen en la Sección 1.
 - **VE dinámica**: curva anclada en `Camshaft.peak_rpm`; penalización por Mach usando `Head.mach_tolerance`; área efectiva escalada por `Head.port_flow_efficiency`; pérdidas por tubería con `SimulationSettings.pipe_friction_factor`; resonancia modulada por `SimulationSettings.tuning_sensitivity`.
@@ -46,6 +46,6 @@
 
 ## 5. Contrato de Verificación
 - **Determinismo lógico**: misma entrada y semilla → resultados iguales dentro de tolerancia \(10^{-5}\), aceptando variaciones FP entre CPUs/BLAS.
-- **Identidades físicas**: Potencia-torque: \(P_{kW} = T_{Nm}\,RPM/9549\), \(P_{hp} = T_{Nm}\,RPM/7127\) (hp mecánico, convención usada en `mean_power_hp`); BMEP↔Torque (4T: \(BMEP = 4\pi T/V_{disp}\)). FMEP usa RPM en rev/min y presiones absolutas.
+- **Identidades físicas**: Potencia-torque: \(P_{kW} = T_{Nm}\,RPM/9549\), \(P_{hp} = T_{Nm}\,RPM/7127\) (hp mecánico, convención usada en `mean_power_hp`); BMEP↔Torque (4T: \(BMEP_{Pa} = 4\pi T/V_{disp}\), \(BMEP_{bar} = BMEP_{Pa}/100{,}000\) cuando se expresa en bar). FMEP usa RPM en rev/min y presiones absolutas.
 - **Bandas de sanidad**: aplican a configuraciones estándar (combustible común, aire estándar). Mezclas exóticas o geometrías fuera de rango requieren recalibración y no están cubiertas por las pruebas de regresión.
 - **Separación funcional**: el 0D es autónomo; el 1D sólo consume BC explícitas. Cualquier acoplamiento bidireccional nuevo debe especificarse y probarse por separado.
