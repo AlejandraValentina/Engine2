@@ -19,13 +19,15 @@
 - **Masa atrapada**: \(m_{air} = VE \cdot \tfrac{P_{manifold}\,V_{IVC}}{R\,T_{charge}}\), usando volumen real en IVC.
 - **Combustión (Wiebe)**: \(x(\theta)=1-\exp\{-a\big(\tfrac{\theta-\theta_{start}}{\Delta\theta}\big)^{m+1}\}\) con \(a,m\) tomados de `Combustion.wiebe_a/m`. Calor químico \(Q_{chem} = m_{fuel}\,LHV\); eficiencia de combustión \(\eta_{comb}\) aplicada antes de pérdidas térmicas.
 - **Transferencia de calor (Woschni)**: coeficiente \(h_c = k_{w}\,B^{-0.2} P^{0.8} T^{-0.55} w^{0.8}\) escalado por `heat_loss_factor`; \(w\approx2.28\)·velocidad media de pistón. Pérdida: \(Q_{loss} = h_c A_{wall}(T_{gas}-T_{wall})\,dt\); \(T_{wall}\) ≈ 450 K. Para cilindros pequeños se escala con el factor de calibre documentado en el código (raíz de \(85/B\)).
-- **Energía neta**: \(dQ_{net} = \eta_{comb}\,dQ_{Wiebe} - dQ_{loss}\); se actualiza la energía interna con \(dQ_{net}\) por paso y luego se obtiene \(p\) mediante la EoS \(p = p_{adiab} + (\gamma-1) dQ_{net}/V\).
+- **Energía neta**: \(dQ_{net} = \eta_{comb}\,dQ_{Wiebe} - dQ_{loss}\).
+  - Actualización 0D: \(U_{int} \leftarrow U_{int} + dQ_{net}\).
+  - Cierre termodinámico (gas ideal): \(T \leftarrow U_{int}/(m c_v)\) con \(c_v = R/(\gamma-1)\); \(p \leftarrow m R T / V\). \(\gamma\) y \(R\) se definen en la Sección 1.
 - **VE dinámica**: curva anclada en `Camshaft.peak_rpm`; penalización por Mach usando `Head.mach_tolerance`; área efectiva escalada por `Head.port_flow_efficiency`; pérdidas por tubería con `SimulationSettings.pipe_friction_factor`; resonancia modulada por `SimulationSettings.tuning_sensitivity`.
 - **Fricción y accesorios**: FMEP con coeficientes en `Friction` y multiplicador `global_scaling_factor`; se suma torque de accesorios para obtener par de fricción total. Par efectivo = Par indicado − Par fricción − pérdidas de bombeo con `pumping_loss_torque_nm = 0` por defecto (no se descuenta bombeo adicional en el 0D).
 - **Knock**: calcula octanaje requerido a partir de compresión dinámica; si supera el octanaje disponible, activa `knock_warning` pero no modifica el solver 1D.
 
 ## 3. Modelo 1D – Dinámica de Gases (core/numerics.py, core/simulator.py, core/junctions.py)
-- **Ecuaciones**: Euler 1D inviscid con términos fuente (Darcy–Weisbach) aplicados a momento y energía; sin transferencia de calor (adiabático).
+- **Ecuaciones**: Euler 1D inviscid con términos fuente (Darcy–Weisbach): \(S_{mom} = -\tfrac{f}{2D}\,\rho u|u|\), \(S_E = u\,S_{mom}\); sin transferencia de calor (adiabático).
 - **Estado y flujo**: \(U=[\rho,\rho u,\rho E]\); \(F=[\rho u, \rho u^2 + p, (\rho E + p)u]\) con \(p\) según EoS anterior.
 - **Esquema**: Lax–Wendroff con celdas fantasma; CFL elige \(dt\); las fronteras se reimponen tras cada paso para preservar BC.
 - **Condiciones de frontera explícitas**:
@@ -33,7 +35,6 @@
   - **Inlet cerrado**: celda fantasma reflectiva \(\rho_0=\rho_1\), \((\rho u)_0 = - (\rho u)_1\), \((\rho E)_0 = (\rho E)_1\).
   - **Outlet abierto**: presión estática fija \(P_{amb}\) en la celda fantasma; convención \(u>0\) indica salida. Si \(u_{internal}>0\) (outflow) \(T_{ghost}=T_{internal}\); si \(u_{internal}<0\) (inflow) \(T_{ghost}=T_{amb}\) con \(T_{amb}=air\_temperature\_c+273.15\). Se construye \(U_{ghost}=[\rho_{ghost},\rho_{ghost}u_{ghost},p_{ghost}/(\gamma-1)+0.5\,\rho_{ghost}u_{ghost}^2]\) usando \(p_{ghost}=P_{amb}\), \(u_{ghost}=u_{internal}\) (gradiente cero) y \(\rho_{ghost}=p_{ghost}/(R\,T_{ghost})\). No se usa condición transmisiva sin presión fija para preservar reflexiones.
 - **Junctions**: \(\tfrac{dm}{dt} = \sum \dot m\), \(\tfrac{d(me)}{dt} = \sum (\dot m h_{tot})\); actualización de \(p,T\) mediante EoS en volumen constante.
-- **Fuente de fricción**: \(S_{mom} = -\tfrac{f}{2D}\,\rho u|u|\) aplicado a la ecuación de momento; \(S_E = u\,S_{mom}\) aplicado a la ecuación de energía como término fuente por celda.
 - **Red de escape**: `Engine1DSolver` construye primarios (uno por cilindro), colector 0D y tailpipe; fasea eventos con firing order; se usa sólo para Scope/Acústica (acoplamiento unidireccional desde presión 0D).
 
 ## 4. Arquitectura y Flujo de Datos
