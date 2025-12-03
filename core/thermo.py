@@ -136,6 +136,9 @@ class CylinderSimulator:
         area = math.pi * bore_m ** 2 / 4.0
         Vd = area * stroke_m
 
+        # Port efficiency used across VE/tuning logic
+        eff = min(max(getattr(self.engine.head, "port_flow_efficiency", 0.7), 0.1), 1.0)
+
         head = self.engine.head
         compression_ratio = max(head.compression_ratio, 1.01)
         if head.combustion_chamber_vol is not None and head.combustion_chamber_vol > 0.0:
@@ -215,11 +218,11 @@ class CylinderSimulator:
         m_air = ve * (P_manifold * V_IVC) / (R_AIR * T_charge)
         fuel_mass = m_air / fuel_stoich
         eta_combustion = 0.95
-        Q_total = fuel_mass * fuel_lhv * eta_combustion
+        Q_total = fuel_mass * fuel_lhv
 
         start_angle = 360.0 - float(ignition)
         x = wiebe_function(angle_arr, start_angle, burn_duration, efficiency=1.0)
-        Q_rel = Q_total * x
+        Q_rel = Q_total * eta_combustion * x
 
         mask_intake = angle_arr < IVC
         mask_compression = (angle_arr >= IVC) & (angle_arr < 360.0)
@@ -239,19 +242,18 @@ class CylinderSimulator:
         C_power = C_comp
         pressure_mot_power = C_power / (vol_pow ** GAMMA)
 
-        # Woschni heat transfer integration over the power stroke
         power_indices = np.where(mask_power)[0]
         pressure_power = np.zeros_like(power_indices, dtype=float)
 
         deg_step = angle_arr[1] - angle_arr[0]
         dt = deg_step / 360.0 * 60.0 / max(rpm, 1e-3)
-        piston_speed_mean = piston_speed  # already mean piston speed
+        piston_speed_mean = piston_speed
         head_area = area
         piston_area = area
 
         bore_mm = max(self.engine.block.bore, 1e-6)
-        scale_factor = 85.0 / bore_mm
-        heat_loss_multiplier = 1.5 * scale_factor
+        scale_factor = 85.0 / max(bore_mm, 20.0)
+        woschni_k = 0.006 * scale_factor * (rpm ** 0.6)
 
         q_rel_pow = Q_rel[mask_power]
         q_rel_diff = np.diff(q_rel_pow, prepend=0.0)
@@ -265,18 +267,16 @@ class CylinderSimulator:
             T_gas = p_current * V_curr / max(m_air * R_AIR, 1e-9)
             w_mean = 2.28 * piston_speed_mean
             h_c = (
-                heat_loss_multiplier
-                * 3.26
-                * (bore_m ** -0.2)
-                * ((max(p_current, 1e-6) / 1000.0) ** 0.8)
-                * (max(T_gas, 1e-3) ** -0.55)
-                * (max(w_mean, 1e-6) ** 0.8)
+                woschni_k
+                * (max(p_current, 1e-6) / 1000.0) ** 0.8
+                * max(T_gas, 1e-3) ** -0.55
+                * max(w_mean, 1e-6) ** 0.8
             )
-            Q_loss_rate = h_c * area_wall * max(T_gas - 450.0, 0.0)
-            Q_loss = Q_loss_rate * dt
+            Q_loss = h_c * area_wall * max(T_gas - 450.0, 0.0) * dt
 
-            net_q = q_rel_diff[i] - Q_loss
-            p_with_heat = p_current + (GAMMA - 1.0) * net_q / max(V_curr, 1e-9)
+            dQ_chem = q_rel_diff[i]
+            dQ_net = dQ_chem - Q_loss
+            p_with_heat = p_current + (GAMMA - 1.0) * dQ_net / max(V_curr, 1e-9)
             pressure_power[i] = p_with_heat
 
             if i < len(power_indices) - 1:
@@ -297,7 +297,7 @@ class CylinderSimulator:
         indicated_torque = float(np.mean(torque_trace))
 
         f_cfg = getattr(self.engine, "friction", None)
-        f_base = getattr(f_cfg, "friction_base_kpa", 35.0) + 5.0  # bump base by 5 kPa
+        f_base = getattr(f_cfg, "friction_base_kpa", 35.0) + 5.0
         f_lin = getattr(f_cfg, "friction_linear_factor", 0.02)
         f_quad = getattr(f_cfg, "friction_quadratic_factor", 1.8e-6)
 
@@ -374,7 +374,6 @@ class CylinderSimulator:
             "airflow_cfm": actual_cfm,
             "knock_warning": knock_warning,
         }
-
     def run_pro_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
         """Pro dyno path currently reuses the calibrated quick cycle."""
         return self.run_cycle(rpm)
