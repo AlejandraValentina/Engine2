@@ -52,7 +52,11 @@ def _pressure_from_state(U: np.ndarray) -> np.ndarray:
 
 
 class Engine1DSolver:
-    """Network solver handling multiple primaries, collector, and tailpipe."""
+    """Network solver handling multiple primaries, collector, and tailpipe.
+
+    State vectors ``U`` for each pipe have shape (N, 3) and store:
+    ``[rho (kg/m^3), rho*u (kg/m^2/s), rho*E (J/m^3)]``.
+    """
 
     def __init__(
         self,
@@ -114,6 +118,47 @@ class Engine1DSolver:
         tail["U"][-1, 1] = 0.0
         tail["U"][-1, 2] = rho * energy
 
+    def apply_boundary_conditions(
+        self,
+        rpm: float,
+        exhaust_open_start: float,
+        exhaust_open_end: float,
+        p_exhaust: float,
+        T_exhaust: float,
+    ) -> None:
+        """Apply inlet valve states (with reflective closure) and collector/tail boundaries."""
+
+        base_angle = (self.time * rpm * 6.0) % 720.0
+
+        for i, state in enumerate(self.primary_states):
+            cyl_id = i + 1
+            phase_shift = self.phase_map.get(cyl_id, 0.0)
+            cyl_angle = (base_angle + phase_shift) % 720.0
+            if exhaust_open_start <= cyl_angle <= exhaust_open_end:
+                span = max(exhaust_open_end - exhaust_open_start, 1e-6)
+                phase = (cyl_angle - exhaust_open_start) / span
+                lift = max(math.sin(math.pi * phase), 0.0)
+                diameter = math.sqrt(state["areas"][0] / math.pi) * 2.0
+                max_area = math.pi * (diameter * 0.5) ** 2
+                valve_area = max_area * lift
+                p_cyl = p_exhaust
+                T_cyl = T_exhaust
+            else:
+                valve_area = 0.0
+                p_cyl = self.p_atm
+                T_cyl = self.T_amb
+
+            if valve_area > 0.0:
+                self._apply_inlet(state, p_cyl, T_cyl)
+            else:
+                # Reflective ghost cell when valve is closed
+                state["U"][0, 0] = state["U"][1, 0]
+                state["U"][0, 1] = -state["U"][1, 1]
+                state["U"][0, 2] = state["U"][1, 2]
+
+        self._apply_collector_boundaries()
+        self._tail_atmosphere()
+
     def _pipe_dt(self, state: Dict) -> float:
         rho = state["U"][:, 0]
         u = state["U"][:, 1] / rho
@@ -146,37 +191,7 @@ class Engine1DSolver:
         p_exhaust: float = 15.0 * 100000.0,
         T_exhaust: float = 1200.0,
     ) -> float:
-        base_angle = (self.time * rpm * 6.0) % 720.0
-
-        # Apply cylinder-driven inlet boundaries for each primary
-        for i, state in enumerate(self.primary_states):
-            cyl_id = i + 1
-            phase_shift = self.phase_map.get(cyl_id, 0.0)
-            cyl_angle = (base_angle + phase_shift) % 720.0
-            if exhaust_open_start <= cyl_angle <= exhaust_open_end:
-                span = max(exhaust_open_end - exhaust_open_start, 1e-6)
-                phase = (cyl_angle - exhaust_open_start) / span
-                lift = max(math.sin(math.pi * phase), 0.0)
-                diameter = math.sqrt(state["areas"][0] / math.pi) * 2.0
-                max_area = math.pi * (diameter * 0.5) ** 2
-                valve_area = max_area * lift
-                p_cyl = p_exhaust
-                T_cyl = T_exhaust
-            else:
-                valve_area = 0.0
-                p_cyl = self.p_atm
-                T_cyl = self.T_amb
-
-            if valve_area > 0.0:
-                self._apply_inlet(state, p_cyl, T_cyl)
-            else:
-                # reflective inlet when closed
-                state["U"][0, 0] = state["U"][1, 0]
-                state["U"][0, 1] = -state["U"][1, 1]
-                state["U"][0, 2] = state["U"][1, 2]
-
-        # Apply collector state to primaries/tailpipe boundaries
-        self._apply_collector_boundaries()
+        self.apply_boundary_conditions(rpm, exhaust_open_start, exhaust_open_end, p_exhaust, T_exhaust)
 
         if dt is None:
             dt = self.get_time_step()
@@ -216,7 +231,7 @@ class Engine1DSolver:
         U_tail[:, 2] = np.clip(U_tail[:, 2], 0.0, 1.0e7)
         tail["U"] = U_tail
 
-        # Atmospheric outlet
+        # Atmospheric outlet (already set in apply_boundary_conditions, repeated for safety)
         self._tail_atmosphere()
 
         self.time += dt

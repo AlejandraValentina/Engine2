@@ -24,6 +24,7 @@ def flux_vector(U):
     energy = U[2]
     u = mom / rho
     kinetic = 0.5 * rho * u * u
+    # Ideal gas EOS: p = (gamma - 1) * (E - 0.5*rho*u^2)
     p = (GAMMA - 1.0) * (energy - kinetic)
     F = np.empty(3, dtype=np.float64)
     F[0] = mom

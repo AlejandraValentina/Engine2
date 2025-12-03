@@ -110,6 +110,8 @@ class CylinderSimulator:
 
     def run_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
         """Run a 720° four-stroke cycle and return pressure/torque traces."""
+        # Explicit phasing: 0-180 intake, 180-360 compression, 360-540 power,
+        # 540-720 exhaust (angles always within one 720° four-stroke cycle).
         angle_arr = np.arange(0.0, 720.0 + 0.5, 0.5)
 
         settings = getattr(self.engine, "simulation_settings", None)
@@ -117,6 +119,7 @@ class CylinderSimulator:
         pipe_friction_factor = getattr(settings, "pipe_friction_factor", 1.0)
         tuning_sensitivity = getattr(settings, "tuning_sensitivity", 1.0)
         ambient_temp_k = (getattr(settings, "air_temperature_c", 25.0) + 273.15)
+        # Absolute ambient pressure (Pa)
         ambient_pressure_pa = getattr(settings, "air_pressure_bar", 1.013) * 100000.0
 
         cam = self.engine.camshaft
@@ -166,8 +169,8 @@ class CylinderSimulator:
 
         boost_bar = getattr(self.engine.supercharger, "boost_pressure_bar", 0.0)
         boost_pa = float(boost_bar) * 100000.0
-        is_boosted = (getattr(self.engine.supercharger, "type", "NA") or "NA") != "NA"
-        P_manifold = ambient_pressure_pa + boost_pa if is_boosted and boost_pa > 0.0 else ambient_pressure_pa
+        # Manifold pressure is always absolute: ambient + boost (boost may be zero for NA).
+        P_manifold = ambient_pressure_pa + boost_pa
         T_boost = ambient_temp_k * (P_manifold / ambient_pressure_pa) ** 0.28
         intercooler_eff = getattr(self.engine.supercharger, "intercooler_efficiency", 0.70)
         T_charge = ambient_temp_k + (T_boost - ambient_temp_k) * (1.0 - intercooler_eff)
@@ -352,6 +355,7 @@ class CylinderSimulator:
         mean_power_hp = mean_power_w / 745.7
         friction_power_hp = total_friction_torque * omega / 745.7
 
+        # BMEP expressed in bar (absolute, derived from brake torque and displacement)
         bmep_bar = brake_torque * 4.0 * math.pi / displacement_m3 / 100000.0
 
         actual_cfm = (disp_cid * rpm) / 3456.0 * ve
