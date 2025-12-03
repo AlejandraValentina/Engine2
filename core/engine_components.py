@@ -169,6 +169,8 @@ class SimulationSettings:
     heat_loss_factor: float = 1.0  # scales Woschni heat loss
     pipe_friction_factor: float = 1.0  # scales L/D pipe friction penalty
     tuning_sensitivity: float = 1.0  # scales wave/resonance boosts
+    air_temperature_c: float = 25.0  # ambient intake temperature
+    air_pressure_bar: float = 1.013  # ambient pressure
 
     def to_dict(self) -> dict:
         return {
@@ -176,6 +178,8 @@ class SimulationSettings:
             "heat_loss_factor": self.heat_loss_factor,
             "pipe_friction_factor": self.pipe_friction_factor,
             "tuning_sensitivity": self.tuning_sensitivity,
+            "air_temperature_c": self.air_temperature_c,
+            "air_pressure_bar": self.air_pressure_bar,
         }
 
     @classmethod
@@ -185,6 +189,8 @@ class SimulationSettings:
             heat_loss_factor=data.get("heat_loss_factor", 1.0),
             pipe_friction_factor=data.get("pipe_friction_factor", 1.0),
             tuning_sensitivity=data.get("tuning_sensitivity", 1.0),
+            air_temperature_c=data.get("air_temperature_c", 25.0),
+            air_pressure_bar=data.get("air_pressure_bar", 1.013),
         )
 
 
@@ -195,6 +201,8 @@ class Combustion:
     ignition_advance: float = 30.0  # degrees BTDC
     afr: float = 13.0  # air-fuel ratio
     chamber_type: str = "Modern Pentroof"
+    wiebe_a: float = 5.0
+    wiebe_m: float = 2.0
 
     def to_dict(self) -> dict:
         return {
@@ -203,6 +211,8 @@ class Combustion:
             "ignition_advance": self.ignition_advance,
             "afr": self.afr,
             "chamber_type": self.chamber_type,
+            "wiebe_a": self.wiebe_a,
+            "wiebe_m": self.wiebe_m,
         }
 
     @classmethod
@@ -213,6 +223,8 @@ class Combustion:
             ignition_advance=data.get("ignition_advance", 30.0),
             afr=data.get("afr", 13.0),
             chamber_type=data.get("chamber_type", "Modern Pentroof"),
+            wiebe_a=data.get("wiebe_a", 5.0),
+            wiebe_m=data.get("wiebe_m", 2.0),
         )
 
 
@@ -381,11 +393,13 @@ class ExhaustSystem:
 class Supercharger:
     type: str = "NA"  # "NA", "Turbo", "Roots"
     boost_pressure_bar: float = 0.0
+    intercooler_efficiency: float = 0.70
 
     def to_dict(self) -> dict:
         return {
             "type": self.type,
             "boost_pressure_bar": self.boost_pressure_bar,
+            "intercooler_efficiency": self.intercooler_efficiency,
         }
 
     @classmethod
@@ -393,6 +407,7 @@ class Supercharger:
         return cls(
             type=data.get("type", "NA"),
             boost_pressure_bar=data.get("boost_pressure_bar", 0.0),
+            intercooler_efficiency=data.get("intercooler_efficiency", 0.70),
         )
 
 

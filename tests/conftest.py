@@ -46,7 +46,6 @@ def k20_config() -> Dict:
             "gasket_bore_mm": 87.0,
             "deck_clearance_mm": 0.0,
             "piston_dome_cc": 0.0,
-            "chamber_design": "Pent Roof",
         },
         "camshaft": {
             "intake_lift": 11.5,
@@ -69,7 +68,7 @@ def k20_config() -> Dict:
             "header_primary_diameter": 45.0,
             "collector_length": 150.0,
         },
-        "supercharger": {"type": "NA", "boost_pressure_bar": 0.0},
+        "supercharger": {"type": "NA", "boost_pressure_bar": 0.0, "intercooler_efficiency": 0.7},
         "friction": {
             "bottom_end_type": "Performance",
             "friction_base_kpa": 35.0,
@@ -81,6 +80,8 @@ def k20_config() -> Dict:
             "heat_loss_factor": 1.0,
             "pipe_friction_factor": 1.0,
             "tuning_sensitivity": 1.0,
+            "air_temperature_c": 25.0,
+            "air_pressure_bar": 1.013,
         },
         "fuel": {"type_name": "Pump Gas", "octane_rating": 93.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
@@ -88,6 +89,8 @@ def k20_config() -> Dict:
             "burn_duration": 40.0,
             "ignition_advance": 30.0,
             "afr": 13.0,
+            "wiebe_a": 5.0,
+            "wiebe_m": 2.0,
         },
     }
 
@@ -119,7 +122,6 @@ def v8_config() -> Dict:
             "gasket_bore_mm": 103.0,
             "deck_clearance_mm": 0.1,
             "piston_dome_cc": 0.0,
-            "chamber_design": "Typical Wedge",
         },
         "camshaft": {
             "intake_lift": 12.5,
@@ -142,7 +144,7 @@ def v8_config() -> Dict:
             "header_primary_diameter": 45.0,
             "collector_length": 500.0,
         },
-        "supercharger": {"type": "NA", "boost_pressure_bar": 0.0},
+        "supercharger": {"type": "NA", "boost_pressure_bar": 0.0, "intercooler_efficiency": 0.7},
         "friction": {
             "bottom_end_type": "Standard",
             "friction_base_kpa": 45.0,
@@ -154,6 +156,8 @@ def v8_config() -> Dict:
             "heat_loss_factor": 1.0,
             "pipe_friction_factor": 1.0,
             "tuning_sensitivity": 1.0,
+            "air_temperature_c": 25.0,
+            "air_pressure_bar": 1.013,
         },
         "fuel": {"type_name": "Pump Gas", "octane_rating": 93.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
@@ -161,6 +165,8 @@ def v8_config() -> Dict:
             "burn_duration": 55.0,
             "ignition_advance": 28.0,
             "afr": 13.5,
+            "wiebe_a": 5.0,
+            "wiebe_m": 2.0,
         },
     }
 
@@ -192,7 +198,6 @@ def eco_config() -> Dict:
             "gasket_bore_mm": 80.0,
             "deck_clearance_mm": 0.1,
             "piston_dome_cc": 0.0,
-            "chamber_design": "Pent Roof",
         },
         "camshaft": {
             "intake_lift": 8.5,
@@ -215,7 +220,7 @@ def eco_config() -> Dict:
             "header_primary_diameter": 35.0,
             "collector_length": 400.0,
         },
-        "supercharger": {"type": "NA", "boost_pressure_bar": 0.0},
+        "supercharger": {"type": "NA", "boost_pressure_bar": 0.0, "intercooler_efficiency": 0.7},
         "friction": {
             "bottom_end_type": "Standard",
             "friction_base_kpa": 45.0,
@@ -227,6 +232,8 @@ def eco_config() -> Dict:
             "heat_loss_factor": 1.0,
             "pipe_friction_factor": 1.0,
             "tuning_sensitivity": 1.0,
+            "air_temperature_c": 25.0,
+            "air_pressure_bar": 1.013,
         },
         "fuel": {"type_name": "Pump Gas", "octane_rating": 93.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
@@ -234,6 +241,8 @@ def eco_config() -> Dict:
             "burn_duration": 65.0,
             "ignition_advance": 25.0,
             "afr": 14.2,
+            "wiebe_a": 5.0,
+            "wiebe_m": 2.0,
         },
     }
 
@@ -265,7 +274,6 @@ def v10_config() -> Dict:
             "gasket_bore_mm": 92.0,
             "deck_clearance_mm": 0.05,
             "piston_dome_cc": 0.0,
-            "chamber_design": "Pent Roof",
         },
         "camshaft": {
             "intake_lift": 13.0,
@@ -288,7 +296,7 @@ def v10_config() -> Dict:
             "header_primary_diameter": 42.0,
             "collector_length": 450.0,
         },
-        "supercharger": {"type": "NA", "boost_pressure_bar": 0.0},
+        "supercharger": {"type": "NA", "boost_pressure_bar": 0.0, "intercooler_efficiency": 0.7},
         "friction": {
             "bottom_end_type": "Race",
             "friction_base_kpa": 25.0,
@@ -300,6 +308,8 @@ def v10_config() -> Dict:
             "heat_loss_factor": 1.0,
             "pipe_friction_factor": 1.0,
             "tuning_sensitivity": 1.0,
+            "air_temperature_c": 25.0,
+            "air_pressure_bar": 1.013,
         },
         "fuel": {"type_name": "Pump Gas", "octane_rating": 100.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
@@ -307,6 +317,8 @@ def v10_config() -> Dict:
             "burn_duration": 35.0,
             "ignition_advance": 32.0,
             "afr": 12.8,
+            "wiebe_a": 5.0,
+            "wiebe_m": 2.0,
         },
     }
 
@@ -338,7 +350,6 @@ def f1_v12_config() -> Dict:
             "gasket_bore_mm": 97.0,
             "deck_clearance_mm": 0.05,
             "piston_dome_cc": 0.0,
-            "chamber_design": "Pent Roof",
         },
         "camshaft": {
             "intake_lift": 14.5,
@@ -361,7 +372,7 @@ def f1_v12_config() -> Dict:
             "header_primary_diameter": 38.0,
             "collector_length": 400.0,
         },
-        "supercharger": {"type": "NA", "boost_pressure_bar": 0.0},
+        "supercharger": {"type": "NA", "boost_pressure_bar": 0.0, "intercooler_efficiency": 0.7},
         "friction": {
             "bottom_end_type": "Race",
             "friction_base_kpa": 25.0,
@@ -373,6 +384,8 @@ def f1_v12_config() -> Dict:
             "heat_loss_factor": 1.0,
             "pipe_friction_factor": 1.0,
             "tuning_sensitivity": 1.0,
+            "air_temperature_c": 25.0,
+            "air_pressure_bar": 1.013,
         },
         "fuel": {"type_name": "Race Gas", "octane_rating": 110.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
@@ -380,6 +393,8 @@ def f1_v12_config() -> Dict:
             "burn_duration": 35.0,
             "ignition_advance": 35.0,
             "afr": 12.6,
+            "wiebe_a": 5.0,
+            "wiebe_m": 2.0,
         },
     }
 
@@ -411,7 +426,6 @@ def kart_125_config() -> Dict:
             "gasket_bore_mm": 55.0,
             "deck_clearance_mm": 0.05,
             "piston_dome_cc": 0.0,
-            "chamber_design": "Pent Roof",
         },
         "camshaft": {
             "intake_lift": 9.5,
@@ -434,7 +448,7 @@ def kart_125_config() -> Dict:
             "header_primary_diameter": 30.0,
             "collector_length": 350.0,
         },
-        "supercharger": {"type": "NA", "boost_pressure_bar": 0.0},
+        "supercharger": {"type": "NA", "boost_pressure_bar": 0.0, "intercooler_efficiency": 0.7},
         "friction": {
             "bottom_end_type": "Performance",
             "friction_base_kpa": 25.0,
@@ -446,6 +460,8 @@ def kart_125_config() -> Dict:
             "heat_loss_factor": 1.0,
             "pipe_friction_factor": 1.0,
             "tuning_sensitivity": 1.0,
+            "air_temperature_c": 25.0,
+            "air_pressure_bar": 1.013,
         },
         "fuel": {"type_name": "Pump Gas", "octane_rating": 95.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
@@ -453,5 +469,7 @@ def kart_125_config() -> Dict:
             "burn_duration": 50.0,
             "ignition_advance": 28.0,
             "afr": 13.5,
+            "wiebe_a": 5.0,
+            "wiebe_m": 2.0,
         },
     }

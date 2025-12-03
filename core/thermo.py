@@ -11,10 +11,6 @@ from core.engine_components import Engine
 
 GAMMA = 1.4
 R_AIR = 287.0
-LHV_DEFAULT = 44e6  # J/kg
-AFR_STOICH = 14.7
-P_ATM = 101325.0
-T_INTAKE = 300.0
 SPEED_OF_SOUND = 340.0  # m/s approximate at 300 K
 
 logger = logging.getLogger(__name__)
@@ -43,10 +39,15 @@ def piston_geometry(angle_array_deg: np.ndarray, bore: float, stroke: float, con
     return V_swept, dV_dtheta
 
 
-def wiebe_function(angle_array_deg: np.ndarray, start_angle: float, duration: float, efficiency: float):
+def wiebe_function(
+    angle_array_deg: np.ndarray,
+    start_angle: float,
+    duration: float,
+    efficiency: float,
+    a: float,
+    m: float,
+):
     """Return cumulative heat release fraction (0..1) using Wiebe."""
-    a = 5.0
-    m = 2.0
     theta = angle_array_deg
     x = np.zeros_like(theta)
 
@@ -115,15 +116,19 @@ class CylinderSimulator:
         heat_loss_factor = getattr(settings, "heat_loss_factor", 1.0)
         pipe_friction_factor = getattr(settings, "pipe_friction_factor", 1.0)
         tuning_sensitivity = getattr(settings, "tuning_sensitivity", 1.0)
+        ambient_temp_k = (getattr(settings, "air_temperature_c", 25.0) + 273.15)
+        ambient_pressure_pa = getattr(settings, "air_pressure_bar", 1.013) * 100000.0
 
         cam = self.engine.camshaft
         comb = getattr(self.engine, "combustion", None)
         ignition = getattr(comb, "ignition_advance", 30.0)
         burn_duration = getattr(comb, "burn_duration", 50.0)
-        afr_user = getattr(comb, "afr", AFR_STOICH)
+        afr_user = getattr(comb, "afr", getattr(self.engine.fuel, "stoich_afr", 14.7))
+        wiebe_a = getattr(comb, "wiebe_a", 5.0)
+        wiebe_m = getattr(comb, "wiebe_m", 2.0)
 
         fuel_cfg = getattr(self.engine, "fuel", None)
-        fuel_lhv = getattr(fuel_cfg, "energy_density", LHV_DEFAULT) or LHV_DEFAULT
+        fuel_lhv = getattr(fuel_cfg, "energy_density", 44e6)
         fuel_stoich = afr_user
         fuel_octane = getattr(fuel_cfg, "octane_rating", 93.0)
 
@@ -162,10 +167,10 @@ class CylinderSimulator:
         boost_bar = getattr(self.engine.supercharger, "boost_pressure_bar", 0.0)
         boost_pa = float(boost_bar) * 100000.0
         is_boosted = (getattr(self.engine.supercharger, "type", "NA") or "NA") != "NA"
-        P_manifold = P_ATM + boost_pa if is_boosted and boost_pa > 0.0 else P_ATM
-        T_boost = T_INTAKE * (P_manifold / P_ATM) ** 0.28
-        intercooler_eff = 0.7
-        T_charge = T_INTAKE + (T_boost - T_INTAKE) * (1.0 - intercooler_eff)
+        P_manifold = ambient_pressure_pa + boost_pa if is_boosted and boost_pa > 0.0 else ambient_pressure_pa
+        T_boost = ambient_temp_k * (P_manifold / ambient_pressure_pa) ** 0.28
+        intercooler_eff = getattr(self.engine.supercharger, "intercooler_efficiency", 0.70)
+        T_charge = ambient_temp_k + (T_boost - ambient_temp_k) * (1.0 - intercooler_eff)
 
         piston_speed = 2.0 * stroke_m * rpm / 60.0
         base_ve, mach_index = self._calculate_dynamic_ve(rpm, piston_speed, bore_m, cam.intake_duration)
@@ -226,7 +231,7 @@ class CylinderSimulator:
         Q_total = fuel_mass * fuel_lhv
 
         start_angle = 360.0 - float(ignition)
-        x = wiebe_function(angle_arr, start_angle, burn_duration, efficiency=1.0)
+        x = wiebe_function(angle_arr, start_angle, burn_duration, efficiency=1.0, a=wiebe_a, m=wiebe_m)
         Q_rel = Q_total * eta_combustion * x
 
         mask_intake = angle_arr < IVC
@@ -236,7 +241,7 @@ class CylinderSimulator:
 
         pressure = np.zeros_like(volume)
         pressure[mask_intake] = P_manifold
-        pressure[mask_exhaust] = 1.05 * P_ATM
+        pressure[mask_exhaust] = 1.05 * ambient_pressure_pa
 
         vol_comp = np.maximum(volume[mask_compression], 1e-9)
         vol_pow = np.maximum(volume[mask_power], 1e-9)
@@ -297,7 +302,7 @@ class CylinderSimulator:
                 f"Non-finite thermo state (rpm={rpm:.1f}, IVC={IVC:.2f}, EVO={EVO:.2f}, minV={float(np.min(volume)):.3e})"
             )
 
-        torque_trace_single = (pressure - P_ATM) * dV_dtheta
+        torque_trace_single = (pressure - ambient_pressure_pa) * dV_dtheta
         torque_trace = torque_trace_single * self.engine.block.num_cylinders
         indicated_torque = float(np.mean(torque_trace))
 

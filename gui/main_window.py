@@ -673,6 +673,8 @@ class MainWindow(QMainWindow):
         advance_spin = self._double_spin(combustion.ignition_advance, 0.0, 60.0, 0.5)
         advance_spin.setSuffix(" deg")
         afr_spin = self._double_spin(combustion.afr, 10.0, 18.0, 0.05)
+        wiebe_a_spin = self._double_spin(combustion.wiebe_a, 0.1, 10.0, 0.1)
+        wiebe_m_spin = self._double_spin(combustion.wiebe_m, 0.1, 10.0, 0.1)
 
         def set_custom() -> None:
             if chamber_combo.currentText() != "Custom":
@@ -700,6 +702,16 @@ class MainWindow(QMainWindow):
             lambda val: (self._update_value(combustion, "afr", val), set_custom()),
             "afr",
         )
+        self._bind_spin(
+            wiebe_a_spin,
+            lambda val: (self._update_value(combustion, "wiebe_a", val), set_custom()),
+            "wiebe_a",
+        )
+        self._bind_spin(
+            wiebe_m_spin,
+            lambda val: (self._update_value(combustion, "wiebe_m", val), set_custom()),
+            "wiebe_m",
+        )
 
         def apply_preset(name: str) -> None:
             preset = presets.get(name, {})
@@ -725,6 +737,8 @@ class MainWindow(QMainWindow):
         self.property_form.addRow("Burn Duration", burn_spin)
         self.property_form.addRow("Ignition Advance", advance_spin)
         self.property_form.addRow("AFR", afr_spin)
+        self.property_form.addRow("Wiebe a", wiebe_a_spin)
+        self.property_form.addRow("Wiebe m", wiebe_m_spin)
 
     def _build_intake_form(self, intake: IntakeSystem) -> None:
         self._clear_property_form()
@@ -777,6 +791,10 @@ class MainWindow(QMainWindow):
         boost_spin = self._double_spin(supercharger.boost_pressure_bar, 0.0, 3.0, 0.05)
         self._bind_spin(boost_spin, lambda val: self._update_value(supercharger, "boost_pressure_bar", val), "boost_pressure_bar")
         self.property_form.addRow("Boost (bar)", boost_spin)
+
+        ic_spin = self._double_spin(supercharger.intercooler_efficiency, 0.0, 1.0, 0.01)
+        self._bind_spin(ic_spin, lambda val: self._update_value(supercharger, "intercooler_efficiency", val), "intercooler_efficiency")
+        self.property_form.addRow("Intercooler Eff", ic_spin)
 
     def _build_friction_form(self, friction: Friction) -> None:
         self._clear_property_form()
@@ -914,6 +932,16 @@ class MainWindow(QMainWindow):
         tune_spin = self._double_spin(settings.tuning_sensitivity, 0.0, 5.0, 0.1)
         self._bind_spin(tune_spin, lambda val: self._update_value(settings, "tuning_sensitivity", val), "tuning_sensitivity")
         self.property_form.addRow("Calibration: Tuning Sensitivity", tune_spin)
+
+        air_temp = self._double_spin(settings.air_temperature_c, -50.0, 80.0, 0.5)
+        air_temp.setSuffix(" C")
+        self._bind_spin(air_temp, lambda val: self._update_value(settings, "air_temperature_c", val), "air_temperature_c")
+        self.property_form.addRow("Air Temp (C)", air_temp)
+
+        air_press = self._double_spin(settings.air_pressure_bar, 0.5, 2.0, 0.01)
+        air_press.setSuffix(" bar")
+        self._bind_spin(air_press, lambda val: self._update_value(settings, "air_pressure_bar", val), "air_pressure_bar")
+        self.property_form.addRow("Air Pressure (bar)", air_press)
 
     # -------------------------- Helpers -----------------------------------
     def _double_spin(self, value: float, minimum: float, maximum: float, step: float) -> QDoubleSpinBox:
