@@ -166,16 +166,25 @@ class SimulationSettings:
     """Simulation-level tunables such as ignition timing."""
 
     ignition_timing_btdc: float = 30.0  # degrees before TDC firing
+    heat_loss_factor: float = 1.0  # scales Woschni heat loss
+    pipe_friction_factor: float = 1.0  # scales L/D pipe friction penalty
+    tuning_sensitivity: float = 1.0  # scales wave/resonance boosts
 
     def to_dict(self) -> dict:
         return {
             "ignition_timing_btdc": self.ignition_timing_btdc,
+            "heat_loss_factor": self.heat_loss_factor,
+            "pipe_friction_factor": self.pipe_friction_factor,
+            "tuning_sensitivity": self.tuning_sensitivity,
         }
 
     @classmethod
     def from_dict(cls, data: dict) -> "SimulationSettings":
         return cls(
             ignition_timing_btdc=data.get("ignition_timing_btdc", 30.0),
+            heat_loss_factor=data.get("heat_loss_factor", 1.0),
+            pipe_friction_factor=data.get("pipe_friction_factor", 1.0),
+            tuning_sensitivity=data.get("tuning_sensitivity", 1.0),
         )
 
 

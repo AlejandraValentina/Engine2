@@ -903,6 +903,18 @@ class MainWindow(QMainWindow):
         self._bind_spin(ign_spin, lambda val: self._update_value(settings, "ignition_timing_btdc", val), "ignition_timing_btdc")
         self.property_form.addRow("Ignition Timing", ign_spin)
 
+        heat_spin = self._double_spin(settings.heat_loss_factor, 0.0, 5.0, 0.1)
+        self._bind_spin(heat_spin, lambda val: self._update_value(settings, "heat_loss_factor", val), "heat_loss_factor")
+        self.property_form.addRow("Calibration: Heat Loss", heat_spin)
+
+        pipe_spin = self._double_spin(settings.pipe_friction_factor, 0.0, 5.0, 0.1)
+        self._bind_spin(pipe_spin, lambda val: self._update_value(settings, "pipe_friction_factor", val), "pipe_friction_factor")
+        self.property_form.addRow("Calibration: Pipe Friction", pipe_spin)
+
+        tune_spin = self._double_spin(settings.tuning_sensitivity, 0.0, 5.0, 0.1)
+        self._bind_spin(tune_spin, lambda val: self._update_value(settings, "tuning_sensitivity", val), "tuning_sensitivity")
+        self.property_form.addRow("Calibration: Tuning Sensitivity", tune_spin)
+
     # -------------------------- Helpers -----------------------------------
     def _double_spin(self, value: float, minimum: float, maximum: float, step: float) -> QDoubleSpinBox:
         spin = QDoubleSpinBox()

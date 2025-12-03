@@ -76,7 +76,12 @@ def k20_config() -> Dict:
             "friction_linear_factor": 0.02,
             "friction_quadratic_factor": 1.8e-6,
         },
-        "simulation_settings": {"ignition_timing_btdc": 30.0},
+        "simulation_settings": {
+            "ignition_timing_btdc": 30.0,
+            "heat_loss_factor": 1.0,
+            "pipe_friction_factor": 1.0,
+            "tuning_sensitivity": 1.0,
+        },
         "fuel": {"type_name": "Pump Gas", "octane_rating": 93.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
             "thermal_efficiency": 0.55,
@@ -144,7 +149,12 @@ def v8_config() -> Dict:
             "friction_linear_factor": 0.03,
             "friction_quadratic_factor": 2.5e-6,
         },
-        "simulation_settings": {"ignition_timing_btdc": 30.0},
+        "simulation_settings": {
+            "ignition_timing_btdc": 30.0,
+            "heat_loss_factor": 1.0,
+            "pipe_friction_factor": 1.0,
+            "tuning_sensitivity": 1.0,
+        },
         "fuel": {"type_name": "Pump Gas", "octane_rating": 93.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
             "thermal_efficiency": 0.50,
@@ -212,7 +222,12 @@ def eco_config() -> Dict:
             "friction_linear_factor": 0.03,
             "friction_quadratic_factor": 2.5e-6,
         },
-        "simulation_settings": {"ignition_timing_btdc": 30.0},
+        "simulation_settings": {
+            "ignition_timing_btdc": 30.0,
+            "heat_loss_factor": 1.0,
+            "pipe_friction_factor": 1.0,
+            "tuning_sensitivity": 1.0,
+        },
         "fuel": {"type_name": "Pump Gas", "octane_rating": 93.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
             "thermal_efficiency": 0.48,
@@ -280,7 +295,12 @@ def v10_config() -> Dict:
             "friction_linear_factor": 0.015,
             "friction_quadratic_factor": 0.9e-6,
         },
-        "simulation_settings": {"ignition_timing_btdc": 30.0},
+        "simulation_settings": {
+            "ignition_timing_btdc": 30.0,
+            "heat_loss_factor": 1.0,
+            "pipe_friction_factor": 1.0,
+            "tuning_sensitivity": 1.0,
+        },
         "fuel": {"type_name": "Pump Gas", "octane_rating": 100.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
             "thermal_efficiency": 0.58,
@@ -348,7 +368,12 @@ def f1_v12_config() -> Dict:
             "friction_linear_factor": 0.015,
             "friction_quadratic_factor": 0.9e-6,
         },
-        "simulation_settings": {"ignition_timing_btdc": 35.0},
+        "simulation_settings": {
+            "ignition_timing_btdc": 35.0,
+            "heat_loss_factor": 1.0,
+            "pipe_friction_factor": 1.0,
+            "tuning_sensitivity": 1.0,
+        },
         "fuel": {"type_name": "Race Gas", "octane_rating": 110.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
             "thermal_efficiency": 0.58,
@@ -416,7 +441,12 @@ def kart_125_config() -> Dict:
             "friction_linear_factor": 0.015,
             "friction_quadratic_factor": 0.9e-6,
         },
-        "simulation_settings": {"ignition_timing_btdc": 28.0},
+        "simulation_settings": {
+            "ignition_timing_btdc": 28.0,
+            "heat_loss_factor": 1.0,
+            "pipe_friction_factor": 1.0,
+            "tuning_sensitivity": 1.0,
+        },
         "fuel": {"type_name": "Pump Gas", "octane_rating": 95.0, "energy_density": 44e6, "stoich_afr": 14.7},
         "combustion": {
             "thermal_efficiency": 0.50,

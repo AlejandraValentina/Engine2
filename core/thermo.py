@@ -111,6 +111,11 @@ class CylinderSimulator:
         """Run a 720° four-stroke cycle and return pressure/torque traces."""
         angle_arr = np.arange(0.0, 720.0 + 0.5, 0.5)
 
+        settings = getattr(self.engine, "simulation_settings", None)
+        heat_loss_factor = getattr(settings, "heat_loss_factor", 1.0)
+        pipe_friction_factor = getattr(settings, "pipe_friction_factor", 1.0)
+        tuning_sensitivity = getattr(settings, "tuning_sensitivity", 1.0)
+
         cam = self.engine.camshaft
         comb = getattr(self.engine, "combustion", None)
         ignition = getattr(comb, "ignition_advance", 30.0)
@@ -177,8 +182,6 @@ class CylinderSimulator:
             peak = rpm_tune * h
             sigma = max(200.0, peak * 0.12)
             tuning_boost += b * math.exp(-0.5 * ((rpm - peak) / sigma) ** 2)
-        tuning_factor = 1.0 + tuning_boost
-
         exhaust_length_m = max(self.engine.exhaust.header_primary_length * 1e-3, 1e-6)
         exhaust_dia_m = max(self.engine.exhaust.header_primary_diameter * 1e-3, 1e-6)
 
@@ -186,7 +189,9 @@ class CylinderSimulator:
         exhaust_peak = 115000.0 / exhaust_length_in
         exhaust_sigma = max(300.0, exhaust_peak * 0.15)
         exhaust_boost = 0.15 * math.exp(-0.5 * ((rpm - exhaust_peak) / exhaust_sigma) ** 2)
-        tuning_factor *= 1.0 + exhaust_boost
+
+        total_boost = (tuning_boost + exhaust_boost) * tuning_sensitivity
+        tuning_factor = 1.0 + total_boost
 
         if eff < 0.7:
             tuning_factor *= 0.5
@@ -209,8 +214,8 @@ class CylinderSimulator:
         total_capacity = max(1e-6, min(head_capacity_total, throttle_capacity))
         restriction_penalty = 1.0 if required_cfm <= total_capacity else (total_capacity / required_cfm) ** 0.5
 
-        intake_loss_factor = (runner_length_m / max(runner_dia_m, 1e-9)) * 0.0005
-        exhaust_loss_factor = (exhaust_length_m / max(exhaust_dia_m, 1e-9)) * 0.0005
+        intake_loss_factor = (runner_length_m / max(runner_dia_m, 1e-9)) * 0.0005 * pipe_friction_factor
+        exhaust_loss_factor = (exhaust_length_m / max(exhaust_dia_m, 1e-9)) * 0.0005 * pipe_friction_factor
         total_loss = max(0.0, intake_loss_factor + exhaust_loss_factor)
 
         ve = np.clip(ve_prelim * restriction_penalty * max(0.0, 1.0 - total_loss), 0.0, 1.2)
@@ -253,7 +258,7 @@ class CylinderSimulator:
 
         bore_mm = max(self.engine.block.bore, 1e-6)
         scale_factor = (85.0 / max(bore_mm, 20.0)) ** 0.5
-        woschni_k = 0.006 * scale_factor * (rpm ** 0.6)
+        woschni_k = 0.006 * scale_factor * (rpm ** 0.6) * heat_loss_factor
 
         q_rel_pow = Q_rel[mask_power]
         q_rel_diff = np.diff(q_rel_pow, prepend=0.0)
