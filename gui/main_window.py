@@ -810,6 +810,7 @@ class MainWindow(QMainWindow):
         lin_spin.setDecimals(5)
         quad_spin = self._double_spin(friction.friction_quadratic_factor, 0.0, 1e-4, 1e-7)
         quad_spin.setDecimals(8)
+        scale_spin = self._double_spin(friction.global_scaling_factor, 0.1, 5.0, 0.05)
 
         self._bind_spin(base_spin, lambda val: self._update_value(friction, "friction_base_kpa", val), "friction_base_kpa")
         self._bind_spin(
@@ -820,10 +821,16 @@ class MainWindow(QMainWindow):
             lambda val: self._update_value(friction, "friction_quadratic_factor", val),
             "friction_quadratic_factor",
         )
+        self._bind_spin(
+            scale_spin,
+            lambda val: self._update_value(friction, "global_scaling_factor", val),
+            "global_scaling_factor",
+        )
 
         self.property_form.addRow("Base FMEP (kPa)", base_spin)
         self.property_form.addRow("Linear Coeff", lin_spin)
         self.property_form.addRow("Quadratic Coeff", quad_spin)
+        self.property_form.addRow("Global Scaling Factor", scale_spin)
 
         presets = {
             "Standard": (45.0, 0.03, 2.5e-6),

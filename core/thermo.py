@@ -158,9 +158,6 @@ class CylinderSimulator:
 
         volume = np.maximum(volume_swept + Vc, 1e-9)
 
-        cyl_disp_cc = max(self.engine.block.displacement_cc / max(self.engine.block.num_cylinders, 1e-9), 1e-9)
-        is_small_engine = cyl_disp_cc < 350.0
-
         def volume_at(angle_deg: float) -> float:
             idx = int(np.argmin(np.abs(angle_arr - angle_deg)))
             return max(volume[idx], 1e-9)
@@ -220,8 +217,6 @@ class CylinderSimulator:
         )
         throttle_capacity = getattr(self.engine.intake, "throttle_cfm", 500.0)
         total_capacity = max(1e-6, min(head_capacity_total, throttle_capacity))
-        if is_small_engine:
-            total_capacity *= 1.2
         restriction_penalty = 1.0 if required_cfm <= total_capacity else (total_capacity / required_cfm) ** 0.5
 
         intake_loss_factor = (runner_length_m / max(runner_dia_m, 1e-9)) * 0.0005 * pipe_friction_factor
@@ -269,8 +264,6 @@ class CylinderSimulator:
         bore_mm = max(self.engine.block.bore, 1e-6)
         scale_factor = (85.0 / max(bore_mm, 20.0)) ** 0.5
         heat_loss_multiplier = scale_factor
-        if is_small_engine:
-            heat_loss_multiplier = min(heat_loss_multiplier, 1.5)
         woschni_k = 0.006 * heat_loss_multiplier * (rpm ** 0.6) * heat_loss_factor
 
         q_rel_pow = Q_rel[mask_power]
@@ -327,10 +320,7 @@ class CylinderSimulator:
         elif be_type == "race":
             fmep_kpa *= 0.72
         fmep_pa = fmep_kpa * 1000.0
-        if is_small_engine:
-            friction_scale = 0.4 + (cyl_disp_cc / 350.0) * 0.6
-            friction_scale = min(max(friction_scale, 0.4), 1.0)
-            fmep_pa *= friction_scale
+        fmep_pa *= getattr(f_cfg, "global_scaling_factor", 1.0)
 
         displacement_m3 = max(self.engine.block.displacement_cc * 1e-6, 1e-9)
         friction_torque = fmep_pa * displacement_m3 / (4.0 * math.pi)

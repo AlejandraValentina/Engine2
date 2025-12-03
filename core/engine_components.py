@@ -309,6 +309,7 @@ class Friction:
     friction_base_kpa: float = 35.0
     friction_linear_factor: float = 0.02
     friction_quadratic_factor: float = 1.8e-6
+    global_scaling_factor: float = 1.0
 
     def to_dict(self) -> dict:
         return {
@@ -320,6 +321,7 @@ class Friction:
             "friction_base_kpa": self.friction_base_kpa,
             "friction_linear_factor": self.friction_linear_factor,
             "friction_quadratic_factor": self.friction_quadratic_factor,
+            "global_scaling_factor": self.global_scaling_factor,
         }
 
     @classmethod
@@ -333,6 +335,7 @@ class Friction:
             friction_base_kpa=data.get("friction_base_kpa", 35.0),
             friction_linear_factor=data.get("friction_linear_factor", 0.02),
             friction_quadratic_factor=data.get("friction_quadratic_factor", 1.8e-6),
+            global_scaling_factor=data.get("global_scaling_factor", 1.0),
         )
 
 
