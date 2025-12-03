@@ -1,139 +1,121 @@
-# PyWaveDyn Software Design Document (SDD)
+# PyWaveDyn Technical Design Document (v1.0)
 
-## 1. Arquitectura General
+## System Overview
+PyWaveDyn is a 1D gas-dynamics and 0D thermodynamics simulator for internal combustion engines. It follows a light MVC pattern:
+- **GUI (PySide6 / pyqtgraph)**: Project explorer and editors drive engine configuration; dyno, analysis, optimizer, and wave scope tabs visualize results.
+- **Data Model (JSON-serializable dataclasses)**: `core/engine_components.py` defines all physical components and simulation settings; configs load/save directly to JSON presets.
+- **Physics Core**: 
+  - **0D Thermo (`core/thermo.py`)** computes in-cylinder pressure/torque via phased four-stroke masks, Wiebe combustion, Woschni heat transfer, friction, knock, and dynamic VE.
+  - **1D Wave Action (`core/simulator.py`, `core/numerics.py`, `core/junctions.py`)** solves Euler equations with Lax–Wendroff, ghost cells, and junction mass/energy balance for exhaust/intake piping.
+- **Audio (`acoustics/audio_generator.py`)**: Resamples pipe outlet pressure to WAV, mixing cylinders by firing order.
 
-PyWaveDyn sigue un flujo MVC simplificado: la GUI PySide6 captura la configuración del usuario, la persiste/recupera en JSON mediante el modelo jerárquico `Engine`, y ejecuta los solucionadores físicos 0D/1D. Los resultados vuelven a la GUI para gráficas (dyno, scope, análisis), audio y optimización.
+## Physics Model Explained
+### 0D Thermodynamics
+- **Four-Stroke Phasing**: Angle masks (intake < IVC, compression IVC–360°, power 360°–EVO, exhaust ≥ EVO) derived from cam durations/centers/firing order. Prevents negative torque by keeping phase masks non-empty.
+- **Combustion (Wiebe)**: Cumulative burn fraction from Wiebe function; start angle = (360 – ignition advance), duration = configurable. Heat release uses fuel LHV and combustion efficiency, minus Woschni wall losses.
+- **Heat Transfer (Woschni)**: Dynamic wall area (head+piston+liner), gas temperature/velocity produce heat-loss term; scaled by bore/heat-loss factors in `SimulationSettings` for calibration.
+- **Volumetric Efficiency**: Base VE shaped by cam peak RPM and duration; Mach-index choking with head Mach tolerance and port flow efficiency; pipe tuning and friction factors adjust VE; tuning sensitivity configurable in `SimulationSettings`.
+- **Friction (FMEP)**: Chen–Flynn style mean effective pressure `FMEP = A + B·RPM + C·RPM²`, using per-engine coefficients plus global friction scaling; accessory losses added separately.
+- **Knock Detection**: Dynamic compression vs fuel octane (and combustion settings) triggers knock flag; dyno UI highlights warnings.
 
-```
-[GUI PySide6]
-   ├─ Árbol de proyecto + panel de propiedades (edita objetos Engine/*)
-   ├─ Tabs: Overview, Dyno/Pro Dyno, Analysis Data, Optimizer, Scope
-   └─ Botones/acciones → invocan solvers
-        ├─ core/thermo.py  (0D ciclo Otto + VE + fricción + knock)
-        ├─ core/simulator.py (1D ondas en tubos con Lax–Wendroff)
-        └─ core/numerics.py  (kernels Numba: flujos Euler, Lax–Wendroff, mdot)
-              └─ Salidas → GUI (plots/tablas) + audio_generator (WAV)
-```
+### 1D Wave Action
+- **Finite Volume / Lax–Wendroff (`core/numerics.py`)**: JIT-optimized flux computation with geometric area and friction sources; boundary cells restored per step to retain imposed BCs.
+- **Ghost Cells & Boundaries**: Reflective (closed valve), transmissive (outlet), and valve-coupled inlet ghost cells drive wave generation without numerical trapping.
+- **Junction Handling (`core/junctions.py`)**: Collector volumes conserve mass/energy between primaries and tailpipes, updating pressure/temperature via ideal gas law.
+- **Network Solver (`Engine1DSolver`)**: Builds primaries (per-cylinder), collector, and tailpipe; phases cylinder blowdown by firing order and steps all pipes under CFL control.
 
-## 2. Diccionario de Módulos
+## Configuration Reference
+Each parameter lives in `core/engine_components.py` and is editable in the GUI. Typical ranges are guidance, not limits.
 
-### main.py
-- **Responsabilidad:** Punto de entrada Qt; crea `QApplication` y `MainWindow`.
-- **Entradas/Salidas:** Inicia el loop de eventos; no recibe parámetros externos.
+### Block
+- **bore, stroke (mm)**: Cylinder geometry; higher bore increases area (VE, heat loss). Typical: 70–100 mm (auto), 50–60 mm (small engines).
+- **conrod_length (mm)**: Affects slider-crank geometry; typical 120–160 mm (I4), scaled for small engines.
+- **num_cylinders, config, bank_angle, firing_order**: Layout and phasing; firing order drives wave timing.
+- **redline_rpm**: Dyno sweep upper bound.
 
-### core/engine_components.py
-- **Responsabilidad:** Dataclasses del motor (Block, CylinderHead, Camshaft, Intake/Exhaust, Supercharger, Friction con coeficientes Chen–Flynn, Fuel, Combustion, SimulationSettings, Engine) con `to_dict`/`from_dict`, cálculo de desplazamiento y CR geométrico.
-- **Claves:** `Engine.from_dict`, `Engine.save_to_file`, `Camshaft.get_lift`, `Block.displacement_cc`, `Engine.calculate_geometric_cr`.
-- **Entradas/Salidas:** Configuración estructurada ↔ JSON; utilidades geométricas.
+### CylinderHead
+- **compression_ratio**: Geometric CR; if `combustion_chamber_vol` is set, CR is derived from it. Typical 9–12 (NA street), 12–14 (race).
+- **combustion_chamber_vol (cc)**: Fixed clearance override; set to 0 or clear via UI to use CR-derived clearance.
+- **intake/exhaust_valves (count)**: Valve count per cylinder.
+- **intake_valve_diameter_mm / exhaust_valve_diameter_mm**: Valve sizes; larger diameter reduces Mach index, delays choking. Typical 28–38 mm (I4), 45–52 mm (V8).
+- **port_flow_efficiency**: Multiplies effective valve area (Cd). Physics: lower values raise gas velocity, increase choking, reduce VE. Typical 0.55 (economy), 0.65–0.75 (street), 0.85–0.9 (race).
+- **mach_tolerance**: Mach index threshold for choking onset. Typical 0.65 (economy), 0.7–0.8 (street), 0.85–0.9 (race).
 
-### core/thermo.py
-- **Responsabilidad:** Simulador termodinámico 0D: ciclo Otto faseado, VE dinámica (cam + Mach + tuning + pérdidas de tubería y CFM), combustión Wiebe parametrizada, knock, fricción Chen–Flynn + accesorios, métricas BMEP/VE/airflow/knock.
-- **Claves:** `piston_geometry`, `wiebe_function`, `CylinderSimulator.run_cycle` (modo rápido calibrado).
-- **Entradas/Salidas:** Recibe `Engine` + rpm; devuelve trazas y agregados: `pressure`, `volume`, `torque`, `mean_torque_nm`, `mean_power_hp`, `bmep_bar`, `ve`, `airflow_cfm`, `knock_warning`.
+### Camshaft
+- **intake/exhaust_lift (mm)**: Max valve lift; higher lift increases area at peak.
+- **intake/exhaust_duration (deg)**: Seat-to-seat duration; longer duration shifts VE peak upward.
+- **lobe_separation (deg)**: Separation between intake/exhaust centerlines; tighter LSA increases overlap.
+- **advance (deg)**: Installation advance; positive advances intake centerline.
+- **peak_rpm**: RPM of peak VE for the cam profile; shapes VE curve.
 
-### core/simulator.py
-- **Responsabilidad:** Solver 1D para tubos; construye malla, aplica BCs de celdas fantasma (válvula/cilindro + salida transmisiva), integra con Lax–Wendroff y clamps de estabilidad.
-- **Claves:** `PipeSolver.apply_boundary_conditions`, `PipeSolver.get_time_step`, `PipeSolver.step`.
-- **Entradas/Salidas:** Estado conservado `U[:, rho, rho*u, rho*E]` ↔ evolución temporal.
+### IntakeSystem
+- **runner_length/diameter (mm)**: Tuning length/area; affects wave tuning and pipe friction. Small diameters increase velocity and friction losses; long runners favor low RPM torque.
+- **plenum_volume (L)**: Intake plenum size; larger smooths pulses.
+- **throttle_body_dia (mm), throttle_cfm**: Flow limit at high RPM; lower values restrict VE.
+- **flow_loss_coefficient**: Additional restriction factor for modeling throttles/filters; higher increases losses.
 
-### core/numerics.py
-- **Responsabilidad:** Kernels Numba para Euler 1D, Lax–Wendroff y flujo isentrópico de válvula.
-- **Claves:** `flux_vector`, `source_terms`, `lax_wendroff_step`, `calculate_mass_flow_rate`.
-- **Entradas/Salidas:** Estados ↔ flujos; mdot direccional con choking.
+### ExhaustSystem
+- **header_primary_length/diameter (mm)**: Primary tuning; length influences wave timing, diameter impacts friction and Mach index.
+- **collector_length (mm)**: Tailpipe length after merge; adjusts tuning.
 
-### acoustics/audio_generator.py
-- **Responsabilidad:** Re-muestreo (interp1d) de presión, filtrado pasa-altas, normalización y guardado WAV.
+### Supercharger
+- **type**: NA/Turbo/Roots, controls boost usage.
+- **boost_pressure_bar**: Added manifold pressure. Higher boost increases trapped mass; check knock limits.
+- **intercooler_efficiency**: Fractional temperature drop after compression (0–1). Higher reduces charge temperature/knock.
 
-### gui/main_window.py
-- **Responsabilidad:** Shell Qt con árbol de proyecto, propiedades dinámicas, tabs de visualización y optimizador, controles de simulación/recording, resumen HTML.
-- **Claves:** `refresh_tree`, `update_properties_panel`, `run_dyno_sweep`, `run_pro_dyno_sweep`, `run_optimization_sweep`, `update_overview`.
+### Combustion
+- **thermal_efficiency**: Fraction of chemical energy converted to pressure (before wall losses). Typical 0.45–0.55 street, up to ~0.62 race.
+- **burn_duration (deg)**: Wiebe duration; shorter for fast-burn modern chambers (35–55°).
+- **ignition_advance (deg BTDC)**: Start of combustion relative to TDC firing.
+- **afr**: Air–fuel ratio; affects fuel mass and mixture.
+- **wiebe_a / wiebe_m**: Shape parameters for the Wiebe curve; tune completeness (a) and form (m) for different fuels (e.g., methanol slower burn ⇒ adjust m).
+- **chamber_type (preset)**: GUI preset that fills efficiency/burn/advance; set to Custom when manually editing.
 
-### tests/
-- **Responsabilidad:** Suite unitaria/integración (identidades HP↔Torque, tendencias de tuning, bandas de sanidad BMEP/VE, regresiones multi-motor, fixtures deterministas y seeds en `conftest.py`).
+### Friction
+- **friction_base_kpa / friction_linear_factor / friction_quadratic_factor**: Chen–Flynn FMEP coefficients (A/B/C). Increase C for high-RPM loss.
+- **global_scaling_factor**: Master multiplier for friction. Example: 0.6–0.8 small motorcycle engines; 1.0 baseline; >1.0 for heavy-duty engines.
+- **accessories (water pump, alternator, PS, fan)**: Adds torque drag at all RPMs.
 
-## 3. Física Implementada
+### SimulationSettings (Environment & Calibration)
+- **air_temperature_c / air_pressure_bar**: Ambient conditions for density (altitude/temperature effects).
+- **heat_loss_factor**: Multiplies Woschni heat transfer; raise to increase wall losses, lower for insulated engines.
+- **pipe_friction_factor**: Scales L/D pipe drag; increase to penalize restrictive exhaust/intake, decrease for polished systems.
+- **tuning_sensitivity**: Scales resonance boost; raise for highly tuned systems, lower to damp tuning.
 
-### 3.1 Ciclo 0D faseado (4 tiempos)
-- Ángulo 0–720° con máscaras no solapadas:
-  - **Intake:** `angle < IVC` (IVC desde LSA/advance, acotado 180–360°).
-  - **Compresión:** `IVC ≤ angle < 360` usando `P*V^γ = const` con volumen real en IVC.
-  - **Potencia:** `360 ≤ angle < EVO` (EVO acotado 400–720°) sumando ΔP de combustión.
-  - **Escape:** `angle ≥ EVO`, presión cercana a backpressure.
-- Volumen: `piston_geometry` devuelve V y dV; se clampa a >0 para evitar NaN.
+### Fuel
+- **type_name, octane_rating**: Octane used for knock comparison.
+- **energy_density (J/kg), stoich_afr**: Fuel properties used for heat release and mixture.
 
-### 3.2 Combustión (Wiebe)
-- Inicio: `start_angle = 360 - combustion.ignition_advance`.
-- Duración: `combustion.burn_duration` grados.
-- Energía: `Q_total = m_fuel * fuel.energy_density`; `Q_effective = Q_total * combustion.thermal_efficiency`.
-- Fracción liberada: `x(θ)=1-exp(-a*((θ-start)/duration)^(m+1))` (coef estándar a=5, m=2).
-- Incremento de presión en potencia: `(γ-1) * Q_effective * x_burn / V`.
+## Tuning Guide
+- **Simulate a Racing Engine (e.g., F1/V10)**:
+  - Head: `port_flow_efficiency` ~0.85–0.9, `mach_tolerance` ~0.9.
+  - Cam: High `peak_rpm`, long durations, moderate LSA; high `advance` for overlap.
+  - Friction: Lower `global_scaling_factor` (0.7–0.85) and lighter accessory set.
+  - Combustion: Higher `thermal_efficiency` (0.58–0.62), shorter `burn_duration`, aggressive `ignition_advance`.
+  - SimulationSettings: Lower `heat_loss_factor` if modeling advanced cooling; higher `tuning_sensitivity`.
 
-### 3.3 Volumetric Efficiency (VE) dinámica
-- Curva base VE (tres puntos) centrada en `cam.peak_rpm` y modulada por duración de leva (más duración → pico VE mayor). Forma `[idle, peak, peak+1500]` escalada por `peak_ve` derivado de intake_duration.
-- Choking por Mach Index: área efectiva de válvulas (diámetro, nº válvulas, eficiencia de puerto) vs área de pistón; velocidad de gas = V_pistón * (A_pistón / A_efectiva); umbral de Mach = `head.mach_tolerance`; penalización suave si se supera; VE ≥ 0.4.
-- Restricción por CFM total: `total_capacity = head.port_flow_cfm * intake_valves * num_cyl * port_flow_efficiency` comparado con throttle_cfm; penalización √(capacidad/requerido) si se estrangula.
-- Pérdidas L/D de tuberías: factores lineales por runner/header (L/D * 0.002) aplicados a VE; tuning acústico de escape/intake con boost ±15% según longitud armónica.
+- **Simulate a Small Engine (e.g., 125–250cc)**:
+  - Friction: Reduce `global_scaling_factor` (0.6–0.8) to avoid automotive FMEP assumptions.
+  - Head: Modest `port_flow_efficiency` (~0.55–0.65), `mach_tolerance` ~0.65–0.75.
+  - Combustion: Moderate `thermal_efficiency` (0.45–0.52), longer `burn_duration`.
+  - SimulationSettings: Increase `heat_loss_factor` slightly for air-cooled engines; reduce `tuning_sensitivity` for less resonance.
 
-### 3.4 Knock
-- CR dinámica desde IVC y P_manifold; octanaje desde `fuel.octane_rating`.
-- Si `octane_req > fuel.octane`, se reduce potencia (retardo implícito) y se marca `knock_warning` en salidas/GUI.
+- **Reduce Knock at High CR/Boost**:
+  - Lower `ignition_advance`, `compression_ratio`, or `boost_pressure_bar`.
+  - Improve charge cooling: raise `intercooler_efficiency`, lower `air_temperature_c`.
+  - Use higher `octane_rating` fuel.
 
-### 3.5 Fricción (FMEP) y bombeo
-- FMEP Chen–Flynn configurable por usuario: `FMEP = A + B·RPM + C·RPM²` (kPa) usando coeficientes de `engine.friction`.
-- Multiplicadores de accesorios (bomba agua, alternador, dirección, ventilador) se suman como torque adicional dependiente de RPM.
-- Par de fricción restado al indicado y limitado para evitar resultados negativos.
+## File Structure
+- **core/engine_components.py**: Dataclasses for all components (Block, Head, Camshaft, Intake/Exhaust, Supercharger, Combustion, Friction, SimulationSettings, Fuel, Engine container).
+- **core/thermo.py**: 0D cycle simulator (Wiebe combustion, Woschni heat transfer, VE, friction, knock, torque/power outputs).
+- **core/numerics.py**: Numba-jitted Euler fluxes, Lax–Wendroff step, valve mass flow.
+- **core/junctions.py**: 0D junction mass/energy balance for collectors.
+- **core/simulator.py**: Engine1DSolver network (primaries/collector/tailpipe) built from engine config.
+- **gui/main_window.py**: PySide6 UI, property editors, dyno/optimizer/analysis, wave scope, fabrication tools.
+- **gui/widgets/scope_widget.py**: Plotting helpers for wave visualization.
+- **acoustics/audio_generator.py**: Audio resampling and multi-cylinder mixing.
+- **tests/**: Unit, integration, and sanity-band validations; fixtures in `tests/conftest.py`.
+- ***.json** presets: Example engines (Honda K20, Chevy V8, Ferrari V12, etc.).
 
-### 3.6 Airflow y métricas
-- Airflow CFM: `(CID * RPM * VE) / 3456` (CID desde displacement_cc). VE reportada en % y Mach index devuelto.
-- BMEP: `BMEP = 4π·T / (Vd_m3) / 100000` (bar) para trazabilidad de torque.
-
-### 3.7 Dinámica 1D en tubos
-- Esquema Lax–Wendroff predictor-corrector (`lax_wendroff_step`) con términos fuente de fricción y variación de área.
-- **Celdas fantasma:**
-  - Inlet abierto: estado ideal-gas con `p_cyl`/`T_cyl`, energía acotada; se "empuja" celda 1.
-  - Inlet cerrado: copia densidad/energía de celda 1 e invierte momento (pared reflectiva) para evitar presión atrapada.
-  - Outlet: copia transmisiva `U[-1]=U[-2]` para minimizar reflexiones.
-- CFL: `dt` desde `max(|u|+a)` recalculado tras aplicar BCs; clamps de densidad/energía para estabilidad.
-
-## 4. Estructura de Proyecto (carpeta raíz)
-
-```
-├─ main.py
-├─ TECHNICAL_DOCS.md
-├─ DOCUMENTATION.md
-├─ core/
-│   ├─ engine_components.py
-│   ├─ thermo.py
-│   ├─ simulator.py
-│   └─ numerics.py
-├─ gui/
-│   ├─ main_window.py
-│   └─ widgets/scope_widget.py
-├─ acoustics/audio_generator.py
-├─ requirements.txt / requirements-dev.txt
-├─ pytest.ini
-├─ tests/ (unit + integration)
-├─ presets JSON (honda_k20.json, chevy.json, ferrari_355_v12.json, ferrari_f1.json)
-└─ ci.sh
-```
-
-## 5. Guía de Mantenimiento y Debugging
-
-- **NaNs/Instabilidad 1D:** Revisar clamps en `PipeSolver.step` y orden: aplicar BCs antes de `get_time_step`. Verificar unidades SI en longitudes/diámetros.
-- **Línea plana en Scope/Dyno:** Confirmar que `apply_boundary_conditions` usa valve_area > 0 y que se actualiza `self.U[-1]`. Revisar amplitud de fuente (p_cyl, área válvula).
-- **Potencia anómala 0D:** Revisar IVC/EVO (LSA/advance), `combustion` (eficiencia/duración/avance/AFR), coeficientes FMEP, `port_flow_efficiency`, `mach_tolerance`, y octanaje vs knock.
-- **Persistencia:** `Engine.save_to_file`/`from_dict` incluyen Combustion, Friction (A/B/C), Fuel, peak_rpm, VE/port params; tras cargar, llamar a `refresh_tree` para re-vincular referencias.
-- **Pruebas:** `pytest -q` (rápidas); `pytest -q -m integration` requiere NumPy y valida tendencias/bandas.
-
-## 6. Roadmap / Deuda Técnica
-
-- Acoplar solver 0D↔1D en tiempo real con intercambio de flujo/energía bidireccional.
-- Mejorar audio (muestreo adaptativo, paneo/HRIR) y profiling numérico.
-- Optimizar GUI para presets de combustible/octanaje y límites de knock en el optimizador.
-- Añadir trazas de logging estructurado en lugar de prints de debug en solvers.
-
-## 7. Limpieza
-
-Archivos temporales o superseded por la GUI/tests que deben eliminarse del repo final:
-- `test_solver.py`
-- (Si existiera) `validate_physics.py` u otros scripts ad-hoc de desarrollo manual.
+## Cleanup Notes
+Temporary scripts superseded by the integrated UI and test suite should be removed (e.g., legacy `test_solver.py`, ad-hoc validation scripts). The current tree relies on the formal pytest suite and GUI workflows.
