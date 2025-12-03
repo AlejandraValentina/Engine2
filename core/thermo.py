@@ -193,7 +193,7 @@ class CylinderSimulator:
 
         ivc_abdc = max(0.0, IVC - 180.0)
         rpm_ratio = min(max(rpm / 7000.0, 0.0), 1.0)
-        reversion_factor = max(0.0, 1.0 - (ivc_abdc * 0.002 * (1.0 - rpm_ratio)))
+        reversion_factor = max(0.85, 1.0 - (ivc_abdc * 0.002 * (1.0 - rpm_ratio)))
 
         ve_prelim = np.clip(base_ve * tuning_factor * reversion_factor, 0.0, 1.5)
 
@@ -209,8 +209,8 @@ class CylinderSimulator:
         total_capacity = max(1e-6, min(head_capacity_total, throttle_capacity))
         restriction_penalty = 1.0 if required_cfm <= total_capacity else (total_capacity / required_cfm) ** 0.5
 
-        intake_loss_factor = (runner_length_m / max(runner_dia_m, 1e-9)) * 0.002
-        exhaust_loss_factor = (exhaust_length_m / max(exhaust_dia_m, 1e-9)) * 0.002
+        intake_loss_factor = (runner_length_m / max(runner_dia_m, 1e-9)) * 0.0005
+        exhaust_loss_factor = (exhaust_length_m / max(exhaust_dia_m, 1e-9)) * 0.0005
         total_loss = max(0.0, intake_loss_factor + exhaust_loss_factor)
 
         ve = np.clip(ve_prelim * restriction_penalty * max(0.0, 1.0 - total_loss), 0.0, 1.2)
@@ -252,7 +252,7 @@ class CylinderSimulator:
         piston_area = area
 
         bore_mm = max(self.engine.block.bore, 1e-6)
-        scale_factor = 85.0 / max(bore_mm, 20.0)
+        scale_factor = (85.0 / max(bore_mm, 20.0)) ** 0.5
         woschni_k = 0.006 * scale_factor * (rpm ** 0.6)
 
         q_rel_pow = Q_rel[mask_power]
