@@ -4,8 +4,8 @@ PyWaveDyn is a verification-focused open-source tool for simulating internal com
 
 ## Key Features
 - **Virtual Dyno** – 0D Otto-cycle solver with Wiebe combustion, Woschni heat transfer, Chen–Flynn friction, knock awareness, and Mach-index choking to predict brake torque/HP across RPM.
-- **Wave Scope** – Real-time visualization of pressure waves in exhaust runners/headers (primaries/collector/tailpipe) using a 1D Euler solver (Lax–Wendroff + ghost cells, junction coupling) for tuning header lengths and collectors. Current 1D network scope: exhaust only; intake handled in 0D.
-- **Acoustics** – Polyphonic exhaust sound synthesis that mixes per-cylinder pressure traces by firing order for realistic engine audio.
+- **Wave Scope** – Visualization of pressure waves in exhaust runners/headers (primaries/collector/tailpipe) using a 1D Euler solver (Lax–Wendroff + ghost cells, junction coupling) for tuning header lengths and collectors. Current 1D network scope: exhaust only; intake handled in 0D.
+- **Acoustics** – Polyphonic exhaust sound synthesis that mixes per-cylinder pressure traces by firing order for engine audio.
 - **Optimizer** – Parameter sweeps for cams, ignition, airflow, boost, and runner/header geometry to locate peak power regions.
 - **Fabrication** – Header cut-list assistance with per-cylinder target/actual lengths, collector guidance, and quick reports for shop builds.
 - **Verification & Presets** – Includes example presets (K20, V8, V12, kart) used for regression sanity checks with configurable friction, combustion, and airflow parameters.
@@ -33,13 +33,22 @@ PyWaveDyn is a verification-focused open-source tool for simulating internal com
    python -m pytest
    ```
 
+## Docs
+- [TECHNICAL_DOCS.md](TECHNICAL_DOCS.md) – especificación técnica de modelos 0D/1D.
+- [VISION.md](VISION.md) – visión del proyecto.
+- [FEATURES.md](FEATURES.md) – checklist verificable de funcionalidades.
+- [VALIDATION_GUIDE.md](VALIDATION_GUIDE.md) – cómo ejecutar las validaciones y criterios de “implementado”.
+
+## Testing
+- Suite completa: `python -m pytest`
+- Contratos rápidos: `python -m pytest -q tests/test_contract_*.py`
+- Integración (opcional): `python -m pytest -m integration`
+
 ## Physics Overview
 - **Thermodynamics (0D):** Four-stroke phasing with Wiebe combustion (configurable a/m, burn duration, ignition advance), Woschni wall heat transfer, Chen–Flynn FMEP (A/B/C coefficients with user scaling), and Mach-index flow choking tied to valve geometry/port flow efficiency.
 - **Wave Dynamics (1D):** Euler equations with Lax–Wendroff integration, Darcy–Weisbach friction source, and ghost-cell boundaries for valves/outlets plus junction collectors for multi-cylinder exhausts. Current coupling is one-way: the 0D dyno provides cylinder pressure traces as inlet boundaries; there is no feedback from the 1D scope to the 0D solver.
 - **Airflow & Environment:** Configurable intake temp/pressure, intercooler efficiency, throttle/port flow limits, and Mach tolerance to capture altitude and hardware effects.
 - **Coupling:** 0D dyno operates independently for torque/HP; 1D scope uses cylinder pressure history as a one-way boundary for visualization/acoustics.
-
-For deep technical details and implementation contracts, see [TECHNICAL_DOCS.md](TECHNICAL_DOCS.md).
 
 ## Project Structure
 - **core/** – Physics and data models (`thermo.py` for 0D cycle, `simulator.py`/`junctions.py` for 1D wave network, `numerics.py` for jitted flux/solver kernels, `engine_components.py` for serialized engine schema).
