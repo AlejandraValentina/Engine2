@@ -1,4 +1,6 @@
-import numpy as np
+import pytest
+
+np = pytest.importorskip("numpy")
 
 from core.engine_components import Engine
 from core.thermo import CylinderSimulator

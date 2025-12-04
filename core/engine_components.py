@@ -12,6 +12,26 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 
 
+def migrate_preset_dict(data: dict) -> dict:
+    """Normalize preset dictionaries for backward compatibility.
+
+    - Adds missing schema_version/model_name fields with safe defaults.
+    - Lifts legacy "cam" payloads into "camshaft" if present.
+    """
+
+    if not isinstance(data, dict):
+        return data
+
+    migrated = dict(data)
+    migrated.setdefault("schema_version", 1)
+    migrated.setdefault("model_name", migrated.get("name", "Custom Engine"))
+
+    if "camshaft" not in migrated and "cam" in migrated:
+        migrated["camshaft"] = migrated["cam"]
+
+    return migrated
+
+
 @dataclass
 class Block:
     bore: float = 86.0  # millimeters
@@ -419,6 +439,8 @@ class Supercharger:
 
 @dataclass
 class Engine:
+    schema_version: int = 1
+    model_name: str = "Custom Engine"
     block: Block = field(default_factory=Block)
     head: CylinderHead = field(default_factory=CylinderHead)
     camshaft: Camshaft = field(default_factory=Camshaft)
@@ -432,6 +454,8 @@ class Engine:
 
     def to_dict(self) -> dict:
         return {
+            "schema_version": self.schema_version,
+            "model_name": self.model_name,
             "block": self.block.to_dict(),
             "head": self.head.to_dict(),
             "camshaft": self.camshaft.to_dict(),
@@ -446,18 +470,21 @@ class Engine:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Engine":
-        cam_data = data.get("camshaft") or data.get("cam") or {}
+        migrated = migrate_preset_dict(data)
+        cam_data = migrated.get("camshaft") or migrated.get("cam") or {}
         return cls(
-            block=Block.from_dict(data.get("block", {})),
-            head=CylinderHead.from_dict(data.get("head", {})),
+            schema_version=migrated.get("schema_version", 1),
+            model_name=migrated.get("model_name", "Custom Engine"),
+            block=Block.from_dict(migrated.get("block", {})),
+            head=CylinderHead.from_dict(migrated.get("head", {})),
             camshaft=Camshaft.from_dict(cam_data),
-            intake=IntakeSystem.from_dict(data.get("intake", {})),
-            exhaust=ExhaustSystem.from_dict(data.get("exhaust", {})),
-            supercharger=Supercharger.from_dict(data.get("supercharger", {})),
-            simulation_settings=SimulationSettings.from_dict(data.get("simulation_settings", {})),
-            friction=Friction.from_dict(data.get("friction", {})),
-            fuel=Fuel.from_dict(data.get("fuel", {})),
-            combustion=Combustion.from_dict(data.get("combustion", {})),
+            intake=IntakeSystem.from_dict(migrated.get("intake", {})),
+            exhaust=ExhaustSystem.from_dict(migrated.get("exhaust", {})),
+            supercharger=Supercharger.from_dict(migrated.get("supercharger", {})),
+            simulation_settings=SimulationSettings.from_dict(migrated.get("simulation_settings", {})),
+            friction=Friction.from_dict(migrated.get("friction", {})),
+            fuel=Fuel.from_dict(migrated.get("fuel", {})),
+            combustion=Combustion.from_dict(migrated.get("combustion", {})),
         )
 
     def save_to_file(self, filename: str) -> None:

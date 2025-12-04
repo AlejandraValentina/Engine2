@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+np = pytest.importorskip("numpy")
 
 def test_calculate_mass_flow_rate_zero_drop():
     numerics = pytest.importorskip("core.numerics")

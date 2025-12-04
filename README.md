@@ -24,7 +24,7 @@ PyWaveDyn is a verification-focused open-source tool for simulating internal com
    ```bash
    python main.py
    ```
-4. **Load a preset:** From the GUI, open an example JSON (e.g., K20/V8/V12/kart).
+4. **Load a preset:** From the GUI, open an example JSON from `presets/` (e.g., K20/V8/V12).
 5. **Run a dyno sweep:** Use the Dyno tab to generate HP/Torque curves.
 6. **Wave scope:** Run a wave calculation on the exhaust network and scrub the results.
 7. **Export audio (optional):** Use the Wave tab to save a synthesized WAV from the exhaust pulses.
@@ -39,6 +39,7 @@ PyWaveDyn is a verification-focused open-source tool for simulating internal com
 - [VISION.md](VISION.md) – visión del proyecto.
 - [FEATURES.md](FEATURES.md) – checklist verificable de funcionalidades.
 - [VALIDATION_GUIDE.md](VALIDATION_GUIDE.md) – cómo ejecutar las validaciones y criterios de “implementado”.
+- [AUDIT_REPORT.md](AUDIT_REPORT.md) – inventario de presets y estado de pruebas.
 
 ## Testing
 - Instalar dependencias base: `python -m pip install -r requirements.txt`
@@ -48,7 +49,6 @@ PyWaveDyn is a verification-focused open-source tool for simulating internal com
 - Integración (opt-in): `python -m pytest tests/integration` o `python -m pytest -m integration`
 - Contratos rápidos: `python -m pytest -q tests/test_contract_*.py`
 - Identidades/Tendencias/Sanidad: `python -m pytest -q tests/test_identities.py` | `tests/test_trends.py` | `tests/test_sanity_bands.py`
-- Script físico con presets: `python validate_physics.py` (si el entorno tiene dependencias instaladas)
 
 ## Physics Overview
 - **Thermodynamics (0D):** Four-stroke phasing with Wiebe combustion (configurable a/m, burn duration, ignition advance), Woschni wall heat transfer, Chen–Flynn FMEP (A/B/C coefficients with user scaling), and Mach-index flow choking tied to valve geometry/port flow efficiency.
@@ -61,7 +61,7 @@ PyWaveDyn is a verification-focused open-source tool for simulating internal com
 - **gui/** – PySide6 application with project explorer, properties editor, dyno/optimizer, wave scope, fabrication planner, and audio controls.
 - **acoustics/** – WAV synthesis utilities.
 - **tests/** – Unit/integration suites covering physics identities, trends, and engine presets.
-- ***.json** – Example engine configurations (NA/turbo, small/large displacement) ready to load in the GUI.
+- **presets/** – Example engine configurations (NA/turbo, small/large displacement) ready to load in the GUI.
 
 ## Screenshots
 _Add your screenshots here to showcase the interface._

@@ -18,7 +18,7 @@ def test_piston_movement():
 
 def test_engine_performance_k20(tmp_path):
     # Use the shipped K20 preset to ensure realistic setup
-    engine = Engine.load_from_file("honda_k20.json")
+    engine = Engine.load_from_file("presets/honda_k20.json")
     sim = CylinderSimulator(engine)
     result = sim.run_cycle(6000.0)
 
