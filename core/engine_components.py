@@ -157,6 +157,36 @@ class CylinderHead:
 
 
 @dataclass
+class Pipe:
+    """Representation of a duct segment used in intake or exhaust systems."""
+
+    length: float = 500.0
+    diameter_inlet: float = 45.0
+    diameter_outlet: float = 45.0
+    wall_temperature: float = 600.0
+    friction_coeff: float = 0.02
+
+    def to_dict(self) -> dict:
+        return {
+            "length": self.length,
+            "diameter_inlet": self.diameter_inlet,
+            "diameter_outlet": self.diameter_outlet,
+            "wall_temperature": self.wall_temperature,
+            "friction_coeff": self.friction_coeff,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Pipe":
+        return cls(
+            length=data.get("length", 500.0),
+            diameter_inlet=data.get("diameter_inlet", 45.0),
+            diameter_outlet=data.get("diameter_outlet", 45.0),
+            wall_temperature=data.get("wall_temperature", 600.0),
+            friction_coeff=data.get("friction_coeff", 0.02),
+        )
+
+
+@dataclass
 class Fuel:
     type_name: str = "Pump Gas"
     octane_rating: float = 93.0
@@ -192,6 +222,9 @@ class SimulationSettings:
     air_temperature_c: float = 25.0  # ambient intake temperature
     air_pressure_bar: float = 1.013  # ambient pressure
     exhaust_backpressure_factor: float = 1.05  # heuristic exhaust absolute multiplier
+    gamma_air: float = 1.40
+    gamma_exhaust: float = 1.35
+    gas_constant_R: float = 287.0  # J/(kg*K)
 
     def to_dict(self) -> dict:
         return {
@@ -202,6 +235,9 @@ class SimulationSettings:
             "air_temperature_c": self.air_temperature_c,
             "air_pressure_bar": self.air_pressure_bar,
             "exhaust_backpressure_factor": self.exhaust_backpressure_factor,
+            "gamma_air": self.gamma_air,
+            "gamma_exhaust": self.gamma_exhaust,
+            "gas_constant_R": self.gas_constant_R,
         }
 
     @classmethod
@@ -214,6 +250,9 @@ class SimulationSettings:
             air_temperature_c=data.get("air_temperature_c", 25.0),
             air_pressure_bar=data.get("air_pressure_bar", 1.013),
             exhaust_backpressure_factor=data.get("exhaust_backpressure_factor", 1.05),
+            gamma_air=data.get("gamma_air", 1.40),
+            gamma_exhaust=data.get("gamma_exhaust", 1.35),
+            gas_constant_R=data.get("gas_constant_R", 287.0),
         )
 
 
@@ -529,6 +568,7 @@ class Engine:
 __all__ = [
     "Block",
     "CylinderHead",
+    "Pipe",
     "Camshaft",
     "IntakeSystem",
     "ExhaustSystem",

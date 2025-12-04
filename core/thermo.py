@@ -9,10 +9,6 @@ import numpy as np
 
 from core.engine_components import Engine
 
-GAMMA = 1.4
-R_AIR = 287.0
-SPEED_OF_SOUND = 340.0  # m/s approximate at 300 K
-
 logger = logging.getLogger(__name__)
 
 
@@ -67,7 +63,16 @@ class CylinderSimulator:
     def __init__(self, engine: Engine):
         self.engine = engine
 
-    def _calculate_dynamic_ve(self, rpm: float, piston_speed: float, bore_m: float, duration: float):
+    def _calculate_dynamic_ve(
+        self,
+        rpm: float,
+        piston_speed: float,
+        bore_m: float,
+        duration: float,
+        gamma_air: float,
+        gas_constant: float,
+        ambient_temp_k: float,
+    ):
         """Estimate volumetric efficiency and Mach index with configurable choking."""
         cam_peak = max(getattr(self.engine.camshaft, "peak_rpm", 5500.0), 1500.0)
         rpm_points = [1000.0, cam_peak, cam_peak + 1500.0]
@@ -88,9 +93,7 @@ class CylinderSimulator:
         Av = Av_geom * eff
         Ap = max(1e-9, math.pi * (bore_m / 2.0) ** 2)
         V_gas = piston_speed * (Ap / Av)
-        settings = getattr(self.engine, "simulation_settings", None)
-        T_intake_k = getattr(settings, "air_temperature_c", 25.0) + 273.15
-        c_sound = math.sqrt(max(GAMMA * R_AIR * T_intake_k, 1e-9))
+        c_sound = math.sqrt(max(gamma_air * gas_constant * ambient_temp_k, 1e-9))
         mach_index = V_gas / max(c_sound, 1e-9)
 
         mach_limit = getattr(head, "mach_tolerance", 0.75) or 0.75
@@ -118,6 +121,9 @@ class CylinderSimulator:
         pipe_friction_factor = getattr(settings, "pipe_friction_factor", 1.0)
         tuning_sensitivity = getattr(settings, "tuning_sensitivity", 1.0)
         ambient_temp_k = (getattr(settings, "air_temperature_c", 25.0) + 273.15)
+        gas_constant = getattr(settings, "gas_constant_R", 287.0)
+        gamma_air = getattr(settings, "gamma_air", 1.4)
+        gamma_exh = getattr(settings, "gamma_exhaust", 1.35)
         # Absolute ambient pressure (Pa)
         ambient_pressure_pa = getattr(settings, "air_pressure_bar", 1.013) * 100000.0
 
@@ -175,7 +181,9 @@ class CylinderSimulator:
         T_charge = ambient_temp_k + (T_boost - ambient_temp_k) * (1.0 - intercooler_eff)
 
         piston_speed = 2.0 * stroke_m * rpm / 60.0
-        base_ve, mach_index = self._calculate_dynamic_ve(rpm, piston_speed, bore_m, cam.intake_duration)
+        base_ve, mach_index = self._calculate_dynamic_ve(
+            rpm, piston_speed, bore_m, cam.intake_duration, gamma_air, gas_constant, ambient_temp_k
+        )
 
         runner_length_m = max(self.engine.intake.runner_length * 1e-3, 1e-6)
         runner_dia_m = max(self.engine.intake.runner_diameter * 1e-3, 1e-6)
@@ -227,7 +235,7 @@ class CylinderSimulator:
 
         ve = np.clip(ve_prelim * restriction_penalty * max(0.0, 1.0 - total_loss), 0.0, 1.2)
 
-        m_air = ve * (P_manifold * V_IVC) / (R_AIR * T_charge)
+        m_air = ve * (P_manifold * V_IVC) / (gas_constant * T_charge)
         fuel_mass = m_air / fuel_stoich
         eta_combustion = 0.95
         Q_total = fuel_mass * fuel_lhv
@@ -249,11 +257,11 @@ class CylinderSimulator:
         vol_comp = np.maximum(volume[mask_compression], 1e-9)
         vol_pow = np.maximum(volume[mask_power], 1e-9)
 
-        C_comp = P_manifold * (V_IVC ** GAMMA)
-        pressure[mask_compression] = C_comp / (vol_comp ** GAMMA)
+        C_comp = P_manifold * (V_IVC ** gamma_air)
+        pressure[mask_compression] = C_comp / (vol_comp ** gamma_air)
 
         C_power = C_comp
-        pressure_mot_power = C_power / (vol_pow ** GAMMA)
+        pressure_mot_power = C_power / (vol_pow ** gamma_exh)
 
         power_indices = np.where(mask_power)[0]
         pressure_power = np.zeros_like(power_indices, dtype=float)
@@ -272,13 +280,13 @@ class CylinderSimulator:
         q_rel_pow = Q_rel[mask_power]
         q_rel_diff = np.diff(q_rel_pow, prepend=0.0)
 
-        p_current = C_power / (vol_pow[0] ** GAMMA)
+        p_current = C_power / (vol_pow[0] ** gamma_exh)
         for i, idx in enumerate(power_indices):
             V_curr = vol_pow[i]
             x_disp = max((V_curr - Vc) / max(area, 1e-12), 0.0)
             area_wall = head_area + piston_area + (math.pi * bore_m * x_disp)
 
-            T_gas = p_current * V_curr / max(m_air * R_AIR, 1e-9)
+            T_gas = p_current * V_curr / max(m_air * gas_constant, 1e-9)
             w_mean = 2.28 * piston_speed_mean
             h_c = (
                 woschni_k
@@ -290,12 +298,12 @@ class CylinderSimulator:
 
             dQ_chem = q_rel_diff[i]
             dQ_net = dQ_chem - Q_loss
-            p_with_heat = p_current + (GAMMA - 1.0) * dQ_net / max(V_curr, 1e-9)
+            p_with_heat = p_current + (gamma_exh - 1.0) * dQ_net / max(V_curr, 1e-9)
             pressure_power[i] = p_with_heat
 
             if i < len(power_indices) - 1:
                 V_next = vol_pow[i + 1]
-                p_current = p_with_heat * (V_curr / V_next) ** GAMMA
+                p_current = p_with_heat * (V_curr / V_next) ** gamma_exh
             else:
                 p_current = p_with_heat
 

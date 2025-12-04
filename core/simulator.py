@@ -8,8 +8,8 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from core import numerics
+from core.engine_components import Pipe
 from core.junctions import Junction
-from core.model import Pipe
 
 
 def _init_pipe_state(pipe_data: Pipe, target_dx: float, p_atm: float, T_amb: float):
@@ -86,9 +86,15 @@ class Engine1DSolver:
             self.phase_map[cyl] = 720.0 * idx / max(self.n_cyl, 1)
 
     def _apply_inlet(
-        self, state: Dict, p_stag: float, T_stag: float, valve_area: float, Cd: float = 0.9
+        self,
+        state: Dict,
+        p_stag: float,
+        T_stag: float,
+        valve_area: float,
+        dt: float,
+        Cd: float = 0.9,
     ) -> None:
-        if valve_area <= 0.0:
+        if valve_area <= 0.0 or dt <= 0.0:
             return
 
         p_down = float(_pressure_from_state(state["U"][1:2])[0])
@@ -103,15 +109,25 @@ class Engine1DSolver:
             A_pipe = float(valve_area)
         mflux = mdot / max(A_pipe, 1e-12)
 
-        rho = max(float(p_stag) / (numerics.R * float(max(T_stag, 1.0))), 0.1)
-        u = float(mflux / rho)
-        u = float(np.clip(u, -1500.0, 1500.0))
+        rho_res = max(float(p_stag) / (numerics.R * float(max(T_stag, 1.0))), 0.1)
+        u_res = float(np.clip(mflux / rho_res, -1500.0, 1500.0))
+        cp = numerics.GAMMA * numerics.R / max(numerics.GAMMA - 1.0, 1e-9)
+        h0 = cp * float(max(T_stag, 1.0)) + 0.5 * u_res * u_res
 
-        e_density = float(p_stag) / (numerics.GAMMA - 1.0) + 0.5 * rho * u * u
+        cell_vol = float(state["dx"] * state["areas"][0])
+        mass_delta = mdot * dt
+        energy_delta = mass_delta * h0
+        momentum_delta = mass_delta * u_res
 
-        state["U"][0, 0] = rho
-        state["U"][0, 1] = rho * u
-        state["U"][0, 2] = float(np.clip(e_density, 0.0, 1.0e7))
+        state["U"][0, 0] = max(state["U"][0, 0] + mass_delta / max(cell_vol, 1e-12), 0.05)
+        state["U"][0, 1] += momentum_delta / max(cell_vol, 1e-12)
+        state["U"][0, 2] = float(
+            np.clip(
+                state["U"][0, 2] + energy_delta / max(cell_vol, 1e-12),
+                0.0,
+                1.0e7,
+            )
+        )
 
     def _apply_collector_boundaries(self) -> None:
         p_col, T_col, rho_col = self.collector.get_state()
@@ -156,6 +172,9 @@ class Engine1DSolver:
         exhaust_open_end: float,
         p_exhaust: float,
         T_exhaust: float,
+        dt: float,
+        p_stag_by_cyl: Optional[Dict[int, float]] = None,
+        T_stag_by_cyl: Optional[Dict[int, float]] = None,
     ) -> None:
         """Apply inlet valve states (with reflective closure) and collector/tail boundaries."""
 
@@ -172,15 +191,15 @@ class Engine1DSolver:
                 diameter = math.sqrt(state["areas"][0] / math.pi) * 2.0
                 max_area = math.pi * (diameter * 0.5) ** 2
                 valve_area = max_area * lift
-                p_cyl = p_exhaust
-                T_cyl = T_exhaust
+                p_cyl = p_stag_by_cyl.get(cyl_id, p_exhaust) if p_stag_by_cyl else p_exhaust
+                T_cyl = T_stag_by_cyl.get(cyl_id, T_exhaust) if T_stag_by_cyl else T_exhaust
             else:
                 valve_area = 0.0
                 p_cyl = self.p_atm
                 T_cyl = self.T_amb
 
             if valve_area > 0.0:
-                self._apply_inlet(state, p_cyl, T_cyl, valve_area, Cd=0.9)
+                self._apply_inlet(state, p_cyl, T_cyl, valve_area, dt, Cd=0.9)
             else:
                 # Reflective ghost cell when valve is closed
                 state["U"][0, 0] = state["U"][1, 0]
@@ -221,11 +240,22 @@ class Engine1DSolver:
         exhaust_open_end: float = 360.0,
         p_exhaust: float = 15.0 * 100000.0,
         T_exhaust: float = 1200.0,
+        p_stag_by_cyl: Optional[Dict[int, float]] = None,
+        T_stag_by_cyl: Optional[Dict[int, float]] = None,
     ) -> float:
-        self.apply_boundary_conditions(rpm, exhaust_open_start, exhaust_open_end, p_exhaust, T_exhaust)
-
         if dt is None:
             dt = self.get_time_step()
+
+        self.apply_boundary_conditions(
+            rpm,
+            exhaust_open_start,
+            exhaust_open_end,
+            p_exhaust,
+            T_exhaust,
+            dt,
+            p_stag_by_cyl=p_stag_by_cyl,
+            T_stag_by_cyl=T_stag_by_cyl,
+        )
 
         # Compute net flows into collector
         mdot_sum = 0.0

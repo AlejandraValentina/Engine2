@@ -1,37 +1,22 @@
-"""Data models for PyWaveDyn engine configuration."""
+"""Compatibility layer for legacy project structures.
+
+The canonical engine schema lives in ``core.engine_components``. This module
+re-exports key dataclasses and provides a thin ``EngineProject`` wrapper so
+older tooling can bundle an engine with optional pipe/junction metadata without
+duplicating definitions.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Dict, List
 
-
-@dataclass
-class SimulationSettings:
-    """Simulation-level settings including RPM range and acoustic resolution."""
-
-    rpm_start: float = 1000.0
-    rpm_end: float = 8000.0
-    acoustic_resolution_hz: float = 44100.0
-
-    def to_dict(self) -> Dict[str, float]:
-        return {
-            "rpm_start": self.rpm_start,
-            "rpm_end": self.rpm_end,
-            "acoustic_resolution_hz": self.acoustic_resolution_hz,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict) -> "SimulationSettings":
-        return cls(
-            rpm_start=data.get("rpm_start", 1000.0),
-            rpm_end=data.get("rpm_end", 8000.0),
-            acoustic_resolution_hz=data.get("acoustic_resolution_hz", 44100.0),
-        )
+from core.engine_components import Engine, Pipe, SimulationSettings
+from core.junctions import Junction
 
 
 @dataclass
 class CylinderGeometry:
-    """Geometric properties of a cylinder."""
+    """Geometric properties of a cylinder (legacy helper)."""
 
     bore: float = 86.0
     stroke: float = 86.0
@@ -79,108 +64,60 @@ class CylinderNode:
 
 
 @dataclass
-class Pipe:
-    """Representation of a duct segment used in intake or exhaust systems."""
-
-    length: float = 500.0
-    diameter_inlet: float = 45.0
-    diameter_outlet: float = 45.0
-    wall_temperature: float = 600.0
-    friction_coeff: float = 0.02
-
-    def to_dict(self) -> Dict[str, float]:
-        return {
-            "length": self.length,
-            "diameter_inlet": self.diameter_inlet,
-            "diameter_outlet": self.diameter_outlet,
-            "wall_temperature": self.wall_temperature,
-            "friction_coeff": self.friction_coeff,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict) -> "Pipe":
-        return cls(
-            length=data.get("length", 500.0),
-            diameter_inlet=data.get("diameter_inlet", 45.0),
-            diameter_outlet=data.get("diameter_outlet", 45.0),
-            wall_temperature=data.get("wall_temperature", 600.0),
-            friction_coeff=data.get("friction_coeff", 0.02),
-        )
-
-
-@dataclass
-class Junction:
-    """A junction connecting pipes, optionally representing a plenum volume."""
-
-    volume: float = 0.001
-    junction_type: str = "merge"
-
-    def to_dict(self) -> Dict:
-        return {
-            "volume": self.volume,
-            "junction_type": self.junction_type,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict) -> "Junction":
-        return cls(
-            volume=data.get("volume", 0.001),
-            junction_type=data.get("junction_type", "merge"),
-        )
-
-
-@dataclass
 class EngineProject:
-    """Root container for an engine configuration, including topology and network."""
+    """Aggregate an ``Engine`` with optional pipe/junction metadata."""
 
     name: str = "Untitled Engine"
-    simulation_settings: SimulationSettings = field(default_factory=SimulationSettings)
-    banks: Dict[str, List[CylinderNode]] = field(default_factory=dict)
+    engine: Engine = field(default_factory=Engine)
     pipes: Dict[str, Pipe] = field(default_factory=dict)
     junctions: Dict[str, Junction] = field(default_factory=dict)
+    banks: Dict[str, List[CylinderNode]] = field(default_factory=dict)  # legacy
 
     def to_dict(self) -> Dict:
         return {
             "name": self.name,
-            "simulation_settings": self.simulation_settings.to_dict(),
-            "banks": {
-                bank_name: [cyl.to_dict() for cyl in cylinders]
-                for bank_name, cylinders in self.banks.items()
-            },
+            "engine": self.engine.to_dict(),
             "pipes": {pipe_id: pipe.to_dict() for pipe_id, pipe in self.pipes.items()},
             "junctions": {
-                junction_id: junction.to_dict()
-                for junction_id, junction in self.junctions.items()
+                jid: {
+                    "volume": j.volume,
+                    "pressure": getattr(j, "pressure", 101325.0),
+                    "temperature": getattr(j, "temperature", 300.0),
+                }
+                for jid, j in self.junctions.items()
+            },
+            "banks": {  # legacy passthrough
+                bank_name: [cyl.to_dict() for cyl in cylinders]
+                for bank_name, cylinders in self.banks.items()
             },
         }
 
     @classmethod
     def from_dict(cls, data: Dict) -> "EngineProject":
-        settings_data = data.get("simulation_settings", {})
-        banks_data = data.get("banks", {})
+        engine_payload = data.get("engine", data)
+        engine = Engine.from_dict(engine_payload)
+
         pipes_data = data.get("pipes", {})
-        junctions_data = data.get("junctions", {})
-
-        banks: Dict[str, List[CylinderNode]] = {}
-        for bank_name, cylinders in banks_data.items():
-            banks[bank_name] = [CylinderNode.from_dict(cyl) for cyl in cylinders]
-
         pipes: Dict[str, Pipe] = {
             pipe_id: Pipe.from_dict(pipe_dict) for pipe_id, pipe_dict in pipes_data.items()
         }
 
-        junctions: Dict[str, Junction] = {
-            junction_id: Junction.from_dict(junc_dict)
-            for junction_id, junc_dict in junctions_data.items()
+        junctions_data = data.get("junctions", {})
+        junctions: Dict[str, Junction] = {}
+        for jid, junc_dict in junctions_data.items():
+            vol = junc_dict.get("volume", 0.001)
+            p = junc_dict.get("pressure", 101325.0)
+            T = junc_dict.get("temperature", 300.0)
+            junctions[jid] = Junction(vol, p, T)
+
+        banks_data = data.get("banks", {})
+        banks: Dict[str, List[CylinderNode]] = {
+            bank_name: [CylinderNode.from_dict(cyl) for cyl in cylinders]
+            for bank_name, cylinders in banks_data.items()
         }
 
-        return cls(
-            name=data.get("name", "Untitled Engine"),
-            simulation_settings=SimulationSettings.from_dict(settings_data),
-            banks=banks,
-            pipes=pipes,
-            junctions=junctions,
-        )
+        name = data.get("name") or engine_payload.get("model_name", "Untitled Engine")
+        return cls(name=name, engine=engine, pipes=pipes, junctions=junctions, banks=banks)
 
 
 __all__ = [
@@ -190,4 +127,5 @@ __all__ = [
     "Pipe",
     "Junction",
     "EngineProject",
+    "Engine",
 ]
