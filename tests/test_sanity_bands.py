@@ -6,7 +6,10 @@ np = pytest.importorskip("numpy")
 
 from core.engine_components import Engine
 from core.thermo import CylinderSimulator
-from tests._assertions import assert_sanity_bounds
+try:  # Prefer relative import to avoid clashes with site-level `tests` packages
+    from ._assertions import assert_sanity_bounds
+except ImportError:  # Fallback for environments that resolve absolute first
+    from tests._assertions import assert_sanity_bounds
 
 
 @pytest.mark.integration
