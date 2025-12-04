@@ -171,6 +171,7 @@ class SimulationSettings:
     tuning_sensitivity: float = 1.0  # scales wave/resonance boosts
     air_temperature_c: float = 25.0  # ambient intake temperature
     air_pressure_bar: float = 1.013  # ambient pressure
+    exhaust_backpressure_factor: float = 1.05  # heuristic exhaust absolute multiplier
 
     def to_dict(self) -> dict:
         return {
@@ -180,6 +181,7 @@ class SimulationSettings:
             "tuning_sensitivity": self.tuning_sensitivity,
             "air_temperature_c": self.air_temperature_c,
             "air_pressure_bar": self.air_pressure_bar,
+            "exhaust_backpressure_factor": self.exhaust_backpressure_factor,
         }
 
     @classmethod
@@ -191,6 +193,7 @@ class SimulationSettings:
             tuning_sensitivity=data.get("tuning_sensitivity", 1.0),
             air_temperature_c=data.get("air_temperature_c", 25.0),
             air_pressure_bar=data.get("air_pressure_bar", 1.013),
+            exhaust_backpressure_factor=data.get("exhaust_backpressure_factor", 1.05),
         )
 
 

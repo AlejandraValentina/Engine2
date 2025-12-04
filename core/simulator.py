@@ -85,16 +85,33 @@ class Engine1DSolver:
         for idx, cyl in enumerate(firing_order):
             self.phase_map[cyl] = 720.0 * idx / max(self.n_cyl, 1)
 
-    def _apply_inlet(self, state: Dict, p_cyl: float, T_cyl: float) -> None:
-        gamma = numerics.GAMMA
-        T_ref = max(T_cyl, 1.0)
-        rho = max(p_cyl / (numerics.R * T_ref), 0.1)
-        energy_inlet = p_cyl / (gamma - 1.0)
-        energy_inlet = min(energy_inlet, 5.0e6)
+    def _apply_inlet(
+        self, state: Dict, p_stag: float, T_stag: float, valve_area: float, Cd: float = 0.9
+    ) -> None:
+        if valve_area <= 0.0:
+            return
+
+        p_down = float(_pressure_from_state(state["U"][1:2])[0])
+        mdot = float(
+            numerics.calculate_mass_flow_rate(
+                float(p_stag), float(p_down), float(max(T_stag, 1.0)), float(valve_area), float(Cd)
+            )
+        )
+
+        A_pipe = float(state["areas"][0])
+        if A_pipe <= 0.0:
+            A_pipe = float(valve_area)
+        mflux = mdot / max(A_pipe, 1e-12)
+
+        rho = max(float(p_stag) / (numerics.R * float(max(T_stag, 1.0))), 0.1)
+        u = float(mflux / rho)
+        u = float(np.clip(u, -1500.0, 1500.0))
+
+        e_density = float(p_stag) / (numerics.GAMMA - 1.0) + 0.5 * rho * u * u
 
         state["U"][0, 0] = rho
-        state["U"][0, 1] = 0.0
-        state["U"][0, 2] = energy_inlet
+        state["U"][0, 1] = rho * u
+        state["U"][0, 2] = float(np.clip(e_density, 0.0, 1.0e7))
 
     def _apply_collector_boundaries(self) -> None:
         p_col, T_col, rho_col = self.collector.get_state()
@@ -112,11 +129,25 @@ class Engine1DSolver:
 
     def _tail_atmosphere(self) -> None:
         tail = self.tail_state
-        rho = self.p_atm / (numerics.R * self.T_amb)
-        energy = self.p_atm / (numerics.GAMMA - 1.0) / rho
-        tail["U"][-1, 0] = rho
-        tail["U"][-1, 1] = 0.0
-        tail["U"][-1, 2] = rho * energy
+        U_i = tail["U"][-2]
+        rho_i = float(U_i[0])
+        mom_i = float(U_i[1])
+        u_i = mom_i / rho_i
+
+        p_ghost = float(self.p_atm)
+        if u_i > 0.0:
+            p_i = float(_pressure_from_state(tail["U"][-2:-1])[0])
+            T_ghost = max(p_i / (numerics.R * rho_i), 1.0)
+        else:
+            T_ghost = float(self.T_amb)
+
+        rho_g = max(p_ghost / (numerics.R * T_ghost), 0.1)
+        u_g = float(u_i)
+        e_g = p_ghost / (numerics.GAMMA - 1.0) + 0.5 * rho_g * u_g * u_g
+
+        tail["U"][-1, 0] = rho_g
+        tail["U"][-1, 1] = rho_g * u_g
+        tail["U"][-1, 2] = float(np.clip(e_g, 0.0, 1.0e7))
 
     def apply_boundary_conditions(
         self,
@@ -149,7 +180,7 @@ class Engine1DSolver:
                 T_cyl = self.T_amb
 
             if valve_area > 0.0:
-                self._apply_inlet(state, p_cyl, T_cyl)
+                self._apply_inlet(state, p_cyl, T_cyl, valve_area, Cd=0.9)
             else:
                 # Reflective ghost cell when valve is closed
                 state["U"][0, 0] = state["U"][1, 0]

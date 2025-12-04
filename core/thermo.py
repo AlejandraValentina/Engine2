@@ -88,7 +88,10 @@ class CylinderSimulator:
         Av = Av_geom * eff
         Ap = max(1e-9, math.pi * (bore_m / 2.0) ** 2)
         V_gas = piston_speed * (Ap / Av)
-        mach_index = V_gas / SPEED_OF_SOUND
+        settings = getattr(self.engine, "simulation_settings", None)
+        T_intake_k = getattr(settings, "air_temperature_c", 25.0) + 273.15
+        c_sound = math.sqrt(max(GAMMA * R_AIR * T_intake_k, 1e-9))
+        mach_index = V_gas / max(c_sound, 1e-9)
 
         mach_limit = getattr(head, "mach_tolerance", 0.75) or 0.75
         if mach_index < mach_limit:
@@ -96,10 +99,6 @@ class CylinderSimulator:
         else:
             choke_factor = 1.0 - 1.2 * (mach_index - mach_limit) ** 2
             choke_factor = max(0.4, choke_factor)
-
-        print(
-            f"[DEBUG VE] RPM={rpm:.0f} PistonSpd={piston_speed:.1f} GasVel={V_gas:.1f} Mach={mach_index:.2f} ChokeFactor={choke_factor:.2f}"
-        )
 
         ve = max(0.2, base_curve * choke_factor)
 
@@ -244,7 +243,8 @@ class CylinderSimulator:
 
         pressure = np.zeros_like(volume)
         pressure[mask_intake] = P_manifold
-        pressure[mask_exhaust] = 1.05 * ambient_pressure_pa
+        backpressure_factor = getattr(settings, "exhaust_backpressure_factor", 1.05)
+        pressure[mask_exhaust] = backpressure_factor * ambient_pressure_pa
 
         vol_comp = np.maximum(volume[mask_compression], 1e-9)
         vol_pow = np.maximum(volume[mask_power], 1e-9)
