@@ -46,6 +46,6 @@
 
 ## 5. Contrato de Verificación
 - **Determinismo lógico**: misma entrada y semilla → resultados iguales dentro de tolerancia \(10^{-5}\), aceptando variaciones FP entre CPUs/BLAS.
-- **Identidades físicas**: Potencia-torque: \(P_{kW} = T_{Nm}\,RPM/9549\), \(P_{hp} = T_{Nm}\,RPM/7127\) (hp mecánico, convención usada en `mean_power_hp`); BMEP↔Torque (4T: \(BMEP_{Pa} = 4\pi T/V_{disp}\), \(BMEP_{bar} = BMEP_{Pa}/100{,}000\) cuando se expresa en bar). FMEP usa RPM en rev/min y presiones absolutas.
+- **Identidades físicas**: Potencia-torque: \(P_{kW} = T_{Nm}\,RPM/9549\), \(P_{hp} = T_{Nm}\,RPM/7127\) (hp mecánico, convención usada en `mean_power_hp`). BMEP↔Torque (4T): \(BMEP_{Pa} = 4\pi T/V_{disp}\); \(BMEP_{bar} = BMEP_{Pa}/100{,}000\) cuando se expresa en bar. FMEP usa RPM en rev/min y presiones absolutas.
 - **Bandas de sanidad**: aplican a configuraciones estándar (combustible común, aire estándar). Mezclas exóticas o geometrías fuera de rango requieren recalibración y no están cubiertas por las pruebas de regresión.
 - **Separación funcional**: el 0D es autónomo; el 1D sólo consume BC explícitas. Cualquier acoplamiento bidireccional nuevo debe especificarse y probarse por separado.
