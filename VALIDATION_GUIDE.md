@@ -1,20 +1,25 @@
-# Guía de Validación (PyWaveDyn)
+# VALIDATION_GUIDE.md
 
-## Cómo ejecutar las pruebas
-- Todo el paquete: `python -m pytest`
-- Solo contratos rápidos: `python -m pytest -q tests/test_contract_*.py`
-- Solo integración/marcas opcionales: `python -m pytest -m integration`
+Esta guía resume cómo validar PyWaveDyn sin depender de la GUI, usando solo comandos reproducibles.
 
-## Salidas esperadas
-- **0D**: `CylinderSimulator.run_cycle` devuelve dict con torque/potencia/bmep/VE/knock sin NaN/inf. Potencia y torque deben ser no negativos y BMEP en bar (absoluta).
-- **1D**: BC de escape fija presión ambiente en celda fantasma y conserva densidad/energía positivas; el estado `U` se mantiene finito tras aplicar `_tail_atmosphere`.
+## Niveles de validación
+1. **Smoke (GUI):** `python main.py` (abre la aplicación; valida que arranque sin errores).
+2. **Unit:** `python -m pytest tests/unit`.
+3. **Integration (opt-in):** `python -m pytest tests/integration` o casos marcados `-m integration`.
+4. **Contratos 0D/1D:** `python -m pytest -q tests/test_contract_*.py`.
+5. **Identidades/Tendencias/Sanidad:**
+   - Identidades: `python -m pytest -q tests/test_identities.py`
+   - Tendencias: `python -m pytest -q tests/test_trends.py`
+   - Bandas de sanidad: `python -m pytest -q tests/test_sanity_bands.py`
+6. **Presets y script físico:** `python validate_physics.py` (usa presets como K20/V8/F1 si el entorno tiene dependencias instaladas).
 
-## Definición de "implementado"
-Un feature se considera implementado cuando:
-1. Existe al menos un test verde que lo cubre **o** un comando reproducible documentado.
-2. No depende de interacción manual con GUI para validación básica.
+## Instalación de dependencias
+- Base: `python -m pip install -r requirements.txt`
+- Desarrollo y pruebas: `python -m pip install -r requirements-dev.txt`
 
-## Reproducibilidad
-- Usa Python 3.10+.
-- Ejecuta desde la raíz del repo con el entorno configurado (`pip install -r requirements-dev.txt`).
-- Las pruebas no requieren GUI.
+## Expectativas mínimas
+- **0D (thermo):** `CylinderSimulator.run_cycle` devuelve diccionario con torque/potencia/bmep/VE/knock finitos y no negativos (torque/potencia), sin NaN/inf.
+- **1D (simulator):** Las condiciones de borde construyen estados fantasmas con presión ambiente y densidad/energía positivas; el estado `U` se mantiene finito tras aplicar el outlet.
+
+## Definición de “implementado”
+Un feature se considera implementado cuando existe un comando reproducible y/o un test verde que lo cubre. Las features marcadas como futuras en `FEATURES.md` requieren un test o comando adicional antes de considerarse completas.

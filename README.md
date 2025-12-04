@@ -35,14 +35,20 @@ PyWaveDyn is a verification-focused open-source tool for simulating internal com
 
 ## Docs
 - [TECHNICAL_DOCS.md](TECHNICAL_DOCS.md) – especificación técnica de modelos 0D/1D.
+- [DOCUMENTATION.md](DOCUMENTATION.md) – guía general y notas de arquitectura.
 - [VISION.md](VISION.md) – visión del proyecto.
 - [FEATURES.md](FEATURES.md) – checklist verificable de funcionalidades.
 - [VALIDATION_GUIDE.md](VALIDATION_GUIDE.md) – cómo ejecutar las validaciones y criterios de “implementado”.
 
 ## Testing
+- Instalar dependencias base: `python -m pip install -r requirements.txt`
+- Dependencias de desarrollo/tests: `python -m pip install -r requirements-dev.txt`
 - Suite completa: `python -m pytest`
+- Unit tests: `python -m pytest tests/unit`
+- Integración (opt-in): `python -m pytest tests/integration` o `python -m pytest -m integration`
 - Contratos rápidos: `python -m pytest -q tests/test_contract_*.py`
-- Integración (opcional): `python -m pytest -m integration`
+- Identidades/Tendencias/Sanidad: `python -m pytest -q tests/test_identities.py` | `tests/test_trends.py` | `tests/test_sanity_bands.py`
+- Script físico con presets: `python validate_physics.py` (si el entorno tiene dependencias instaladas)
 
 ## Physics Overview
 - **Thermodynamics (0D):** Four-stroke phasing with Wiebe combustion (configurable a/m, burn duration, ignition advance), Woschni wall heat transfer, Chen–Flynn FMEP (A/B/C coefficients with user scaling), and Mach-index flow choking tied to valve geometry/port flow efficiency.

@@ -1,21 +1,22 @@
 # PyWaveDyn — Checklist de Features
 
-## 1) Core 0D Dyno
-- [x] Simulación 0D de ciclo Otto con Wiebe/Woschni: evidencias en `tests/test_contract_0d.py` y suite de tendencias/sanity (`tests/test_trends.py`, `tests/test_sanity_bands.py`).
+## 1) Dyno 0D (thermo)
+- [x] Virtual dyno 0D (Otto con Wiebe/Woschni, knock, FMEP) — Evidencia: `core/thermo.py`, presets (`honda_k20.json`, `chevy.json`, `custom_twin_230cc.json`), contratos en `tests/test_contract_0d.py`, identidades/trends/sanity en `tests/test_identities.py`, `tests/test_trends.py`, `tests/test_sanity_bands.py`. Comando: `python -m pytest -q tests/test_contract_0d.py`.
 
-## 2) 1D Exhaust Wave Solver
-- [x] Solver 1D de ondas en escape (Euler + Lax–Wendroff + celdas fantasma): contrato de BC en `tests/test_contract_1d_bc.py` (marcado como integration).
-- [ ] Acople completo 0D→1D bidireccional: criterio futuro: test de integración que compare backpressure dinámica vs. heurística.
+## 2) Wave Scope 1D (simulator/numerics)
+- [x] Solver 1D de escape (Euler + Lax–Wendroff + celdas fantasma + colector) — Evidencia: `core/simulator.py`, `core/numerics.py`, `gui/widgets/scope_widget.py`. Test de contrato marcado integration: `tests/test_contract_1d_bc.py` (ejecutar opt-in con `python -m pytest -m integration -- tests/test_contract_1d_bc.py`).
+- [ ] Acople 0D→1D bidireccional — Criterio de aceptación: test de integración que compare backpressure dinámica del 1D con la heurística 0D y afecte el ciclo.
 
-## 3) Audio
-- [ ] Síntesis multi-cilindro exportable desde CLI/GUI: criterio futuro: test que verifique generación de WAV no vacío al mezclar firing order.
+## 3) Audio (acoustics)
+- [ ] Síntesis multi-cilindro verificada — Criterio de aceptación: comando o test que genere un WAV no vacío mezclando firing order desde `acoustics/audio_generator.py` sin depender de GUI.
 
 ## 4) Optimización
-- [ ] Barridos automáticos sin GUI: criterio futuro: test headless que ejecute un sweep de un parámetro y genere curva de potencia.
+- [ ] Barridos automáticos sin GUI — Criterio de aceptación: test headless que ejecute un sweep (p. ej., runner length) y produzca curva de potencia/HP.
 
 ## 5) Fabricación
-- [ ] Reporte/cut-list reproducible por CLI: criterio futuro: comando/documento que produzca el listado desde presets sin GUI.
+- [ ] Reporte/cut-list reproducible por CLI — Criterio de aceptación: comando que genere listado de cortes/diámetros desde presets sin GUI.
 
-## 6) Validación / QA
-- [x] Identidades físicas y bandas de sanidad: `tests/test_identities.py`, `tests/test_sanity_bands.py`, `tests/test_contract_0d.py`.
-- [x] Tendencias verificables (boost, restricciones, fricción): `tests/test_trends.py`.
+## 6) QA / Validación
+- [x] Identidades físicas y bandas de sanidad — Evidencia: `tests/test_identities.py`, `tests/test_sanity_bands.py`.
+- [x] Tendencias verificables (boost, restricciones, fricción) — Evidencia: `tests/test_trends.py`.
+- [x] Contratos básicos 0D/1D — Evidencia: `tests/test_contract_0d.py`, `tests/test_contract_1d_bc.py` (integration).
