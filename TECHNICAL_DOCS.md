@@ -18,18 +18,19 @@
   - Escape: ≥EVO hasta 720° usando \(P_{exh}\) definido arriba (\(P_{amb}\cdot exhaust\_backpressure\_factor\)).
 - **Masa atrapada**: \(m_{air} = VE \cdot \tfrac{P_{manifold}\,V_{IVC}}{R\,T_{charge}}\), usando volumen real en IVC.
 - **Combustión (Wiebe)**: \(x(\theta)=1-\exp\{-a\big(\tfrac{\theta-\theta_{start}}{\Delta\theta}\big)^{m+1}\}\) con \(a,m\) tomados de `Combustion.wiebe_a/m`. Calor químico \(Q_{chem} = m_{fuel}\,LHV\); eficiencia de combustión \(\eta_{comb}\) aplicada antes de pérdidas térmicas.
-- **Transferencia de calor (Woschni)**: coeficiente \(h_c = k_{w}\,B^{-0.2} P^{0.8} T^{-0.55} w^{0.8}\) escalado por `heat_loss_factor`; \(w\approx2.28\)·velocidad media de pistón. Pérdida: \(Q_{loss} = h_c A_{wall}(T_{gas}-T_{wall})\,dt\); \(T_{wall}\) ≈ 450 K. Para cilindros pequeños se escala con el factor de calibre documentado en el código (raíz de \(85/B\)).
+- **Transferencia de calor (Woschni)**: coeficiente \(h_c = k_{w}\,B^{-0.2} P^{0.8} T^{-0.55} w^{0.8}\) escalado por `heat_loss_factor`; \(w\approx2.28\)·velocidad media de pistón. Pérdida: \(Q_{loss} = h_c A_{wall}(T_{gas}-T_{wall})\,dt\); \(T_{wall}\) ≈ 450 K. Para cilindros pequeños se escala con el factor de calibre documentado en el código (raíz de \(85/B\)). **Definición de unidades del factor de calibre:** forma adimensional equivalente: \(\sqrt{85\,mm/B_{mm}}\) o, en SI, \(\sqrt{0.085\,m/B_{m}}\).
 - **Energía neta**: \(dQ_{net} = \eta_{comb}\,dQ_{Wiebe} - dQ_{loss}\). \(U_{int}\) es la energía interna total del gas atrapado [J]; \(m\) es la masa atrapada usada en el cierre (constante en el ciclo 0D si no hay intercambio de masa).
   - Actualización 0D: \(U_{int} \leftarrow U_{int} + dQ_{net}\).
   - Cierre termodinámico (gas ideal): \(T \leftarrow U_{int}/(m c_v)\) con \(c_v = R/(\gamma-1)\); \(p \leftarrow m R T / V\). \(\gamma\) y \(R\) se definen en la Sección 1.
 - **VE dinámica**: curva anclada en `Camshaft.peak_rpm`; penalización por Mach usando `Head.mach_tolerance`; área efectiva escalada por `Head.port_flow_efficiency`; pérdidas por tubería con `SimulationSettings.pipe_friction_factor`; resonancia modulada por `SimulationSettings.tuning_sensitivity`.
-- **Fricción y accesorios**: FMEP con coeficientes en `Friction` y multiplicador `global_scaling_factor`; se suma torque de accesorios para obtener par de fricción total. Par efectivo = Par indicado − Par fricción − pérdidas de bombeo con `pumping_loss_torque_nm = 0` por defecto (no se descuenta bombeo adicional en el 0D).
+- **Fricción y accesorios**: FMEP con coeficientes en `Friction` y multiplicador `global_scaling_factor`; se suma torque de accesorios para obtener par de fricción total. Par efectivo = Par indicado − Par fricción − pérdidas de bombeo con `pumping_loss_torque_nm = 0` por defecto (no se descuenta bombeo adicional en el 0D). **Diferencia entre bombeo implícito y torque extra:** el trabajo afectado por \(P_{exh}\) heurística ya impacta la fase de escape del ciclo; `pumping_loss_torque_nm` representa un término adicional externo y por defecto es 0.
 - **Knock**: calcula octanaje requerido a partir de compresión dinámica; si supera el octanaje disponible, activa `knock_warning` pero no modifica el solver 1D.
 
 ## 3. Modelo 1D – Dinámica de Gases (core/numerics.py, core/simulator.py, core/junctions.py)
 - **Ecuaciones**: Euler 1D inviscid con términos fuente (Darcy–Weisbach): \(S_{mom} = -\tfrac{f}{2D}\,\rho u|u|\), \(S_E = u\,S_{mom}\); sin transferencia de calor (adiabático).
 - **Estado y flujo**: \(U=[\rho,\rho u,\rho E]\); \(F=[\rho u, \rho u^2 + p, (\rho E + p)u]\) con \(p\) según EoS anterior.
 - **Esquema**: Lax–Wendroff con celdas fantasma; CFL elige \(dt\); las fronteras se reimponen tras cada paso para preservar BC.
+- **Estabilidad/Clamps (guardrails)**: si el avance numérico produce estados no físicos (por ejemplo \(\rho\le0\), \(p\le0\) o energía inválida), se aplican límites inferiores/ajustes para mantener \(\rho\), \(p\) y \(E\) finitos y positivos. Estos clamps son un mecanismo de estabilidad, no parte del modelo físico.
 - **Condiciones de frontera explícitas**:
   - **Inlet con válvula (isentrópico)**: se calcula flujo másico/entalpía vía tobera isentrópica usando \(P_{stag}, T_{stag}\) del cilindro/puerto (condiciones de estancamiento entregadas por el solver 0D) y \(P_{static}\) de la celda 0. Criterio: si \(P_{static}/P_{stag} \le P_{crit}\) con \(P_{crit} = (\tfrac{2}{\gamma+1})^{\gamma/(\gamma-1)}\) → flujo ahogado; los términos de masa/energía se inyectan en la celda 0. En el modelo actual 0D no se resuelve velocidad de puerto (\(u_{port}=0\)), por lo que \(P_{stag}=P_{cyl}\) y \(T_{stag}=T_{cyl}\) (totales = estáticos en el upstream 0D).
   - **Inlet cerrado**: celda fantasma reflectiva \(\rho_0=\rho_1\), \((\rho u)_0 = - (\rho u)_1\), \((\rho E)_0 = (\rho E)_1\).
@@ -42,7 +43,7 @@
 2. **Persistencia**: JSON ↔ dataclasses (`Engine.from_dict/to_dict`); presets en la raíz (K20, V8, F1, kart, etc.).
 3. **Ciclo 0D (core/thermo.py)**: calcula par/potencia/VE/knock usando backpressure heurística; alimenta Dyno, Analysis, Optimizer.
 4. **Onda 1D (core/simulator.py + core/numerics.py + core/junctions.py)**: consume perfiles de presión 0D o impulsos sintéticos como BC de válvula para visualización y síntesis de audio; no retroalimenta al 0D.
-5. **Acústica (acoustics/audio_generator.py)**: remuestrea presión de salida 1D y mezcla por firing order para generar WAV.
+5. **Acústica (acoustics/audio_generator.py)**: remuestrea presión de salida 1D y mezcla por firing order para generar WAV. Estado: prototipo; verificación pendiente por CLI/tests (ver FEATURES.md).
 
 ## 5. Contrato de Verificación
 - **Determinismo lógico**: misma entrada y semilla → resultados iguales dentro de tolerancia \(10^{-5}\), aceptando variaciones FP entre CPUs/BLAS.

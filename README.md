@@ -2,13 +2,33 @@
 
 PyWaveDyn is a verification-focused open-source tool for simulating internal combustion engines. It combines a 0D thermodynamic virtual dyno, a 1D wave solver (Euler 1D, finite-volume Lax–Wendroff + ghost cells), and fabrication/optimizer utilities for rapid iteration from concept to shop floor.
 
+## Project Status (source of truth)
+“Implemented” means reproducible via a command and/or covered by green tests.
+See: FEATURES.md and VALIDATION_GUIDE.md.
+
+### Implemented & validated
+- 0D virtual dyno with verification-focused tests.
+- 1D exhaust scope solver available as an opt-in integration contract.
+- Physics identities/trends/sanity test suite and canonical presets audit.
+
+### Prototype (may exist in GUI, not guaranteed by CLI/tests)
+- Audio tooling wired to simulated pressure traces (coverage may be incomplete).
+- GUI-driven parameter sweeps/optimizer workflows.
+- Fabrication UI/planner utilities (if present).
+
+### Not implemented yet (per checklist)
+- Bidirectional 0D↔1D coupling affecting the 0D cycle.
+- Verified multi-cylinder polyphonic audio via CLI/tests.
+- Headless (no-GUI) parameter sweeps via CLI/tests.
+- Reproducible cut-list/BOM generation via CLI/tests.
+
 ## Key Features
-- **Virtual Dyno** – 0D Otto-cycle solver with Wiebe combustion, Woschni heat transfer, Chen–Flynn friction, knock awareness, and Mach-index choking to predict brake torque/HP across RPM.
-- **Wave Scope** – Visualization of pressure waves in exhaust runners/headers (primaries/collector/tailpipe) using a 1D Euler solver (Lax–Wendroff + ghost cells, junction coupling) for tuning header lengths and collectors. Current 1D network scope: exhaust only; intake handled in 0D.
-- **Acoustics** – Polyphonic exhaust sound synthesis that mixes per-cylinder pressure traces by firing order for engine audio.
-- **Optimizer** – Parameter sweeps for cams, ignition, airflow, boost, and runner/header geometry to locate peak power regions.
-- **Fabrication** – Header cut-list assistance with per-cylinder target/actual lengths, collector guidance, and quick reports for shop builds.
-- **Verification & Presets** – Includes example presets (K20, V8, V12, kart) used for regression sanity checks with configurable friction, combustion, and airflow parameters.
+- **Virtual Dyno (0D)** – Otto-cycle solver with explicit combustion/loss models and verification tests to predict brake torque/HP across RPM.
+- **Wave Scope (1D)** – Pressure-wave visualization for exhaust networks (current scope: exhaust only; intake handled in 0D). Integration is opt-in and does not back-feed the 0D cycle.
+- **Acoustics (prototype)** – Audio utilities driven by simulated pressure traces; verification/CLI coverage may be incomplete (see FEATURES.md).
+- **Optimizer (prototype)** – GUI-first parameter sweeps; headless CLI sweeps are not yet part of the validated toolchain (see FEATURES.md).
+- **Fabrication (planned/prototype)** – Cut-list/BOM style outputs are not yet guaranteed reproducible by CLI/tests (see FEATURES.md).
+- **Verification & Presets** – Canonical presets and regression/contract tests with a validation guide for reproducible runs.
 
 ## Installation & Quickstart
 1. **Prerequisites:** Python 3.10+.
@@ -27,7 +47,7 @@ PyWaveDyn is a verification-focused open-source tool for simulating internal com
 4. **Load a preset:** From the GUI, open an example JSON from `presets/` (e.g., K20/V8/V12).
 5. **Run a dyno sweep:** Use the Dyno tab to generate HP/Torque curves.
 6. **Wave scope:** Run a wave calculation on the exhaust network and scrub the results.
-7. **Export audio (optional):** Use the Wave tab to save a synthesized WAV from the exhaust pulses.
+7. **Export audio (optional):** If present in your build, use the Wave tab to save a WAV from simulated exhaust pressure traces (verification coverage may be incomplete; see FEATURES.md).
 8. **Run tests:**
    ```bash
    python -m pytest
