@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "model_name": "Ferrari F1 V12",
+  "block": {
+    "bore": 88.0,
+    "stroke": 47.9,
+    "conrod_length": 110.0,
+    "num_cylinders": 12,
+    "config": "V",
+    "bank_angle": 65.0,
+    "firing_order": [1, 12, 5, 8, 3, 10, 6, 7, 2, 11, 4, 9],
+    "redline_rpm": 15000.0
+  },
+  "head": {
+    "compression_ratio": 13.5,
+    "intake_valves": 2,
+    "exhaust_valves": 2,
+    "intake_valve_diameter": 34.0,
+    "exhaust_valve_diameter": 29.0,
+    "port_flow_efficiency": 0.88,
+    "mach_tolerance": 0.90,
+    "gasket_thickness_mm": 1.0,
+    "gasket_bore_mm": 90.0,
+    "deck_clearance_mm": 0.0,
+    "piston_dome_cc": 0.0,
+    "combustion_chamber_vol": 30.0
+  },
+  "camshaft": {
+    "intake_lift": 13.0,
+    "exhaust_lift": 12.0,
+    "intake_duration": 300.0,
+    "exhaust_duration": 290.0,
+    "lobe_separation": 102.0,
+    "advance": 0.0,
+    "peak_rpm": 14500.0
+  },
+  "intake": {
+    "runner_length": 160.0,
+    "runner_diameter": 48.0,
+    "plenum_volume": 5.0,
+    "throttle_body_dia": 90.0,
+    "throttle_cfm": 1200.0,
+    "flow_loss_coefficient": 0.0
+  },
+  "exhaust": {
+    "header_primary_length": 380.0,
+    "header_primary_diameter": 42.0,
+    "collector_length": 150.0
+  },
+  "supercharger": {
+    "type": "NA",
+    "boost_pressure_bar": 0.0,
+    "intercooler_efficiency": 0.7
+  },
+  "combustion": {
+    "thermal_efficiency": 0.58,
+    "burn_duration": 35.0,
+    "ignition_advance": 38.0,
+    "afr": 13.2,
+    "wiebe_a": 5.0,
+    "wiebe_m": 2.0,
+    "chamber_type": "Custom"
+  },
+  "friction": {
+    "bottom_end_type": "Race",
+    "water_pump": true,
+    "alternator": true,
+    "power_steering": false,
+    "mechanical_fan": false,
+    "friction_base_kpa": 25.0,
+    "friction_linear_factor": 0.015,
+    "friction_quadratic_factor": 0.9e-6,
+    "global_scaling_factor": 1.0
+  },
+  "simulation_settings": {
+    "ignition_timing_btdc": 34.0,
+    "heat_loss_factor": 1.0,
+    "pipe_friction_factor": 1.0,
+    "tuning_sensitivity": 1.0,
+    "air_temperature_c": 25.0,
+    "air_pressure_bar": 1.013,
+    "exhaust_backpressure_factor": 1.05
+  },
+  "fuel": {
+    "type_name": "Race Gas",
+    "octane_rating": 110.0,
+    "energy_density": 44000000.0,
+    "stoich_afr": 14.7
+  }
+}
