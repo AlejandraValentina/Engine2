@@ -13,6 +13,8 @@ Esta guía resume cómo validar PyWaveDyn sin depender de la GUI, usando solo co
    - Bandas de sanidad: `python -m pytest -q tests/test_sanity_bands.py`
 6. **Presets canónicos:** cargar `presets/honda_k20.json`, `presets/chevy_350.json`, `presets/ferrari_f1.json` en pruebas o herramientas externas según sea necesario.
 
+**Nota sobre presets y CR:** si un preset define `combustion_chamber_vol`, ese valor overridea la geometría implícita al declarar la relación de compresión; mantener `combustion_chamber_vol` coherente con `compression_ratio` (véase `tools/audit_presets.py`).
+
 ## Instalación de dependencias
 - Base: `python -m pip install -r requirements.txt`
 - Desarrollo y pruebas: `python -m pip install -r requirements-dev.txt`

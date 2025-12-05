@@ -1,4 +1,6 @@
 {
+  "schema_version": 1,
+  "model_name": "Ferrari V12 3.5L 17500rpm",
   "block": {
     "bore": 88.0,
     "stroke": 47.9,
@@ -15,9 +17,7 @@
     "exhaust_valves": 2,
     "intake_valve_diameter": 36.0,
     "exhaust_valve_diameter": 30.0,
-    "intake_valve_diameter_mm": 36.0,
-    "exhaust_valve_diameter_mm": 30.0,
-    "combustion_chamber_vol": 32.0,
+    "combustion_chamber_vol": 25.33,
     "port_flow_cfm": 340.0,
     "port_flow_efficiency": 0.90,
     "mach_tolerance": 0.90,

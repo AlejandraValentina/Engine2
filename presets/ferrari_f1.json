@@ -23,7 +23,7 @@
     "gasket_bore_mm": 90.0,
     "deck_clearance_mm": 0.0,
     "piston_dome_cc": 0.0,
-    "combustion_chamber_vol": 30.0
+    "combustion_chamber_vol": 23.31
   },
   "camshaft": {
     "intake_lift": 13.0,
