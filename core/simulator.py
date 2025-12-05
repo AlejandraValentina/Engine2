@@ -97,6 +97,36 @@ def compute_placeholder_valve_area(
     return base_area * lift
 
 
+def rusanov_flux(U_L: np.ndarray, U_R: np.ndarray, gamma: float) -> np.ndarray:
+    """Local Lax-Friedrichs flux for 1D Euler equations."""
+
+    def _primitive(U: np.ndarray) -> Tuple[float, float, float]:
+        rho = float(U[0])
+        u = float(U[1]) / max(rho, 1e-12)
+        p = max((gamma - 1.0) * (float(U[2]) - 0.5 * rho * u * u), 1e-9)
+        return rho, u, p
+
+    rho_L, u_L, p_L = _primitive(U_L)
+    rho_R, u_R, p_R = _primitive(U_R)
+
+    F_L = np.array([
+        rho_L * u_L,
+        rho_L * u_L * u_L + p_L,
+        u_L * (float(U_L[2]) + p_L),
+    ])
+    F_R = np.array([
+        rho_R * u_R,
+        rho_R * u_R * u_R + p_R,
+        u_R * (float(U_R[2]) + p_R),
+    ])
+
+    c_L = math.sqrt(gamma * p_L / max(rho_L, 1e-12))
+    c_R = math.sqrt(gamma * p_R / max(rho_R, 1e-12))
+    smax = max(abs(u_L) + c_L, abs(u_R) + c_R)
+
+    return 0.5 * (F_L + F_R) - 0.5 * smax * (U_R - U_L)
+
+
 class Engine1DSolver:
     """Network solver handling multiple primaries, collector, and tailpipe.
 
@@ -209,19 +239,31 @@ class Engine1DSolver:
             )
         )
 
-    def _apply_collector_boundaries(self) -> None:
+    def _apply_collector_boundaries(self, mdot_primary: List[float], mdot_tail: float) -> None:
         p_col, T_col, rho_col = self.collector.get_state()
-        energy_col = p_col / (self.gamma - 1.0) / rho_col
+        rho_col = max(rho_col, self.settings.clamp_rho_min)
 
-        for state in self.primary_states:
+        for mdot, state in zip(mdot_primary, self.primary_states):
+            area = float(max(state["areas"][-1], 1e-12))
+            u_ghost = float(
+                np.clip(mdot / (rho_col * area), -self.settings.clamp_u_max, self.settings.clamp_u_max)
+            )
+            e_int = p_col / max((self.gamma - 1.0) * rho_col, 1e-12)
+            E_tot = e_int + 0.5 * u_ghost * u_ghost
             state["U"][-1, 0] = rho_col
-            state["U"][-1, 1] = 0.0
-            state["U"][-1, 2] = rho_col * energy_col
+            state["U"][-1, 1] = rho_col * u_ghost
+            state["U"][-1, 2] = float(np.clip(rho_col * E_tot, 0.0, self.settings.clamp_energy_max))
 
         tail = self.tail_state
+        area_tail = float(max(tail["areas"][0], 1e-12))
+        u_tail = float(
+            np.clip(mdot_tail / (rho_col * area_tail), -self.settings.clamp_u_max, self.settings.clamp_u_max)
+        )
+        e_int_tail = p_col / max((self.gamma - 1.0) * rho_col, 1e-12)
+        E_tail = e_int_tail + 0.5 * u_tail * u_tail
         tail["U"][0, 0] = rho_col
-        tail["U"][0, 1] = 0.0
-        tail["U"][0, 2] = rho_col * energy_col
+        tail["U"][0, 1] = rho_col * u_tail
+        tail["U"][0, 2] = float(np.clip(rho_col * E_tail, 0.0, self.settings.clamp_energy_max))
 
     def _tail_atmosphere(self) -> None:
         tail = self.tail_state
@@ -263,7 +305,7 @@ class Engine1DSolver:
         p_stag_by_cyl: Optional[Dict[int, float]] = None,
         T_stag_by_cyl: Optional[Dict[int, float]] = None,
     ) -> None:
-        """Apply inlet valve states (with reflective closure) and collector/tail boundaries."""
+        """Apply inlet valve states (with reflective closure)."""
 
         base_angle = (self.time * rpm * 6.0) % 720.0
 
@@ -289,7 +331,6 @@ class Engine1DSolver:
                 state["U"][0, 1] = -state["U"][1, 1]
                 state["U"][0, 2] = state["U"][1, 2]
 
-        self._apply_collector_boundaries()
         self._tail_atmosphere()
 
     def _pipe_dt(self, state: Dict) -> float:
@@ -306,16 +347,6 @@ class Engine1DSolver:
         dts = [self._pipe_dt(s) for s in self.primary_states]
         dts.append(self._pipe_dt(self.tail_state))
         return float(np.min(dts))
-
-    def _interface_flux(self, state: Dict, idx: int, area: float) -> Tuple[float, float]:
-        rho = state["U"][idx, 0]
-        mom = state["U"][idx, 1]
-        energy = state["U"][idx, 2]
-        u = mom / rho
-        p = (self.gamma - 1.0) * (energy - 0.5 * rho * u * u)
-        mdot = rho * u * area
-        edot = (energy + p) * u * area
-        return mdot, edot
 
     def step(
         self,
@@ -342,23 +373,37 @@ class Engine1DSolver:
             T_stag_by_cyl=T_stag_by_cyl,
         )
 
-        # Compute net flows into collector
+        p_col, T_col, rho_col = self.collector.get_state()
+        rho_col = max(rho_col, self.settings.clamp_rho_min)
+        E_col = p_col / max((self.gamma - 1.0) * rho_col, 1e-12)
+        U_col = np.array([rho_col, 0.0, rho_col * E_col], dtype=np.float64)
+
+        mdot_primary: List[float] = []
         mdot_sum = 0.0
         edot_sum = 0.0
-        for state in self.primary_states:
-            m, e = self._interface_flux(state, -1, state["areas"][-1])
-            mdot_sum += m
-            edot_sum += e
 
-        # Tailpipe flow leaves the collector (opposite sign)
-        m_tail, e_tail = self._interface_flux(self.tail_state, 0, self.tail_state["areas"][0])
-        mdot_sum -= m_tail
-        edot_sum -= e_tail
+        for state in self.primary_states:
+            U_int = state["U"][-2]
+            flux = rusanov_flux(U_int, U_col, self.gamma)
+            area_end = float(state["areas"][-1])
+            mdot_i = float(flux[0] * area_end)
+            edot_i = float(flux[2] * area_end)
+            mdot_primary.append(mdot_i)
+            mdot_sum += mdot_i
+            edot_sum += edot_i
+
+        tail = self.tail_state
+        flux_tail = rusanov_flux(U_col, tail["U"][1], self.gamma)
+        area_tail = float(tail["areas"][0])
+        mdot_tail = float(flux_tail[0] * area_tail)
+        edot_tail = float(flux_tail[2] * area_tail)
+        mdot_sum -= mdot_tail
+        edot_sum -= edot_tail
 
         self.collector.update(dt, mdot_sum, edot_sum)
 
-        # Re-apply collector BC with updated pressure
-        self._apply_collector_boundaries()
+        # Re-apply collector BC with updated pressure using interface fluxes
+        self._apply_collector_boundaries(mdot_primary, mdot_tail)
 
         # Advance all pipes
         for state in self.primary_states:
@@ -380,7 +425,6 @@ class Engine1DSolver:
             )
             state["U"] = U_new
 
-        tail = self.tail_state
         U_tail = numerics.lax_wendroff_step(
             tail["U"],
             dt,
