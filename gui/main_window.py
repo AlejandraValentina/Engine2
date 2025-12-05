@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QTextBrowser,
     QPushButton,
+    QSplitter,
     QSlider,
     QStyle,
     QSpinBox,
@@ -59,6 +60,8 @@ from core.junctions import Junction
 from core.model import Pipe
 from core.simulator import Engine1DSolver
 from core.thermo import CylinderSimulator
+from core.wave_utils import compute_image_levels, compute_pressure_matrix
+from gui.widgets.scope_widget import ScopeWidget
 
 
 class MainWindow(QMainWindow):
@@ -89,6 +92,9 @@ class MainWindow(QMainWindow):
         self.wave_record_btn = QPushButton("🔴 Record")
         self.wave_record_btn.setCheckable(True)
         self.wave_save_btn = QPushButton("💾 Save Audio")
+        self.wave_save_btn.setEnabled(False)
+        self.wave_frame_indicator: Optional[pg.InfiniteLine] = None
+        self.wave_scope = ScopeWidget()
         self.fabrication_table = QTableWidget()
         self.collector_type_combo = QComboBox()
         self.collector_inlet_label = QLabel("-")
@@ -111,6 +117,7 @@ class MainWindow(QMainWindow):
         self.wave_history: list[np.ndarray] = []
         self.wave_time_vector: list[float] = []
         self.wave_audio_samples: list[float] = []
+        self.wave_x_axis: Optional[np.ndarray] = None
         self.timer = QTimer(self)
         self._setup_views()
 
@@ -359,9 +366,16 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(controls)
 
-        # Heatmap-style wave visualization
+        # Heatmap-style wave visualization with frame indicator
         self.wave_plot = pg.PlotWidget(background="k")
         self.wave_plot.addItem(self.wave_image)
+        self.wave_frame_indicator = pg.InfiniteLine(
+            angle=0,
+            pos=0.0,
+            pen=pg.mkPen(color=QColor(255, 255, 0), width=2, style=Qt.DashLine),
+            movable=False,
+        )
+        self.wave_plot.addItem(self.wave_frame_indicator)
         pos = np.array([0.0, 0.5, 1.0])
         color = np.array(
             [[0, 0, 255, 255], [0, 0, 0, 255], [255, 255, 0, 255]], dtype=np.ubyte
@@ -371,7 +385,12 @@ class MainWindow(QMainWindow):
         self.wave_plot.setLabel("bottom", "Pipe Length (m)")
         self.wave_plot.setLabel("left", "Crank Angle (deg)")
 
-        layout.addWidget(self.wave_plot)
+        splitter = QSplitter(Qt.Vertical)
+        splitter.addWidget(self.wave_plot)
+        splitter.addWidget(self.wave_scope)
+        splitter.setSizes([300, 200])
+
+        layout.addWidget(splitter)
         container.setLayout(layout)
         return container
 
@@ -1238,6 +1257,7 @@ class MainWindow(QMainWindow):
             return
 
         rpm = float(self.wave_rpm_spin.value())
+        record_audio = self.wave_record_btn.isChecked()
         self.audio_synth = AudioSynthesizer()
         history, audio_pressures, time_vector = self.wave_solver.run_full_simulation(
             rpm, cycles=2
@@ -1246,25 +1266,30 @@ class MainWindow(QMainWindow):
         self.wave_time_vector = time_vector
         self.wave_audio_samples = audio_pressures
         self.wave_matrix = None
-        for t, p in zip(time_vector, audio_pressures):
-            self.audio_synth.add_sample(t, p)
+        self.wave_x_axis = None
+
+        if record_audio:
+            for t, p in zip(time_vector, audio_pressures):
+                self.audio_synth.add_sample(t, p)
+            self.wave_save_btn.setEnabled(len(audio_pressures) > 0)
+        else:
+            self.wave_save_btn.setEnabled(False)
 
         if self.wave_history:
-            pressures = []
-            for state in self.wave_history:
-                p_grid = (numerics.GAMMA - 1.0) * (
-                    state[:, 2] - 0.5 * (state[:, 1] ** 2) / state[:, 0]
-                )
-                pressures.append(p_grid)
-            self.wave_matrix = np.vstack(pressures)
+            self.wave_matrix = compute_pressure_matrix(
+                self.wave_history, self.wave_solver.gamma
+            )
 
-            levels = (80000.0, 140000.0)
+            levels = compute_image_levels(self.wave_matrix)
             self.wave_image.setImage(self.wave_matrix.T, levels=levels)
             total_degrees = float(self.wave_matrix.shape[0])
 
             primary_length = (
                 self.wave_solver.primary_states[0]["dx"]
                 * self.wave_solver.primary_states[0]["U"].shape[0]
+            )
+            self.wave_x_axis = np.arange(self.wave_matrix.shape[1]) * (
+                self.wave_solver.primary_states[0]["dx"]
             )
             self.wave_image.setRect(QRectF(0.0, 0.0, primary_length, total_degrees))
             self.wave_plot.setYRange(0.0, total_degrees)
@@ -1278,6 +1303,8 @@ class MainWindow(QMainWindow):
         else:
             self.wave_scrub_slider.setEnabled(False)
             self.wave_image.clear()
+            self.wave_scope.update_data([], [])
+            self.wave_scope.update_status(0.0, "N/A", 0.0)
 
     def update_wave_plot(self, index: int) -> None:
         if self.wave_matrix is None or self.wave_matrix.size == 0:
@@ -1285,6 +1312,12 @@ class MainWindow(QMainWindow):
         idx = max(0, min(int(index), self.wave_matrix.shape[0] - 1))
         rpm = float(self.wave_rpm_spin.value())
         angle = (self.wave_time_vector[idx] * rpm * 6.0) % 720.0
+        if self.wave_frame_indicator is not None:
+            self.wave_frame_indicator.setPos(float(idx))
+        if self.wave_x_axis is not None:
+            self.wave_scope.update_data(self.wave_x_axis, self.wave_matrix[idx])
+            sim_time = self.wave_time_vector[idx] if idx < len(self.wave_time_vector) else 0.0
+            self.wave_scope.update_status(angle, "N/A", sim_time)
         self.statusBar().showMessage(
             f"Angle {angle:5.1f} deg | Frame {idx+1}/{self.wave_matrix.shape[0]}", 1500
         )

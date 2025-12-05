@@ -67,8 +67,8 @@ PyWaveDyn is a verification-focused 0D virtual dyno plus a 1D exhaust wave-scope
 ### Recording Audio
 Note: This is a GUI-first workflow and may not be present in every build. It does not count as “implemented” unless covered by a reproducible CLI command/test (see FEATURES.md).
 
-1. During a transient pipe simulation (scope view), enable the **Record Audio** toggle on the toolbar (if present in your build).
-2. Each simulation step appends the tailpipe pressure sample via `AudioSynthesizer.add_sample`.
+1. During a transient pipe simulation (scope view), enable the **Record Audio** toggle on the toolbar (if present in your build). If the toggle is off, the audio buffer stays empty and **Save Audio** remains disabled.
+2. When recording is enabled, each simulation step appends the tailpipe pressure sample via `AudioSynthesizer.add_sample`.
 3. Click **Save WAV** to export the buffered signal; pressure is resampled to 44.1 kHz, filtered, normalized, and written as a `.wav` file.
 
 ### Saving/Loading JSON Configurations
