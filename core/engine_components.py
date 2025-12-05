@@ -231,6 +231,7 @@ class SimulationSettings:
     clamp_p_max: float = 1e9  # Pa
     clamp_u_max: float = 1500.0  # m/s
     clamp_energy_max: float = 1.0e7  # J/m^3
+    enable_heat_transfer_1d: bool = False
 
     def to_dict(self) -> dict:
         return {
@@ -250,6 +251,7 @@ class SimulationSettings:
             "clamp_p_max": self.clamp_p_max,
             "clamp_u_max": self.clamp_u_max,
             "clamp_energy_max": self.clamp_energy_max,
+            "enable_heat_transfer_1d": self.enable_heat_transfer_1d,
         }
 
     @classmethod
@@ -271,6 +273,7 @@ class SimulationSettings:
             clamp_p_max=data.get("clamp_p_max", 1e9),
             clamp_u_max=data.get("clamp_u_max", 1500.0),
             clamp_energy_max=data.get("clamp_energy_max", 1.0e7),
+            enable_heat_transfer_1d=data.get("enable_heat_transfer_1d", False),
         )
 
 

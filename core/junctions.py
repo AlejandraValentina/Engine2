@@ -21,13 +21,15 @@ class Junction:
     volume: float
     pressure: float
     temperature: float
+    gamma: float = numerics.DEFAULT_GAMMA
+    gas_constant: float = numerics.DEFAULT_R
 
     def __post_init__(self) -> None:
         self.mass = self._mass_from_state(self.pressure, self.temperature)
 
     def _mass_from_state(self, p: float, T: float) -> float:
         T_safe = max(T, 1e-3)
-        return p * self.volume / (numerics.R * T_safe)
+        return p * self.volume / (self.gas_constant * T_safe)
 
     def update(self, dt: float, inflows_mass: float, inflows_energy: float) -> None:
         """Apply conservation of mass and energy over ``dt``.
@@ -44,17 +46,17 @@ class Junction:
 
         self.mass = max(self.mass + inflows_mass * dt, 1e-8)
 
-        total_energy = (self.pressure / (numerics.GAMMA - 1.0)) * self.volume
+        total_energy = (self.pressure / (self.gamma - 1.0)) * self.volume
         total_energy += inflows_energy * dt
         # Prevent negative internal energy
         total_energy = max(total_energy, 1e-6)
 
         # Update thermodynamic state via ideal gas law
-        self.temperature = total_energy * (numerics.GAMMA - 1.0) / (
-            self.mass * numerics.R
+        self.temperature = total_energy * (self.gamma - 1.0) / (
+            self.mass * self.gas_constant
         )
         self.temperature = max(self.temperature, 1.0)
-        self.pressure = self.mass * numerics.R * self.temperature / self.volume
+        self.pressure = self.mass * self.gas_constant * self.temperature / self.volume
 
     def get_state(self) -> Tuple[float, float, float]:
         """Return (pressure, temperature, density)."""

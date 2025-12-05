@@ -12,7 +12,14 @@ from core.engine_components import Pipe, SimulationSettings
 from core.junctions import Junction
 
 
-def _init_pipe_state(pipe_data: Pipe, target_dx: float, p_atm: float, T_amb: float):
+def _init_pipe_state(
+    pipe_data: Pipe,
+    target_dx: float,
+    p_atm: float,
+    T_amb: float,
+    gamma: float,
+    gas_constant: float,
+):
     L_m = float(pipe_data.length) * 1e-3
     estimated_N = int(np.ceil(L_m / target_dx))
     N = max(estimated_N, 50)
@@ -24,9 +31,9 @@ def _init_pipe_state(pipe_data: Pipe, target_dx: float, p_atm: float, T_amb: flo
     areas = math.pi * (diameters * 0.5) ** 2
     friction_coeffs = np.full(N, pipe_data.friction_coeff, dtype=np.float64)
 
-    rho0 = p_atm / (numerics.R * T_amb)
+    rho0 = p_atm / (gas_constant * T_amb)
     u0 = 0.0
-    e0 = p_atm / (numerics.GAMMA - 1.0) / rho0
+    e0 = p_atm / (gamma - 1.0) / rho0
     U = np.zeros((N, 3), dtype=np.float64)
     U[:, 0] = rho0
     U[:, 1] = rho0 * u0
@@ -43,13 +50,51 @@ def _init_pipe_state(pipe_data: Pipe, target_dx: float, p_atm: float, T_amb: flo
     }
 
 
-def _pressure_from_state(U: np.ndarray, p_min: float, p_max: float) -> np.ndarray:
+def _pressure_from_state(
+    U: np.ndarray, p_min: float, p_max: float, gamma: float
+) -> np.ndarray:
     rho = U[:, 0]
     mom = U[:, 1]
     energy = U[:, 2]
     u = mom / rho
-    p = (numerics.GAMMA - 1.0) * (energy - 0.5 * rho * u * u)
+    p = (gamma - 1.0) * (energy - 0.5 * rho * u * u)
     return np.clip(p, p_min, p_max)
+
+
+def compute_placeholder_valve_area(
+    cyl_angle: float,
+    exhaust_open_start: float,
+    exhaust_open_end: float,
+    base_area: float,
+) -> float:
+    """Sinusoidal valve curtain placeholder pending real valve geometry.
+
+    Returns ``base_area * sin(pi * phase)`` while the crank angle is inside the
+    open window and ``0`` otherwise. The window may wrap 720°; ``base_area``
+    typically comes from the first pipe cell area. This helper isolates the
+    placeholder for future replacement with true port/curtain geometry.
+    """
+
+    if base_area <= 0.0:
+        return 0.0
+
+    angle = cyl_angle % 720.0
+    start = exhaust_open_start % 720.0
+    end = exhaust_open_end % 720.0
+
+    if start <= end:
+        if not (start <= angle <= end):
+            return 0.0
+        span = max(end - start, 1e-6)
+        phase = (angle - start) / span
+    else:
+        if not (angle >= start or angle <= end):
+            return 0.0
+        span = (720.0 - start) + end
+        phase = ((angle - start) % 720.0) / span
+
+    lift = max(math.sin(math.pi * phase), 0.0)
+    return base_area * lift
 
 
 class Engine1DSolver:
@@ -74,13 +119,24 @@ class Engine1DSolver:
         self.p_atm = p_atm
         self.T_amb = T_amb
         self.settings = settings or SimulationSettings()
+        self.gamma = float(getattr(self.settings, "gamma_exhaust", numerics.DEFAULT_GAMMA))
+        self.gas_constant = float(
+            getattr(self.settings, "gas_constant_R", numerics.DEFAULT_R)
+        )
 
         self.primary_states = [
-            _init_pipe_state(pipe, target_dx, p_atm, T_amb) for pipe in primary_pipes
+            _init_pipe_state(
+                pipe, target_dx, p_atm, T_amb, self.gamma, self.gas_constant
+            )
+            for pipe in primary_pipes
         ]
-        self.tail_state = _init_pipe_state(tailpipe, target_dx, p_atm, T_amb)
+        self.tail_state = _init_pipe_state(
+            tailpipe, target_dx, p_atm, T_amb, self.gamma, self.gas_constant
+        )
 
-        self.collector = Junction(collector_volume, p_atm, T_amb)
+        self.collector = Junction(
+            collector_volume, p_atm, T_amb, gamma=self.gamma, gas_constant=self.gas_constant
+        )
 
         self.firing_order = firing_order
         self.n_cyl = len(primary_pipes)
@@ -102,12 +158,21 @@ class Engine1DSolver:
 
         p_down = float(
             _pressure_from_state(
-                state["U"][1:2], self.settings.clamp_p_min, self.settings.clamp_p_max
+                state["U"][1:2],
+                self.settings.clamp_p_min,
+                self.settings.clamp_p_max,
+                self.gamma,
             )[0]
         )
         mdot = float(
             numerics.calculate_mass_flow_rate(
-                float(p_stag), float(p_down), float(max(T_stag, 1.0)), float(valve_area), float(Cd)
+                float(p_stag),
+                float(p_down),
+                float(max(T_stag, 1.0)),
+                float(valve_area),
+                float(Cd),
+                float(self.gamma),
+                float(self.gas_constant),
             )
         )
 
@@ -117,13 +182,13 @@ class Engine1DSolver:
         mflux = mdot / max(A_pipe, 1e-12)
 
         rho_res = max(
-            float(p_stag) / (numerics.R * float(max(T_stag, 1.0))),
+            float(p_stag) / (self.gas_constant * float(max(T_stag, 1.0))),
             self.settings.clamp_rho_min,
         )
         u_res = float(
             np.clip(mflux / rho_res, -self.settings.clamp_u_max, self.settings.clamp_u_max)
         )
-        cp = numerics.GAMMA * numerics.R / max(numerics.GAMMA - 1.0, 1e-9)
+        cp = self.gamma * self.gas_constant / max(self.gamma - 1.0, 1e-9)
         h0 = cp * float(max(T_stag, 1.0)) + 0.5 * u_res * u_res
 
         cell_vol = float(state["dx"] * state["areas"][0])
@@ -146,7 +211,7 @@ class Engine1DSolver:
 
     def _apply_collector_boundaries(self) -> None:
         p_col, T_col, rho_col = self.collector.get_state()
-        energy_col = p_col / (numerics.GAMMA - 1.0) / rho_col
+        energy_col = p_col / (self.gamma - 1.0) / rho_col
 
         for state in self.primary_states:
             state["U"][-1, 0] = rho_col
@@ -169,16 +234,19 @@ class Engine1DSolver:
         if u_i > 0.0:
             p_i = float(
                 _pressure_from_state(
-                    tail["U"][-2:-1], self.settings.clamp_p_min, self.settings.clamp_p_max
+                    tail["U"][-2:-1],
+                    self.settings.clamp_p_min,
+                    self.settings.clamp_p_max,
+                    self.gamma,
                 )[0]
             )
-            T_ghost = max(p_i / (numerics.R * rho_i), 1.0)
+            T_ghost = max(p_i / (self.gas_constant * rho_i), 1.0)
         else:
             T_ghost = float(self.T_amb)
 
-        rho_g = max(p_ghost / (numerics.R * T_ghost), self.settings.clamp_rho_min)
+        rho_g = max(p_ghost / (self.gas_constant * T_ghost), self.settings.clamp_rho_min)
         u_g = float(u_i)
-        e_g = p_ghost / (numerics.GAMMA - 1.0) + 0.5 * rho_g * u_g * u_g
+        e_g = p_ghost / (self.gamma - 1.0) + 0.5 * rho_g * u_g * u_g
 
         tail["U"][-1, 0] = rho_g
         tail["U"][-1, 1] = rho_g * u_g
@@ -203,17 +271,13 @@ class Engine1DSolver:
             cyl_id = i + 1
             phase_shift = self.phase_map.get(cyl_id, 0.0)
             cyl_angle = (base_angle + phase_shift) % 720.0
-            if exhaust_open_start <= cyl_angle <= exhaust_open_end:
-                span = max(exhaust_open_end - exhaust_open_start, 1e-6)
-                phase = (cyl_angle - exhaust_open_start) / span
-                lift = max(math.sin(math.pi * phase), 0.0)
-                diameter = math.sqrt(state["areas"][0] / math.pi) * 2.0
-                max_area = math.pi * (diameter * 0.5) ** 2
-                valve_area = max_area * lift
+            valve_area = compute_placeholder_valve_area(
+                cyl_angle, exhaust_open_start, exhaust_open_end, state["areas"][0]
+            )
+            if valve_area > 0.0:
                 p_cyl = p_stag_by_cyl.get(cyl_id, p_exhaust) if p_stag_by_cyl else p_exhaust
                 T_cyl = T_stag_by_cyl.get(cyl_id, T_exhaust) if T_stag_by_cyl else T_exhaust
             else:
-                valve_area = 0.0
                 p_cyl = self.p_atm
                 T_cyl = self.T_amb
 
@@ -232,9 +296,9 @@ class Engine1DSolver:
         rho = state["U"][:, 0]
         u = state["U"][:, 1] / rho
         p = _pressure_from_state(
-            state["U"], self.settings.clamp_p_min, self.settings.clamp_p_max
+            state["U"], self.settings.clamp_p_min, self.settings.clamp_p_max, self.gamma
         )
-        a = np.sqrt(numerics.GAMMA * p / rho)
+        a = np.sqrt(self.gamma * p / rho)
         max_wave_speed = np.max(np.abs(u) + a) + 1e-5
         return 0.4 * state["dx"] / max_wave_speed
 
@@ -248,7 +312,7 @@ class Engine1DSolver:
         mom = state["U"][idx, 1]
         energy = state["U"][idx, 2]
         u = mom / rho
-        p = (numerics.GAMMA - 1.0) * (energy - 0.5 * rho * u * u)
+        p = (self.gamma - 1.0) * (energy - 0.5 * rho * u * u)
         mdot = rho * u * area
         edot = (energy + p) * u * area
         return mdot, edot
@@ -305,12 +369,14 @@ class Engine1DSolver:
                 state["areas"],
                 state["friction"],
                 state["diameters"],
+                self.gamma,
                 self.settings.artificial_diffusion,
                 self.settings.clamp_rho_min,
                 self.settings.clamp_p_min,
                 self.settings.clamp_p_max,
                 self.settings.clamp_u_max,
                 self.settings.clamp_energy_max,
+                self.settings.enable_heat_transfer_1d,
             )
             state["U"] = U_new
 
@@ -322,12 +388,14 @@ class Engine1DSolver:
             tail["areas"],
             tail["friction"],
             tail["diameters"],
+            self.gamma,
             self.settings.artificial_diffusion,
             self.settings.clamp_rho_min,
             self.settings.clamp_p_min,
             self.settings.clamp_p_max,
             self.settings.clamp_u_max,
             self.settings.clamp_energy_max,
+            self.settings.enable_heat_transfer_1d,
         )
         tail["U"] = U_tail
 
@@ -360,7 +428,7 @@ class Engine1DSolver:
             while self.time >= next_sample and next_sample <= total_time:
                 # record first primary for visualization
                 history.append(self.primary_states[0]["U"].copy())
-                p_grid = (numerics.GAMMA - 1.0) * (
+                p_grid = (self.gamma - 1.0) * (
                     self.tail_state["U"][:, 2]
                     - 0.5 * (self.tail_state["U"][:, 1] ** 2)
                     / self.tail_state["U"][:, 0]

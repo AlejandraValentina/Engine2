@@ -2,7 +2,7 @@
 
 ## 1. Constantes Físicas y Unidades (Axiomas)
 - **Ecuación de estado (EoS) gas ideal**: \(U=[\rho,\rho u,\rho E]\), con velocidad \(u = U[1]/U[0]\), y presión \(p = (\gamma - 1)\big(U[2] - 0.5\,U[1]^2/U[0]\big)\) usando densidad de energía (no energía específica).
-- **Constantes**: \(\gamma\) (configurable: aire 1.40, gases de escape 1.35), \(R = 287.0\,\text{J/(kg·K)}\).
+- **Constantes**: \(\gamma\) (configurable: aire 1.40, gases de escape 1.35), \(R = 287.0\,\text{J/(kg·K)}\). El solver 1D toma \(\gamma\) y \(R\) desde `SimulationSettings.gamma_exhaust` y `SimulationSettings.gas_constant_R` (defaults 1.35 y 287.0) para cerrar la EoS y las BC.
 - **Presiones absolutas** en Pa. Manifold absoluto: \(P_{manifold} = (P_{amb,bar} + P_{boost,gauge,bar})\times 100{,}000\).
 - **Geometría 1D**: `Pipe.length` y `Pipe.diameter_*` se expresan en **milímetros** para consistencia con el resto del modelo; el
   solver 1D convierte internamente a metros antes de construir mallas y áreas. `target_dx` se interpreta en metros y se compara
@@ -30,7 +30,7 @@
 - **Knock**: calcula octanaje requerido a partir de compresión dinámica; si supera el octanaje disponible, activa `knock_warning` pero no modifica el solver 1D.
 
 ## 3. Modelo 1D – Dinámica de Gases (core/numerics.py, core/simulator.py, core/junctions.py)
-- **Ecuaciones**: Euler 1D inviscid con términos fuente (Darcy–Weisbach): \(S_{mom} = -\tfrac{f}{2D}\,\rho u|u|\), \(S_E = u\,S_{mom}\). El diámetro hidráulico \(D\) proviene de `Pipe.diameter_*` (mm → m dentro de `_init_pipe_state`) y se interpola por celda; la transferencia de calor 1D está deshabilitada (`Tw` se fija en 0 en `source_terms`).
+- **Ecuaciones**: Euler 1D inviscid con términos fuente (Darcy–Weisbach): \(S_{mom} = -\tfrac{f}{2D}\,\rho u|u|\), \(S_E = u\,S_{mom}\). El diámetro hidráulico \(D\) proviene de `Pipe.diameter_*` (mm → m dentro de `_init_pipe_state`) y se interpola por celda. \(\gamma\) y \(R\) provienen de `SimulationSettings` (no se usan constantes fijas). La transferencia de calor 1D permanece deshabilitada por diseño (`enable_heat_transfer_1d=False` fija `heat_transfer=0` en `source_terms`; `Pipe.wall_temperature` es un placeholder reservado).
 - **Estado y flujo**: \(U=[\rho,\rho u,\rho E]\); \(F=[\rho u, \rho u^2 + p, (\rho E + p)u]\) con \(p\) según EoS anterior.
 - **Esquema**: Lax–Wendroff con celdas fantasma; CFL elige \(dt\); las fronteras se reimponen tras cada paso para preservar BC.
 - **Estabilidad/Clamps (guardrails)**: `SimulationSettings` expone `artificial_diffusion` (laplaciano explícito sobre `U` usando el estado previo) y límites `clamp_rho_min`, `clamp_p_min`, `clamp_p_max`, `clamp_u_max`, `clamp_energy_max`. Tras cada paso se fuerza \(\rho\ge\text{clamp\_rho\_min}\), \(|u|\le\text{clamp\_u\_max}\) y se recalcula la energía para que la presión quede entre `clamp_p_min` y `clamp_p_max`, acotando finalmente \(\rho E\) por `clamp_energy_max`. Estos clamps son un mecanismo de estabilidad numérica, no parte del modelo físico.
@@ -40,6 +40,7 @@
   - **Outlet abierto**: presión estática fija \(P_{amb}\) en la celda fantasma; convención \(u>0\) indica salida. Si \(u_{internal}>0\) (outflow) \(T_{ghost}=T_{internal}\); si \(u_{internal}<0\) (inflow) \(T_{ghost}=T_{amb}\) con \(T_{amb}=air\_temperature\_c+273.15\). Se construye \(U_{ghost}=[\rho_{ghost},\rho_{ghost}u_{ghost},p_{ghost}/(\gamma-1)+0.5\,\rho_{ghost}u_{ghost}^2]\) usando \(p_{ghost}=P_{amb}\), \(u_{ghost}=u_{internal}\) (gradiente cero) y \(\rho_{ghost}=p_{ghost}/(R\,T_{ghost})\). No se usa condición transmisiva sin presión fija para preservar reflexiones. \(u_{ghost}\) hereda \(u_{internal}\) (gradiente cero).
 - **Collector**: `_apply_collector_boundaries` iguala la última celda de cada primario y la primera del tailpipe al estado del Junction \((\rho_{col}, (\rho u)=0, \rho e_{col})\).
 - **Esquema/BC reimpuestas**: `apply_boundary_conditions` se llama al inicio de cada `step`; tras actualizar el Junction se reimponen BC del colector y luego se avanzan los tubos; la BC de atmósfera en el tail se repite tras el avance para robustez.
+- **Placeholder de área de válvula**: `compute_placeholder_valve_area` implementa \(A = A_{celda0}\,\sin(\pi\,\text{phase})\) dentro de la ventana de apertura y maneja wrap 0–720°. Es un gancho explícito para reemplazarlo por geometría real del `CylinderHead` sin modificar la malla 1D.
 - **Junctions**: \(\tfrac{dm}{dt} = \sum \dot m\), \(\tfrac{d(me)}{dt} = \sum (\dot m h_{tot})\); actualización de \(p,T\) mediante EoS en volumen constante.
 - **Red de escape**: `Engine1DSolver` construye primarios (uno por cilindro), colector 0D y tailpipe; fasea eventos con firing order; se usa sólo para Scope/Acústica (acoplamiento unidireccional desde presión 0D).
 

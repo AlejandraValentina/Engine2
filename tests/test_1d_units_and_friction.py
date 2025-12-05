@@ -1,5 +1,7 @@
 import math
 
+import math
+
 import pytest
 
 np = pytest.importorskip("numpy")
@@ -12,7 +14,15 @@ from core.simulator import _init_pipe_state
 def test_pipe_units_conversion():
     pipe = Pipe(length=500.0, diameter_inlet=50.0, diameter_outlet=50.0)
     target_dx = 0.01
-    state = _init_pipe_state(pipe, target_dx, p_atm=101325.0, T_amb=300.0)
+    settings = SimulationSettings()
+    state = _init_pipe_state(
+        pipe,
+        target_dx,
+        p_atm=101325.0,
+        T_amb=300.0,
+        gamma=settings.gamma_exhaust,
+        gas_constant=settings.gas_constant_R,
+    )
 
     assert state["dx"] == pytest.approx(0.5 / 50.0)
 
@@ -22,6 +32,7 @@ def test_pipe_units_conversion():
 
 def test_darcy_uses_real_diameter():
     settings = SimulationSettings()
+    gamma = settings.gamma_exhaust
     n_cells = 5
     dx = 0.1
     dt = 1e-4
@@ -29,7 +40,7 @@ def test_darcy_uses_real_diameter():
     rho = 1.0
     u = 20.0
     pressure = 101325.0
-    energy = pressure / (numerics.GAMMA - 1.0) / rho + 0.5 * u * u
+    energy = pressure / (gamma - 1.0) / rho + 0.5 * u * u
 
     base_state = np.zeros((n_cells, 3), dtype=np.float64)
     base_state[:, 0] = rho
@@ -50,12 +61,14 @@ def test_darcy_uses_real_diameter():
         areas_small,
         friction,
         d_small,
+        gamma,
         settings.artificial_diffusion,
         settings.clamp_rho_min,
         settings.clamp_p_min,
         settings.clamp_p_max,
         settings.clamp_u_max,
         settings.clamp_energy_max,
+        settings.enable_heat_transfer_1d,
     )
 
     U_large = numerics.lax_wendroff_step(
@@ -65,12 +78,14 @@ def test_darcy_uses_real_diameter():
         areas_large,
         friction,
         d_large,
+        gamma,
         settings.artificial_diffusion,
         settings.clamp_rho_min,
         settings.clamp_p_min,
         settings.clamp_p_max,
         settings.clamp_u_max,
         settings.clamp_energy_max,
+        settings.enable_heat_transfer_1d,
     )
 
     mom_small = U_small[:, 1].sum()

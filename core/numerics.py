@@ -12,12 +12,15 @@ else:  # pragma: no cover - fallback when numba is not installed
 
         return decorator
 
-GAMMA = 1.4
-R = 287.0
+# Defaults for legacy callers; the solver wires specific values from SimulationSettings.
+DEFAULT_GAMMA = 1.4
+DEFAULT_R = 287.0
+GAMMA = DEFAULT_GAMMA
+R = DEFAULT_R
 
 
 @jit(nopython=True)
-def flux_vector(U):
+def flux_vector(U, gamma):
     """Compute the flux vector F for a state U = [rho, rho*u, rho*E]."""
     rho = U[0]
     mom = U[1]
@@ -25,7 +28,7 @@ def flux_vector(U):
     u = mom / rho
     kinetic = 0.5 * rho * u * u
     # Ideal gas EOS: p = (gamma - 1) * (E - 0.5*rho*u^2)
-    p = (GAMMA - 1.0) * (energy - kinetic)
+    p = (gamma - 1.0) * (energy - kinetic)
     F = np.empty(3, dtype=np.float64)
     F[0] = mom
     F[1] = mom * u + p
@@ -34,7 +37,7 @@ def flux_vector(U):
 
 
 @jit(nopython=True)
-def source_terms(U, dx, D, f, Tw):
+def source_terms(U, dx, D, f, Tw, heat_transfer_enabled):
     """Compute wall friction and heat transfer source terms."""
     rho = U[0]
     mom = U[1]
@@ -42,6 +45,9 @@ def source_terms(U, dx, D, f, Tw):
     u = mom / rho
     friction = -0.5 * rho * u * np.abs(u) * f / D
     heat_transfer = 0.0
+    if heat_transfer_enabled:
+        # Placeholder: heat transfer is intentionally disabled in the current core.
+        heat_transfer = 0.0
     S = np.zeros(3, dtype=np.float64)
     S[1] = friction
     S[2] = friction * u + heat_transfer
@@ -56,12 +62,14 @@ def lax_wendroff_step(
     areas,
     friction_coeffs,
     diameters,
+    gamma,
     artificial_diffusion,
     clamp_rho_min,
     clamp_p_min,
     clamp_p_max,
     clamp_u_max,
     clamp_energy_max,
+    heat_transfer_enabled,
 ):
     """Advance the conserved variables one time step with area variation handling."""
     n_cells = U_grid.shape[0]
@@ -69,13 +77,13 @@ def lax_wendroff_step(
 
     F_centers = np.empty_like(U_grid)
     for i in range(n_cells):
-        F_centers[i] = flux_vector(U_grid[i])
+        F_centers[i] = flux_vector(U_grid[i], gamma)
 
     U_half = np.empty((n_cells - 1, 3), dtype=np.float64)
     F_half = np.empty_like(U_half)
     for i in range(n_cells - 1):
         U_half[i] = 0.5 * (U_grid[i + 1] + U_grid[i]) - 0.5 * dt / dx * (F_centers[i + 1] - F_centers[i])
-        F_half[i] = flux_vector(U_half[i])
+        F_half[i] = flux_vector(U_half[i], gamma)
 
     for i in range(n_cells):
         if i == 0:
@@ -94,7 +102,7 @@ def lax_wendroff_step(
         geom_2 = -energy_i * u_i * dA_dx / areas[i]
 
         diameter = max(diameters[i], 1e-12)
-        S = source_terms(U_grid[i], dx, diameter, friction_coeffs[i], 0.0)
+        S = source_terms(U_grid[i], dx, diameter, friction_coeffs[i], 0.0, heat_transfer_enabled)
         S0 = S[0]
         S1 = S[1]
         S2 = S[2]
@@ -130,11 +138,11 @@ def lax_wendroff_step(
         mom_i = rho_i * u_i
 
         kinetic = 0.5 * rho_i * u_i * u_i
-        pressure = (GAMMA - 1.0) * (U_new[i, 2] - kinetic)
+        pressure = (gamma - 1.0) * (U_new[i, 2] - kinetic)
         if pressure < clamp_p_min:
-            energy_i = kinetic + clamp_p_min / (GAMMA - 1.0)
+            energy_i = kinetic + clamp_p_min / (gamma - 1.0)
         elif pressure > clamp_p_max:
-            energy_i = kinetic + clamp_p_max / (GAMMA - 1.0)
+            energy_i = kinetic + clamp_p_max / (gamma - 1.0)
         else:
             energy_i = U_new[i, 2]
         energy_i = min(max(energy_i, kinetic), clamp_energy_max)
@@ -147,7 +155,15 @@ def lax_wendroff_step(
 
 
 @jit(nopython=True)
-def calculate_mass_flow_rate(p_up: float, p_down: float, T_up: float, area: float, Cd: float) -> float:
+def calculate_mass_flow_rate(
+    p_up: float,
+    p_down: float,
+    T_up: float,
+    area: float,
+    Cd: float,
+    gamma: float = DEFAULT_GAMMA,
+    gas_constant: float = DEFAULT_R,
+) -> float:
     """Compute isentropic mass flow rate from an upstream reservoir to a downstream region.
 
     Parameters
@@ -185,18 +201,18 @@ def calculate_mass_flow_rate(p_up: float, p_down: float, T_up: float, area: floa
     if pressure_ratio < 0.0:
         pressure_ratio = 0.0
 
-    pcrit = (2.0 / (GAMMA + 1.0)) ** (GAMMA / (GAMMA - 1.0))
-    coeff = Cd * area * p_up_eff * np.sqrt(GAMMA / (R * T_up))
+    pcrit = (2.0 / (gamma + 1.0)) ** (gamma / (gamma - 1.0))
+    coeff = Cd * area * p_up_eff * np.sqrt(gamma / (gas_constant * T_up))
 
     if pressure_ratio <= pcrit:
-        exponent = (GAMMA + 1.0) / (2.0 * (GAMMA - 1.0))
-        mdot = coeff * (2.0 / (GAMMA + 1.0)) ** exponent
+        exponent = (gamma + 1.0) / (2.0 * (gamma - 1.0))
+        mdot = coeff * (2.0 / (gamma + 1.0)) ** exponent
     else:
-        term1 = pressure_ratio ** (2.0 / GAMMA)
-        term2 = pressure_ratio ** ((GAMMA + 1.0) / GAMMA)
+        term1 = pressure_ratio ** (2.0 / gamma)
+        term2 = pressure_ratio ** ((gamma + 1.0) / gamma)
         delta = term1 - term2
         if delta < 0.0:
             delta = 0.0
-        mdot = coeff * np.sqrt((2.0 / (GAMMA - 1.0)) * delta)
+        mdot = coeff * np.sqrt((2.0 / (gamma - 1.0)) * delta)
 
     return sign * mdot
