@@ -1,6 +1,6 @@
 # PyWaveDyn – Professional 1D Gas Dynamics & Engine Simulator
 
-PyWaveDyn is a verification-focused open-source tool for simulating internal combustion engines. It combines a 0D thermodynamic virtual dyno, a 1D wave solver (Euler 1D, finite-volume Lax–Wendroff + ghost cells), and fabrication/optimizer utilities for rapid iteration from concept to shop floor.
+PyWaveDyn is a verification-focused open-source tool for simulating internal combustion engines. It combines a 0D thermodynamic virtual dyno, a 1D wave solver (Euler 1D, finite-volume Lax–Wendroff + ghost cells), and planned/prototype optimizer/fabrication utilities for rapid iteration from concept to shop floor (see FEATURES.md).
 
 ## Project Status (source of truth)
 “Implemented” means reproducible via a command and/or covered by green tests.

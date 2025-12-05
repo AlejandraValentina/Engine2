@@ -6,7 +6,7 @@
 - **Presiones absolutas** en Pa. Manifold absoluto: \(P_{manifold} = (P_{amb,bar} + P_{boost,gauge,bar})\times 100{,}000\).
 - **RPM** siempre en rev/min para todas las ecuaciones (FMEP, velocidad media de pistón, etc.).
 - **FMEP (kPa)**: \(FMEP_{kPa} = A + B\,RPM + C\,RPM^2\) con \(A\) [kPa], \(B\) [kPa/RPM], \(C\) [kPa/RPM\(^2\)]. Par de fricción 4T: \(T_{fric}[Nm] = \tfrac{FMEP_{Pa}\,V_{disp,m3}}{4\pi}\).
-- **Índice de Mach**: \(c_{sound} = \sqrt{\gamma R T_{intake}}\); la temperatura de referencia proviene de `SimulationSettings.air_temperature_c`.
+- **Índice de Mach**: \(c_{sound} = \sqrt{\gamma R T_{intake}}\); la temperatura de referencia proviene de `SimulationSettings.air_temperature_c`. No usar constante 340 m/s; \(c_{sound}\) debe depender de \(T_{intake}\).
 - **Dominio angular 0–720° CA** para cada ciclo: 0° TDC solape, 180° BDC fin admisión / inicio compresión, 360° TDC compresión, 540° BDC expansión, 720° TDC inicio nuevo ciclo.
 
 ## 2. Modelo 0D – Termodinámica (core/thermo.py)
@@ -34,13 +34,13 @@
 - **Condiciones de frontera explícitas**:
   - **Inlet con válvula (isentrópico)**: se calcula flujo másico/entalpía vía tobera isentrópica usando \(P_{stag}, T_{stag}\) del cilindro/puerto (condiciones de estancamiento entregadas por el solver 0D) y \(P_{static}\) de la celda 0. Criterio: si \(P_{static}/P_{stag} \le P_{crit}\) con \(P_{crit} = (\tfrac{2}{\gamma+1})^{\gamma/(\gamma-1)}\) → flujo ahogado; los términos de masa/energía se inyectan en la celda 0. En el modelo actual 0D no se resuelve velocidad de puerto (\(u_{port}=0\)), por lo que \(P_{stag}=P_{cyl}\) y \(T_{stag}=T_{cyl}\) (totales = estáticos en el upstream 0D).
   - **Inlet cerrado**: celda fantasma reflectiva \(\rho_0=\rho_1\), \((\rho u)_0 = - (\rho u)_1\), \((\rho E)_0 = (\rho E)_1\).
-  - **Outlet abierto**: presión estática fija \(P_{amb}\) en la celda fantasma; convención \(u>0\) indica salida. Si \(u_{internal}>0\) (outflow) \(T_{ghost}=T_{internal}\); si \(u_{internal}<0\) (inflow) \(T_{ghost}=T_{amb}\) con \(T_{amb}=air\_temperature\_c+273.15\). Se construye \(U_{ghost}=[\rho_{ghost},\rho_{ghost}u_{ghost},p_{ghost}/(\gamma-1)+0.5\,\rho_{ghost}u_{ghost}^2]\) usando \(p_{ghost}=P_{amb}\), \(u_{ghost}=u_{internal}\) (gradiente cero) y \(\rho_{ghost}=p_{ghost}/(R\,T_{ghost})\). No se usa condición transmisiva sin presión fija para preservar reflexiones.
+  - **Outlet abierto**: presión estática fija \(P_{amb}\) en la celda fantasma; convención \(u>0\) indica salida. Si \(u_{internal}>0\) (outflow) \(T_{ghost}=T_{internal}\); si \(u_{internal}<0\) (inflow) \(T_{ghost}=T_{amb}\) con \(T_{amb}=air\_temperature\_c+273.15\). Se construye \(U_{ghost}=[\rho_{ghost},\rho_{ghost}u_{ghost},p_{ghost}/(\gamma-1)+0.5\,\rho_{ghost}u_{ghost}^2]\) usando \(p_{ghost}=P_{amb}\), \(u_{ghost}=u_{internal}\) (gradiente cero) y \(\rho_{ghost}=p_{ghost}/(R\,T_{ghost})\). No se usa condición transmisiva sin presión fija para preservar reflexiones. \(u_{ghost}\) hereda \(u_{internal}\) (gradiente cero).
 - **Junctions**: \(\tfrac{dm}{dt} = \sum \dot m\), \(\tfrac{d(me)}{dt} = \sum (\dot m h_{tot})\); actualización de \(p,T\) mediante EoS en volumen constante.
 - **Red de escape**: `Engine1DSolver` construye primarios (uno por cilindro), colector 0D y tailpipe; fasea eventos con firing order; se usa sólo para Scope/Acústica (acoplamiento unidireccional desde presión 0D).
 
 ## 4. Arquitectura y Flujo de Datos
 1. **Entrada GUI (PySide6/pyqtgraph)** edita el modelo (`core/engine_components.py`) y lanza simulaciones.
-2. **Persistencia**: JSON ↔ dataclasses (`Engine.from_dict/to_dict`); presets en la raíz (K20, V8, F1, kart, etc.).
+2. **Persistencia**: JSON ↔ dataclasses (`Engine.from_dict/to_dict`); presets canónicos en `presets/` y legacy en `presets/legacy/` (ver `AUDIT_REPORT.md`).
 3. **Ciclo 0D (core/thermo.py)**: calcula par/potencia/VE/knock usando backpressure heurística; alimenta Dyno, Analysis, Optimizer.
 4. **Onda 1D (core/simulator.py + core/numerics.py + core/junctions.py)**: consume perfiles de presión 0D o impulsos sintéticos como BC de válvula para visualización y síntesis de audio; no retroalimenta al 0D.
 5. **Acústica (acoustics/audio_generator.py)**: remuestrea presión de salida 1D y mezcla por firing order para generar WAV. Estado: prototipo; verificación pendiente por CLI/tests (ver FEATURES.md).

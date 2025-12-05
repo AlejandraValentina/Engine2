@@ -4,7 +4,7 @@ Esta guía resume cómo validar PyWaveDyn sin depender de la GUI, usando solo co
 
 ## Niveles de validación
 1. **Smoke (GUI):** `python main.py` (abre la aplicación; valida arranque).
-2. **Unit:** `python -m pytest tests/unit`.
+2. **Unit-like (sin integration/legacy):** `python -m pytest -q -m "not integration and not legacy"`.
 3. **Integration (opt-in):** `python -m pytest -m integration` o `python -m pytest tests/integration`.
 4. **Contratos 0D/1D:** `python -m pytest -q tests/test_contract_*.py`.
 5. **Identidades/Tendencias/Sanidad:**
