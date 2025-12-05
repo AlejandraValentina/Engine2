@@ -116,7 +116,6 @@ class MainWindow(QMainWindow):
         self.wave_matrix: Optional[np.ndarray] = None
         self.wave_history: list[np.ndarray] = []
         self.wave_time_vector: list[float] = []
-        self.wave_audio_samples: list[float] = []
         self.wave_x_axis: Optional[np.ndarray] = None
         self.timer = QTimer(self)
         self._setup_views()
@@ -1248,7 +1247,6 @@ class MainWindow(QMainWindow):
         self.audio_synth = AudioSynthesizer()
         self.wave_history = []
         self.wave_time_vector = []
-        self.wave_audio_samples = []
 
     def run_wave_calculation(self) -> None:
         if self.wave_solver is None:
@@ -1264,7 +1262,6 @@ class MainWindow(QMainWindow):
         )
         self.wave_history = history
         self.wave_time_vector = time_vector
-        self.wave_audio_samples = audio_pressures
         self.wave_matrix = None
         self.wave_x_axis = None
 

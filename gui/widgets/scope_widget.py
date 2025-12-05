@@ -28,10 +28,14 @@ class ScopeWidget(QWidget):
 
     def update_data(self, x_axis, pressure_pa):
         self.curve.setData(x_axis, pressure_pa)
+        self._reposition_status_item()
 
     def update_status(self, angle_deg: float, valve_state: str, sim_time: float) -> None:
         text = f"Time: {sim_time * 1000.0:.2f} ms | Crank: {angle_deg:6.1f} deg | Valve: {valve_state}"
         self.status_item.setText(text)
+        self._reposition_status_item()
+
+    def _reposition_status_item(self) -> None:
         view_range = self.plot_widget.getViewBox().viewRange()
         if not view_range:
             return
