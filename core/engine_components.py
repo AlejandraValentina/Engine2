@@ -160,9 +160,9 @@ class CylinderHead:
 class Pipe:
     """Representation of a duct segment used in intake or exhaust systems."""
 
-    length: float = 500.0
-    diameter_inlet: float = 45.0
-    diameter_outlet: float = 45.0
+    length: float = 500.0  # millimeters
+    diameter_inlet: float = 45.0  # millimeters
+    diameter_outlet: float = 45.0  # millimeters
     wall_temperature: float = 600.0
     friction_coeff: float = 0.02
 
@@ -225,6 +225,12 @@ class SimulationSettings:
     gamma_air: float = 1.40
     gamma_exhaust: float = 1.35
     gas_constant_R: float = 287.0  # J/(kg*K)
+    artificial_diffusion: float = 0.0  # dimensionless scaling for numerical smoothing
+    clamp_rho_min: float = 0.1  # kg/m^3
+    clamp_p_min: float = 1e-6  # Pa
+    clamp_p_max: float = 1e9  # Pa
+    clamp_u_max: float = 1500.0  # m/s
+    clamp_energy_max: float = 1.0e7  # J/m^3
 
     def to_dict(self) -> dict:
         return {
@@ -238,6 +244,12 @@ class SimulationSettings:
             "gamma_air": self.gamma_air,
             "gamma_exhaust": self.gamma_exhaust,
             "gas_constant_R": self.gas_constant_R,
+            "artificial_diffusion": self.artificial_diffusion,
+            "clamp_rho_min": self.clamp_rho_min,
+            "clamp_p_min": self.clamp_p_min,
+            "clamp_p_max": self.clamp_p_max,
+            "clamp_u_max": self.clamp_u_max,
+            "clamp_energy_max": self.clamp_energy_max,
         }
 
     @classmethod
@@ -253,6 +265,12 @@ class SimulationSettings:
             gamma_air=data.get("gamma_air", 1.40),
             gamma_exhaust=data.get("gamma_exhaust", 1.35),
             gas_constant_R=data.get("gas_constant_R", 287.0),
+            artificial_diffusion=data.get("artificial_diffusion", 0.0),
+            clamp_rho_min=data.get("clamp_rho_min", 0.1),
+            clamp_p_min=data.get("clamp_p_min", 1e-6),
+            clamp_p_max=data.get("clamp_p_max", 1e9),
+            clamp_u_max=data.get("clamp_u_max", 1500.0),
+            clamp_energy_max=data.get("clamp_energy_max", 1.0e7),
         )
 
 

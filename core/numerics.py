@@ -49,7 +49,20 @@ def source_terms(U, dx, D, f, Tw):
 
 
 @jit(nopython=True)
-def lax_wendroff_step(U_grid, dt, dx, areas, friction_coeffs):
+def lax_wendroff_step(
+    U_grid,
+    dt,
+    dx,
+    areas,
+    friction_coeffs,
+    diameters,
+    artificial_diffusion,
+    clamp_rho_min,
+    clamp_p_min,
+    clamp_p_max,
+    clamp_u_max,
+    clamp_energy_max,
+):
     """Advance the conserved variables one time step with area variation handling."""
     n_cells = U_grid.shape[0]
     U_new = np.empty_like(U_grid)
@@ -80,7 +93,8 @@ def lax_wendroff_step(U_grid, dt, dx, areas, friction_coeffs):
         geom_1 = -rho_i * u_i * u_i * dA_dx / areas[i]
         geom_2 = -energy_i * u_i * dA_dx / areas[i]
 
-        S = source_terms(U_grid[i], dx, 1.0, friction_coeffs[i], 0.0)
+        diameter = max(diameters[i], 1e-12)
+        S = source_terms(U_grid[i], dx, diameter, friction_coeffs[i], 0.0)
         S0 = S[0]
         S1 = S[1]
         S2 = S[2]
@@ -102,6 +116,32 @@ def lax_wendroff_step(U_grid, dt, dx, areas, friction_coeffs):
         U_new[i, 0] = U_grid[i, 0] - coef * flux_diff0 + dt * (S0)
         U_new[i, 1] = U_grid[i, 1] - coef * flux_diff1 + dt * (S1 + geom_1)
         U_new[i, 2] = U_grid[i, 2] - coef * flux_diff2 + dt * (S2 + geom_2)
+
+    if artificial_diffusion > 0.0:
+        for i in range(1, n_cells - 1):
+            laplacian = U_grid[i + 1] - 2.0 * U_grid[i] + U_grid[i - 1]
+            U_new[i] += artificial_diffusion * laplacian
+
+    for i in range(n_cells):
+        rho_i = max(U_new[i, 0], clamp_rho_min)
+        mom_i = U_new[i, 1]
+        u_i = mom_i / rho_i
+        u_i = np.clip(u_i, -clamp_u_max, clamp_u_max)
+        mom_i = rho_i * u_i
+
+        kinetic = 0.5 * rho_i * u_i * u_i
+        pressure = (GAMMA - 1.0) * (U_new[i, 2] - kinetic)
+        if pressure < clamp_p_min:
+            energy_i = kinetic + clamp_p_min / (GAMMA - 1.0)
+        elif pressure > clamp_p_max:
+            energy_i = kinetic + clamp_p_max / (GAMMA - 1.0)
+        else:
+            energy_i = U_new[i, 2]
+        energy_i = min(max(energy_i, kinetic), clamp_energy_max)
+
+        U_new[i, 0] = rho_i
+        U_new[i, 1] = mom_i
+        U_new[i, 2] = energy_i
 
     return U_new
 

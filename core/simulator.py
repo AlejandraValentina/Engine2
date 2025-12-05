@@ -8,19 +8,19 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from core import numerics
-from core.engine_components import Pipe
+from core.engine_components import Pipe, SimulationSettings
 from core.junctions import Junction
 
 
 def _init_pipe_state(pipe_data: Pipe, target_dx: float, p_atm: float, T_amb: float):
-    L = float(pipe_data.length)
-    estimated_N = int(np.ceil(L / target_dx))
+    L_m = float(pipe_data.length) * 1e-3
+    estimated_N = int(np.ceil(L_m / target_dx))
     N = max(estimated_N, 50)
-    dx = L / N
+    dx = L_m / N
 
-    diam_in = float(pipe_data.diameter_inlet)
-    diam_out = float(pipe_data.diameter_outlet)
-    diameters = np.linspace(diam_in, diam_out, N)
+    diam_in_m = float(pipe_data.diameter_inlet) * 1e-3
+    diam_out_m = float(pipe_data.diameter_outlet) * 1e-3
+    diameters = np.linspace(diam_in_m, diam_out_m, N)
     areas = math.pi * (diameters * 0.5) ** 2
     friction_coeffs = np.full(N, pipe_data.friction_coeff, dtype=np.float64)
 
@@ -35,6 +35,7 @@ def _init_pipe_state(pipe_data: Pipe, target_dx: float, p_atm: float, T_amb: flo
     return {
         "N": N,
         "dx": dx,
+        "diameters": diameters,
         "areas": areas,
         "friction": friction_coeffs,
         "U": U,
@@ -42,13 +43,13 @@ def _init_pipe_state(pipe_data: Pipe, target_dx: float, p_atm: float, T_amb: flo
     }
 
 
-def _pressure_from_state(U: np.ndarray) -> np.ndarray:
+def _pressure_from_state(U: np.ndarray, p_min: float, p_max: float) -> np.ndarray:
     rho = U[:, 0]
     mom = U[:, 1]
     energy = U[:, 2]
     u = mom / rho
     p = (numerics.GAMMA - 1.0) * (energy - 0.5 * rho * u * u)
-    return np.maximum(p, 1e-6)
+    return np.clip(p, p_min, p_max)
 
 
 class Engine1DSolver:
@@ -67,10 +68,12 @@ class Engine1DSolver:
         collector_volume: float = 0.005,
         p_atm: float = 101325.0,
         T_amb: float = 300.0,
+        settings: Optional[SimulationSettings] = None,
     ):
         self.time: float = 0.0
         self.p_atm = p_atm
         self.T_amb = T_amb
+        self.settings = settings or SimulationSettings()
 
         self.primary_states = [
             _init_pipe_state(pipe, target_dx, p_atm, T_amb) for pipe in primary_pipes
@@ -97,7 +100,11 @@ class Engine1DSolver:
         if valve_area <= 0.0 or dt <= 0.0:
             return
 
-        p_down = float(_pressure_from_state(state["U"][1:2])[0])
+        p_down = float(
+            _pressure_from_state(
+                state["U"][1:2], self.settings.clamp_p_min, self.settings.clamp_p_max
+            )[0]
+        )
         mdot = float(
             numerics.calculate_mass_flow_rate(
                 float(p_stag), float(p_down), float(max(T_stag, 1.0)), float(valve_area), float(Cd)
@@ -109,8 +116,13 @@ class Engine1DSolver:
             A_pipe = float(valve_area)
         mflux = mdot / max(A_pipe, 1e-12)
 
-        rho_res = max(float(p_stag) / (numerics.R * float(max(T_stag, 1.0))), 0.1)
-        u_res = float(np.clip(mflux / rho_res, -1500.0, 1500.0))
+        rho_res = max(
+            float(p_stag) / (numerics.R * float(max(T_stag, 1.0))),
+            self.settings.clamp_rho_min,
+        )
+        u_res = float(
+            np.clip(mflux / rho_res, -self.settings.clamp_u_max, self.settings.clamp_u_max)
+        )
         cp = numerics.GAMMA * numerics.R / max(numerics.GAMMA - 1.0, 1e-9)
         h0 = cp * float(max(T_stag, 1.0)) + 0.5 * u_res * u_res
 
@@ -119,13 +131,16 @@ class Engine1DSolver:
         energy_delta = mass_delta * h0
         momentum_delta = mass_delta * u_res
 
-        state["U"][0, 0] = max(state["U"][0, 0] + mass_delta / max(cell_vol, 1e-12), 0.05)
+        state["U"][0, 0] = max(
+            state["U"][0, 0] + mass_delta / max(cell_vol, 1e-12),
+            self.settings.clamp_rho_min,
+        )
         state["U"][0, 1] += momentum_delta / max(cell_vol, 1e-12)
         state["U"][0, 2] = float(
             np.clip(
                 state["U"][0, 2] + energy_delta / max(cell_vol, 1e-12),
                 0.0,
-                1.0e7,
+                self.settings.clamp_energy_max,
             )
         )
 
@@ -152,18 +167,22 @@ class Engine1DSolver:
 
         p_ghost = float(self.p_atm)
         if u_i > 0.0:
-            p_i = float(_pressure_from_state(tail["U"][-2:-1])[0])
+            p_i = float(
+                _pressure_from_state(
+                    tail["U"][-2:-1], self.settings.clamp_p_min, self.settings.clamp_p_max
+                )[0]
+            )
             T_ghost = max(p_i / (numerics.R * rho_i), 1.0)
         else:
             T_ghost = float(self.T_amb)
 
-        rho_g = max(p_ghost / (numerics.R * T_ghost), 0.1)
+        rho_g = max(p_ghost / (numerics.R * T_ghost), self.settings.clamp_rho_min)
         u_g = float(u_i)
         e_g = p_ghost / (numerics.GAMMA - 1.0) + 0.5 * rho_g * u_g * u_g
 
         tail["U"][-1, 0] = rho_g
         tail["U"][-1, 1] = rho_g * u_g
-        tail["U"][-1, 2] = float(np.clip(e_g, 0.0, 1.0e7))
+        tail["U"][-1, 2] = float(np.clip(e_g, 0.0, self.settings.clamp_energy_max))
 
     def apply_boundary_conditions(
         self,
@@ -212,7 +231,9 @@ class Engine1DSolver:
     def _pipe_dt(self, state: Dict) -> float:
         rho = state["U"][:, 0]
         u = state["U"][:, 1] / rho
-        p = _pressure_from_state(state["U"])
+        p = _pressure_from_state(
+            state["U"], self.settings.clamp_p_min, self.settings.clamp_p_max
+        )
         a = np.sqrt(numerics.GAMMA * p / rho)
         max_wave_speed = np.max(np.abs(u) + a) + 1e-5
         return 0.4 * state["dx"] / max_wave_speed
@@ -278,18 +299,36 @@ class Engine1DSolver:
         # Advance all pipes
         for state in self.primary_states:
             U_new = numerics.lax_wendroff_step(
-                state["U"], dt, state["dx"], state["areas"], state["friction"]
+                state["U"],
+                dt,
+                state["dx"],
+                state["areas"],
+                state["friction"],
+                state["diameters"],
+                self.settings.artificial_diffusion,
+                self.settings.clamp_rho_min,
+                self.settings.clamp_p_min,
+                self.settings.clamp_p_max,
+                self.settings.clamp_u_max,
+                self.settings.clamp_energy_max,
             )
-            U_new[:, 0] = np.maximum(U_new[:, 0], 0.1)
-            U_new[:, 2] = np.clip(U_new[:, 2], 0.0, 1.0e7)
             state["U"] = U_new
 
         tail = self.tail_state
         U_tail = numerics.lax_wendroff_step(
-            tail["U"], dt, tail["dx"], tail["areas"], tail["friction"]
+            tail["U"],
+            dt,
+            tail["dx"],
+            tail["areas"],
+            tail["friction"],
+            tail["diameters"],
+            self.settings.artificial_diffusion,
+            self.settings.clamp_rho_min,
+            self.settings.clamp_p_min,
+            self.settings.clamp_p_max,
+            self.settings.clamp_u_max,
+            self.settings.clamp_energy_max,
         )
-        U_tail[:, 0] = np.maximum(U_tail[:, 0], 0.1)
-        U_tail[:, 2] = np.clip(U_tail[:, 2], 0.0, 1.0e7)
         tail["U"] = U_tail
 
         # Atmospheric outlet (already set in apply_boundary_conditions, repeated for safety)
