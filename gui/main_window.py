@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import traceback
 from typing import Any, Optional
 
 import numpy as np
@@ -979,13 +980,15 @@ class MainWindow(QMainWindow):
 
     def _bind_spin(self, spin: Any, setter: Any, attr_name: Optional[str] = None) -> None:
         def handler() -> None:
+            label = attr_name or "value"
             try:
                 val = spin.value()
                 setter(val)
-                label = attr_name or "value"
                 self.statusBar().showMessage(f"Updated {label} to {val}", 2000)
             except Exception:
-                pass
+                tb = traceback.format_exc()
+                print(tb)
+                QMessageBox.critical(self, "Update Error", f"Failed to update {label}:\n{tb}")
 
         spin.editingFinished.connect(handler)
 
@@ -1003,7 +1006,7 @@ class MainWindow(QMainWindow):
         setattr(obj, attr, value)
         current_item = self.navigation_tree.currentItem()
         if current_item and isinstance(obj, Block):
-            self._build_block_form(obj)
+            QTimer.singleShot(0, lambda o=obj: self._build_block_form(o))
         self.update_overview()
 
     def _clear_head_chamber_override(self, head: CylinderHead) -> None:

@@ -20,7 +20,7 @@ R = DEFAULT_R
 
 
 @jit(nopython=True)
-def flux_vector(U, gamma):
+def flux_vector(U, gamma=DEFAULT_GAMMA):
     """Compute the flux vector F for a state U = [rho, rho*u, rho*E]."""
     rho = U[0]
     mom = U[1]
