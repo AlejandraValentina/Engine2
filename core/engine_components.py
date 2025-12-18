@@ -11,6 +11,8 @@ import math
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from core.units import cc_to_m3, mm_to_m
+
 
 def migrate_preset_dict(data: dict) -> dict:
     """Normalize preset dictionaries for backward compatibility.
@@ -46,8 +48,8 @@ class Block:
     @property
     def displacement_cc(self) -> float:
         """Return total displacement in cubic centimeters."""
-        bore_m = self.bore * 1e-3
-        stroke_m = self.stroke * 1e-3
+        bore_m = mm_to_m(self.bore)
+        stroke_m = mm_to_m(self.stroke)
         single_cyl_vol_m3 = math.pi * (bore_m**2) * stroke_m / 4.0
         total_vol_m3 = single_cyl_vol_m3 * self.num_cylinders
         return total_vol_m3 * 1e6  # convert m^3 to cc
@@ -232,6 +234,7 @@ class SimulationSettings:
     clamp_u_max: float = 1500.0  # m/s
     clamp_energy_max: float = 1.0e7  # J/m^3
     enable_heat_transfer_1d: bool = False
+    wall_temperature_k: float = 450.0
 
     def to_dict(self) -> dict:
         return {
@@ -252,6 +255,7 @@ class SimulationSettings:
             "clamp_u_max": self.clamp_u_max,
             "clamp_energy_max": self.clamp_energy_max,
             "enable_heat_transfer_1d": self.enable_heat_transfer_1d,
+            "wall_temperature_k": self.wall_temperature_k,
         }
 
     @classmethod
@@ -274,6 +278,7 @@ class SimulationSettings:
             clamp_u_max=data.get("clamp_u_max", 1500.0),
             clamp_energy_max=data.get("clamp_energy_max", 1.0e7),
             enable_heat_transfer_1d=data.get("enable_heat_transfer_1d", False),
+            wall_temperature_k=data.get("wall_temperature_k", 450.0),
         )
 
 
@@ -282,6 +287,7 @@ class Combustion:
     thermal_efficiency: float = 0.50  # 0.3 .. 0.7
     burn_duration: float = 50.0  # crank degrees
     ignition_advance: float = 30.0  # degrees BTDC
+    target_ca50_deg_atdc: Optional[float] = None
     afr: float = 13.0  # air-fuel ratio
     chamber_type: str = "Modern Pentroof"
     wiebe_a: float = 5.0
@@ -292,6 +298,7 @@ class Combustion:
             "thermal_efficiency": self.thermal_efficiency,
             "burn_duration": self.burn_duration,
             "ignition_advance": self.ignition_advance,
+            "target_ca50_deg_atdc": self.target_ca50_deg_atdc,
             "afr": self.afr,
             "chamber_type": self.chamber_type,
             "wiebe_a": self.wiebe_a,
@@ -304,6 +311,7 @@ class Combustion:
             thermal_efficiency=data.get("thermal_efficiency", 0.50),
             burn_duration=data.get("burn_duration", 50.0),
             ignition_advance=data.get("ignition_advance", 30.0),
+            target_ca50_deg_atdc=data.get("target_ca50_deg_atdc"),
             afr=data.get("afr", 13.0),
             chamber_type=data.get("chamber_type", "Modern Pentroof"),
             wiebe_a=data.get("wiebe_a", 5.0),
@@ -384,6 +392,7 @@ class Camshaft:
 
 @dataclass
 class Friction:
+    """Parameterized FMEP curve: kPa = A + B*rpm + C*rpm^2."""
     bottom_end_type: str = "Standard"  # "Standard", "Performance", "Race"
     water_pump: bool = True
     alternator: bool = True
@@ -551,6 +560,35 @@ class Engine:
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=2)
 
+    def validate(self, strict: bool = False) -> bool:
+        """Validate basic physical ranges; raise if strict and invalid."""
+
+        def _fail(msg: str) -> None:
+            if strict:
+                raise ValueError(msg)
+
+        if self.block.bore <= 0 or self.block.stroke <= 0 or self.block.conrod_length <= 0:
+            _fail("Block geometry must be positive (bore/stroke/conrod)")
+        if self.block.num_cylinders < 1:
+            _fail("Engine must have at least one cylinder")
+        if self.head.compression_ratio <= 1.0:
+            _fail("Compression ratio must exceed 1.0")
+        if getattr(self.head, "port_flow_cfm", 0.0) < 0.0:
+            _fail("Port flow CFM must be non-negative")
+        throttle_cfm = getattr(self.intake, "throttle_cfm", None)
+        throttle_flow_cfm = getattr(self.intake, "throttle_flow_cfm", None)
+        if throttle_cfm is not None and throttle_cfm < 0:
+            _fail("Throttle CFM must be non-negative")
+        if throttle_flow_cfm is not None and throttle_flow_cfm < 0:
+            _fail("Throttle flow CFM must be non-negative")
+        if getattr(self.intake, "runner_length", 1.0) <= 0.0 or getattr(self.intake, "runner_diameter", 1.0) <= 0.0:
+            _fail("Intake runner geometry must be positive")
+        if getattr(self.combustion, "thermal_efficiency", 0.5) <= 0.0:
+            _fail("Combustion thermal efficiency must be positive")
+        if getattr(self.fuel, "energy_density", 0.0) <= 0.0:
+            _fail("Fuel energy density must be positive")
+        return True
+
     @classmethod
     def load_from_file(cls, filename: str) -> "Engine":
         with open(filename, "r", encoding="utf-8") as f:
@@ -573,13 +611,13 @@ class Engine:
         V_deck = area_m2 * deck_clearance_m
 
         if head.combustion_chamber_vol is not None:
-            V_chamber = head.combustion_chamber_vol * 1e-6
+            V_chamber = cc_to_m3(head.combustion_chamber_vol)
         elif head.compression_ratio > 1.0:
             V_chamber = V_swept / (head.compression_ratio - 1.0)
         else:
             return 0.0
 
-        V_total_clearance = V_chamber + V_gasket + V_deck - (head.piston_dome_cc * 1e-6)
+        V_total_clearance = V_chamber + V_gasket + V_deck - cc_to_m3(head.piston_dome_cc)
         if V_total_clearance <= 0.0:
             return 0.0
 
