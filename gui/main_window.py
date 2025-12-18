@@ -505,7 +505,7 @@ class MainWindow(QMainWindow):
         self._bind_spin(bore_spin, lambda val: self._update_value(block, "bore", val), "bore")
         self.property_form.addRow("Bore (mm)", bore_spin)
 
-        stroke_spin = self._double_spin(block.stroke, 40.0, 120.0, 0.1)
+        stroke_spin = self._double_spin(block.stroke, 10.0, 200.0, 0.1)
         self._bind_spin(stroke_spin, lambda val: self._update_value(block, "stroke", val), "stroke")
         self.property_form.addRow("Stroke (mm)", stroke_spin)
 
@@ -986,9 +986,9 @@ class MainWindow(QMainWindow):
                 setter(val)
                 self.statusBar().showMessage(f"Updated {label} to {val}", 2000)
             except Exception:
-                tb = traceback.format_exc()
-                print(tb)
-                QMessageBox.critical(self, "Update Error", f"Failed to update {label}:\n{tb}")
+                traceback.print_exc()
+                self.statusBar().showMessage(f"Failed to update {label}; see console for details", 4000)
+                QMessageBox.critical(self, "Update Error", f"Failed to update {label}; see console for details")
 
         spin.editingFinished.connect(handler)
 
