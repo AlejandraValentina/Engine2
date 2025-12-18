@@ -505,7 +505,7 @@ class MainWindow(QMainWindow):
         self._bind_spin(bore_spin, lambda val: self._update_value(block, "bore", val), "bore")
         self.property_form.addRow("Bore (mm)", bore_spin)
 
-        stroke_spin = self._double_spin(block.stroke, 10.0, 200.0, 0.1)
+        stroke_spin = self._double_spin(block.stroke, 10.0, 120.0, 0.1)
         self._bind_spin(stroke_spin, lambda val: self._update_value(block, "stroke", val), "stroke")
         self.property_form.addRow("Stroke (mm)", stroke_spin)
 
