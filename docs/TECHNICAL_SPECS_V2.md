@@ -170,6 +170,8 @@ pr = \frac{p_{down}}{p_0}
 \dot{m} = A_{eff} \, p_0 \, \sqrt{\frac{2\gamma}{R T_0 (\gamma-1)}\,\left(pr^{2/\gamma} - pr^{(\gamma+1)/\gamma}\right)}
 \]
 
+These equations compute \(\dot{m}_{mag}\); the signed \(\dot{m}\) is assigned by the backflow swap rule in §4.2.
+
 ### 4.3 Boundary Flux Application (Phase 1 Recipe)
 **Option B (selected): ghost-cell construction + Rusanov flux.**
 
@@ -178,6 +180,7 @@ Define:
 
 Ghost primitive state (upstream reservoir model):
 - \(p_g = p_{0,upstream}\)
+- Phase 1 approximates \(p_0 \approx p\) for the reservoir ghost; later phases may distinguish \(p_0\) and \(p\) explicitly.
 - \(T_g = T_{0,upstream}\)
 - \(\rho_g = p_g/(R T_g)\)
 - \(u_g = \dot{m}/(\rho_g A_{face})\) (signed)

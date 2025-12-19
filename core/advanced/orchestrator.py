@@ -31,6 +31,7 @@ class Orchestrator:
         rpm: float,
         pipe_cells: int,
         pipe_length_m: float,
+        pipe_diameter_m: float,
         bore_m: float,
         stroke_m: float,
         conrod_m: float,
@@ -38,6 +39,7 @@ class Orchestrator:
         valve: ValveTiming,
     ) -> Dict[str, List[float]]:
         dx = pipe_length_m / pipe_cells
+        area_face = math.pi * (pipe_diameter_m * 0.5) ** 2
         rho0 = 1.2
         u0 = 0.0
         p0 = 101325.0
@@ -89,7 +91,6 @@ class Orchestrator:
                     area,
                     self.cfg.gamma,
                     self.cfg.gas_constant,
-                    valve.cd,
                     self.cfg.cp,
                 )
 
@@ -101,7 +102,7 @@ class Orchestrator:
                     cyl.T,
                     cyl.m_fresh / max(cyl.m_total, 1e-9),
                     mdot,
-                    max(area, 1e-9),
+                    max(area_face, 1e-9),
                     self.cfg.gamma,
                     self.cfg.gas_constant,
                 )

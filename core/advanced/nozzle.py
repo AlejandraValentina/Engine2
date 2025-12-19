@@ -11,34 +11,43 @@ def nozzle_mass_flow(
     area_eff: float,
     gamma: float,
     gas_constant: float,
-    cd: float,
     cp: float,
     Y0: float,
+    p0_down: float | None = None,
+    T0_down: float | None = None,
+    Y0_down: float | None = None,
 ) -> Tuple[float, float, float]:
     """Return (mdot, Hdot, Ydot) with positive flow from upstream -> downstream."""
 
     if area_eff <= 0.0 or p0 <= 0.0 or T0 <= 0.0:
-        return 0.0, 0.0, 0.0
+        raise ValueError("Invalid nozzle inputs (area_eff, p0, T0 must be positive)")
 
-    cd = max(cd, 0.0)
-    pr = max(min(p_down / p0, 1.0), 0.0)
-    crit = (2.0 / (gamma + 1.0)) ** (gamma / (gamma - 1.0))
-    choked = pr <= crit
-
-    if choked:
-        flow_coeff = math.sqrt(gamma / gas_constant) * (2.0 / (gamma + 1.0)) ** (
-            (gamma + 1.0) / (2.0 * (gamma - 1.0))
-        )
-        mdot = cd * area_eff * p0 / math.sqrt(T0) * flow_coeff
-    else:
+    def _mdot_mag(p_up: float, T_up: float, p_static: float) -> float:
+        pr = max(min(p_static / p_up, 1.0), 0.0)
+        crit = (2.0 / (gamma + 1.0)) ** (gamma / (gamma - 1.0))
+        choked = pr <= crit
+        if choked:
+            flow_coeff = math.sqrt(gamma / gas_constant) * (2.0 / (gamma + 1.0)) ** (
+                (gamma + 1.0) / (2.0 * (gamma - 1.0))
+            )
+            return area_eff * p_up / math.sqrt(T_up) * flow_coeff
         term = pr ** (2.0 / gamma) - pr ** ((gamma + 1.0) / gamma)
         term = max(term, 0.0)
         flow_coeff = math.sqrt(2.0 * gamma / (gas_constant * (gamma - 1.0)) * term)
-        mdot = cd * area_eff * p0 / math.sqrt(T0) * flow_coeff
+        return area_eff * p_up / math.sqrt(T_up) * flow_coeff
 
-    if p_down > p0:
-        mdot = -mdot
+    if p_down <= p0:
+        mdot_mag = _mdot_mag(p0, T0, p_down)
+        mdot = mdot_mag
+        Hdot = mdot * cp * T0
+        Ydot = mdot * Y0
+    else:
+        p0_rev = p0_down if p0_down is not None else p_down
+        T0_rev = T0_down if T0_down is not None else T0
+        Y0_rev = Y0_down if Y0_down is not None else Y0
+        mdot_mag = _mdot_mag(p0_rev, T0_rev, p0)
+        mdot = -mdot_mag
+        Hdot = mdot * cp * T0_rev
+        Ydot = mdot * Y0_rev
 
-    Hdot = mdot * cp * T0
-    Ydot = mdot * Y0
     return float(mdot), float(Hdot), float(Ydot)

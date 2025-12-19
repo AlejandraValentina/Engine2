@@ -4,6 +4,8 @@ import math
 from dataclasses import dataclass
 from typing import Tuple
 
+import numpy as np
+
 from core.advanced.nozzle import nozzle_mass_flow
 from core.advanced.state import Primitive1D, primitive_to_conserved
 
@@ -41,14 +43,13 @@ def boundary_flux_from_nozzle(
     T0: float,
     Y0: float,
     p_down: float,
-    area: float,
+    area_eff: float,
     gamma: float,
     gas_constant: float,
-    cd: float,
     cp: float,
 ) -> Tuple[float, float, float, float]:
-    mdot, Hdot, Ydot = nozzle_mass_flow(p0, T0, p_down, area, gamma, gas_constant, cd, cp, Y0)
-    return mdot, Hdot, Ydot, area
+    mdot, Hdot, Ydot = nozzle_mass_flow(p0, T0, p_down, area_eff, gamma, gas_constant, cp, Y0)
+    return mdot, Hdot, Ydot, area_eff
 
 
 def ghost_state_from_nozzle(
@@ -56,12 +57,12 @@ def ghost_state_from_nozzle(
     T0: float,
     Y0: float,
     mdot: float,
-    area: float,
+    area_face: float,
     gamma: float,
     gas_constant: float,
 ) -> np.ndarray:
     rho = max(p0 / (gas_constant * T0), 1e-9)
-    u = mdot / max(rho * area, 1e-9)
+    u = mdot / max(rho * area_face, 1e-9)
     prim = Primitive1D(rho=rho, u=u, p=p0, T=T0, Y=Y0)
     cons = primitive_to_conserved(prim, gamma, gas_constant)
     return np.array([cons.rho, cons.rhou, cons.rhoE, cons.rhoY], dtype=float)

@@ -36,6 +36,7 @@ def main() -> None:
         rpm=3000.0,
         pipe_cells=30,
         pipe_length_m=0.6,
+        pipe_diameter_m=0.04,
         bore_m=bore,
         stroke_m=stroke,
         conrod_m=conrod,

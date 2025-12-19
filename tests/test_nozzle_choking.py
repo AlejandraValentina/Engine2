@@ -30,7 +30,7 @@ def test_v2_nozzle_choking_behavior() -> None:
     gas_constant = 287.0
     cp = gamma * gas_constant / (gamma - 1.0)
 
-    mdot_high, _, _ = nozzle_mass_flow(p0, t0, 180000.0, area, gamma, gas_constant, 1.0, cp, 1.0)
-    mdot_low, _, _ = nozzle_mass_flow(p0, t0, 20000.0, area, gamma, gas_constant, 1.0, cp, 1.0)
+    mdot_high, _, _ = nozzle_mass_flow(p0, t0, 180000.0, area, gamma, gas_constant, cp, 1.0)
+    mdot_low, _, _ = nozzle_mass_flow(p0, t0, 20000.0, area, gamma, gas_constant, cp, 1.0)
 
     assert mdot_low > mdot_high
