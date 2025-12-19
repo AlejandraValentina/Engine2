@@ -136,7 +136,9 @@ A_{eff} = C_d A_{valve}
 - Units: \(D_{seat}\) [m], \(lift\) [m], \(A_{eff}\) [m²].
 
 ### 4.2 Isentropic Nozzle Mass Flow (Phase 1)
-**Inputs:** \(p_0, T_0, p_{down}, A_{eff}, \gamma, R, C_d\)
+**Inputs:** \(p_0, T_0, p_{down}, A_{eff}, \gamma, R\).
+
+**Note on Cd:** Cd is already **baked into** \(A_{eff}\). Do **not** multiply by Cd again.
 
 Define:
 \[
@@ -145,6 +147,13 @@ Define:
 \[
  pr_{crit} = \left(\frac{2}{\gamma+1}\right)^{\gamma/(\gamma-1)}
 \]
+
+**Operational backflow rule (signed convention):**
+- If \(p_{down} \le p_0\): use upstream totals \((p_0, T_0, Y_0)\) and downstream static \(p_{down}\). Compute \(\dot{m}_{mag}\) from the formulas below and set \(\dot{m} = +\dot{m}_{mag}\).
+- If \(p_{down} > p_0\): **swap roles**. Use upstream totals from the downstream side \((p_{0,rev}, T_{0,rev}, Y_{0,rev})\) and downstream static \(p_{down,rev}\) from the original upstream side. Compute \(\dot{m}_{mag}\) with the same formulas and set \(\dot{m} = -\dot{m}_{mag}\).
+- \(\dot{H}\) and \(\dot{Y}\) always use **upstream totals** of the actual flow direction:
+  - \(\dot{H} = \dot{m}\,h_{tot,upstream}\) with \(h_{tot} \approx c_p T_0\) in Phase 1.
+  - \(\dot{Y} = \dot{m}\,Y_{upstream}\).
 
 **Choking criterion:** choked if \(p_{down}/p_0 \le pr_{crit}\).
 
@@ -161,17 +170,26 @@ pr = \frac{p_{down}}{p_0}
 \dot{m} = A_{eff} \, p_0 \, \sqrt{\frac{2\gamma}{R T_0 (\gamma-1)}\,\left(pr^{2/\gamma} - pr^{(\gamma+1)/\gamma}\right)}
 \]
 
-**Sign convention:**
-- \(\dot{m}\) is **signed** and positive from upstream → downstream.
-- \(\dot{H} = \dot{m}\,h_{tot,upstream}\), Phase 1 uses \(h_{tot} \approx c_p T_0\) (port kinetic term neglected unless explicitly modeled).
-- \(\dot{Y} = \dot{m}\,Y_{upstream}\).
-
 ### 4.3 Boundary Flux Application (Phase 1 Recipe)
 **Option B (selected): ghost-cell construction + Rusanov flux.**
-- Construct a ghost-cell primitive state using upstream totals \((p_0, T_0, Y_0)\) and nozzle \(\dot{m}\).
-- Convert the ghost primitive to conserved \(U_{ghost}\) using the standard closure.
-- Use the same Rusanov flux as interior faces to compute the boundary face flux.
+
+Define:
+- \(A_{face}\) = cross-sectional area of the pipe-end finite-volume face (**not** valve area).
+
+Ghost primitive state (upstream reservoir model):
+- \(p_g = p_{0,upstream}\)
+- \(T_g = T_{0,upstream}\)
+- \(\rho_g = p_g/(R T_g)\)
+- \(u_g = \dot{m}/(\rho_g A_{face})\) (signed)
+- \(Y_g = Y_{0,upstream}\)
+
+Then:
+- Convert ghost primitive → ghost conserved using the same closure as the interior.
+- Use the standard Rusanov numerical flux between ghost and the first interior cell.
+- Apply that flux to update the boundary cell exactly like any interior face.
 - **No direct pressure forcing** at the boundary.
+
+**Note:** Any clamping of \(u_g\) is a **numerical guardrail** and must be minimal and documented.
 
 ## 5) Orchestrator: Synchronization & Convergence
 ### 5.1 Time Integration (Single Global \(\Delta t\))
