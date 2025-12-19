@@ -8,8 +8,9 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 
 from core import numerics
-from core.engine_components import Pipe, SimulationSettings
+from core.engine_components import Camshaft, CylinderHead, Pipe, SimulationSettings
 from core.junctions import Junction
+from core.wave_utils import mass_flow_nozzle
 
 
 def _init_pipe_state(
@@ -97,6 +98,39 @@ def compute_placeholder_valve_area(
     return base_area * lift
 
 
+def compute_exhaust_valve_area(
+    cyl_angle: float,
+    camshaft: Camshaft,
+    head: CylinderHead,
+    settings: SimulationSettings,
+) -> float:
+    """Compute effective exhaust valve area using lift and discharge coefficient."""
+
+    model = getattr(settings, "exhaust_valve_area_model", "curtain")
+    seat_mm = head.exhaust_valve_seat_diameter_mm or head.exhaust_valve_diameter_mm
+    seat_mm = float(seat_mm) if seat_mm is not None else 0.0
+    valves = max(int(head.exhaust_valves), 1)
+    cd = getattr(settings, "exhaust_valve_cd", None)
+    if cd is None:
+        cd = head.exhaust_valve_cd
+    cd = float(cd)
+
+    if seat_mm <= 0.0 or cd <= 0.0:
+        return 0.0
+
+    if model == "fixed":
+        seat_m = seat_mm * 1e-3
+        area = math.pi * (seat_m * 0.5) ** 2 * valves
+        return cd * area
+
+    lift_mm = float(camshaft.get_lift(cyl_angle, intake=False))
+    if lift_mm <= 0.0:
+        return 0.0
+    curtain_area_mm2 = math.pi * seat_mm * lift_mm * valves
+    curtain_area_m2 = curtain_area_mm2 * 1e-6
+    return cd * curtain_area_m2
+
+
 def rusanov_flux(U_L: np.ndarray, U_R: np.ndarray, gamma: float) -> np.ndarray:
     """Local Lax-Friedrichs flux for 1D Euler equations."""
 
@@ -144,6 +178,8 @@ class Engine1DSolver:
         p_atm: float = 101325.0,
         T_amb: float = 300.0,
         settings: Optional[SimulationSettings] = None,
+        camshaft: Optional[Camshaft] = None,
+        head: Optional[CylinderHead] = None,
     ):
         self.time: float = 0.0
         self.p_atm = p_atm
@@ -174,6 +210,9 @@ class Engine1DSolver:
         for idx, cyl in enumerate(firing_order):
             self.phase_map[cyl] = 720.0 * idx / max(self.n_cyl, 1)
 
+        self.camshaft = camshaft
+        self.head = head
+
     def _apply_inlet(
         self,
         state: Dict,
@@ -194,16 +233,14 @@ class Engine1DSolver:
                 self.gamma,
             )[0]
         )
-        mdot = float(
-            numerics.calculate_mass_flow_rate(
-                float(p_stag),
-                float(p_down),
-                float(max(T_stag, 1.0)),
-                float(valve_area),
-                float(Cd),
-                float(self.gamma),
-                float(self.gas_constant),
-            )
+        mdot, _, h0 = mass_flow_nozzle(
+            float(p_stag),
+            float(max(T_stag, 1.0)),
+            float(p_down),
+            float(valve_area),
+            float(self.gamma),
+            float(self.gas_constant),
+            float(Cd),
         )
 
         A_pipe = float(state["areas"][0])
@@ -218,8 +255,7 @@ class Engine1DSolver:
         u_res = float(
             np.clip(mflux / rho_res, -self.settings.clamp_u_max, self.settings.clamp_u_max)
         )
-        cp = self.gamma * self.gas_constant / max(self.gamma - 1.0, 1e-9)
-        h0 = cp * float(max(T_stag, 1.0)) + 0.5 * u_res * u_res
+        h0 = float(h0 + 0.5 * u_res * u_res)
 
         cell_vol = float(state["dx"] * state["areas"][0])
         mass_delta = mdot * dt
@@ -313,9 +349,17 @@ class Engine1DSolver:
             cyl_id = i + 1
             phase_shift = self.phase_map.get(cyl_id, 0.0)
             cyl_angle = (base_angle + phase_shift) % 720.0
-            valve_area = compute_placeholder_valve_area(
-                cyl_angle, exhaust_open_start, exhaust_open_end, state["areas"][0]
-            )
+            if self.camshaft is not None and self.head is not None:
+                valve_area = compute_exhaust_valve_area(
+                    cyl_angle,
+                    self.camshaft,
+                    self.head,
+                    self.settings,
+                )
+            else:
+                valve_area = compute_placeholder_valve_area(
+                    cyl_angle, exhaust_open_start, exhaust_open_end, state["areas"][0]
+                )
             if valve_area > 0.0:
                 p_cyl = p_stag_by_cyl.get(cyl_id, p_exhaust) if p_stag_by_cyl else p_exhaust
                 T_cyl = T_stag_by_cyl.get(cyl_id, T_exhaust) if T_stag_by_cyl else T_exhaust
@@ -324,7 +368,11 @@ class Engine1DSolver:
                 T_cyl = self.T_amb
 
             if valve_area > 0.0:
-                self._apply_inlet(state, p_cyl, T_cyl, valve_area, dt, Cd=0.9)
+                cd_val = getattr(self.settings, "exhaust_valve_cd", None)
+                if cd_val is None and self.head is not None:
+                    cd_val = self.head.exhaust_valve_cd
+                cd_val = 0.9 if cd_val is None else float(cd_val)
+                self._apply_inlet(state, p_cyl, T_cyl, valve_area, dt, Cd=cd_val)
             else:
                 # Reflective ghost cell when valve is closed
                 state["U"][0, 0] = state["U"][1, 0]
@@ -361,6 +409,9 @@ class Engine1DSolver:
     ) -> float:
         if dt is None:
             dt = self.get_time_step()
+        if self.settings.enable_0d_to_1d_exhaust_coupling:
+            if p_stag_by_cyl is None or T_stag_by_cyl is None:
+                raise ValueError("0D->1D exhaust coupling enabled but no stagnation inputs provided")
 
         self.apply_boundary_conditions(
             rpm,
@@ -449,7 +500,12 @@ class Engine1DSolver:
         self.time += dt
         return dt
 
-    def run_full_simulation(self, rpm: float, cycles: int = 2):
+    def run_full_simulation(
+        self,
+        rpm: float,
+        cycles: int = 2,
+        coupling_data: Optional[Dict[int, Dict[str, np.ndarray]]] = None,
+    ):
         """Simulate several cycles and record state history for visualization."""
 
         # Reset states
@@ -468,7 +524,26 @@ class Engine1DSolver:
 
         while self.time < total_time:
             dt = self.get_time_step()
-            self.step(rpm=rpm, dt=dt)
+            p_stag_by_cyl = None
+            t_stag_by_cyl = None
+            if self.settings.enable_0d_to_1d_exhaust_coupling:
+                if coupling_data is None:
+                    raise ValueError("0D->1D exhaust coupling enabled but no coupling data provided")
+                p_stag_by_cyl = {}
+                t_stag_by_cyl = {}
+                base_angle = (self.time * rpm * 6.0) % 720.0
+                for cyl_id in range(1, self.n_cyl + 1):
+                    data = coupling_data.get(cyl_id)
+                    if data is None:
+                        raise ValueError(f"Missing coupling data for cylinder {cyl_id}")
+                    cyl_angle = (base_angle + self.phase_map.get(cyl_id, 0.0)) % 720.0
+                    angle_arr = data["angle"]
+                    p_arr = data["p_stag"]
+                    t_arr = data["t_stag"]
+                    p_stag_by_cyl[cyl_id] = float(np.interp(cyl_angle, angle_arr, p_arr))
+                    t_stag_by_cyl[cyl_id] = float(np.interp(cyl_angle, angle_arr, t_arr))
+
+            self.step(rpm=rpm, dt=dt, p_stag_by_cyl=p_stag_by_cyl, T_stag_by_cyl=t_stag_by_cyl)
             while self.time >= next_sample and next_sample <= total_time:
                 # record first primary for visualization
                 history.append(self.primary_states[0]["U"].copy())
@@ -486,4 +561,3 @@ class Engine1DSolver:
 
 # Backwards compatibility for existing imports
 PipeSolver = Engine1DSolver
-

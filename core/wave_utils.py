@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 
@@ -64,3 +66,71 @@ def compute_image_levels(matrix: np.ndarray) -> tuple[float, float]:
 
     padding = 0.05 * (upper - lower)
     return (lower - padding, upper + padding)
+
+
+def mass_flow_nozzle(
+    p_up: float,
+    T_up: float,
+    p_down: float,
+    area: float,
+    gamma: float,
+    gas_constant: float,
+    cd: float = 1.0,
+) -> tuple[float, float, float]:
+    """Estimate compressible nozzle mass flow with optional choking.
+
+    Returns (m_dot, T_exit, h0). The upstream pressure/temperature are treated
+    as stagnation (total) conditions.
+    """
+
+    if area <= 0.0 or p_up <= 0.0 or T_up <= 0.0:
+        return 0.0, max(T_up, 1.0), 0.0
+
+    gamma = float(gamma)
+    gas_constant = float(gas_constant)
+    cd = max(min(float(cd), 1.2), 0.0)
+
+    pr = max(min(p_down / max(p_up, 1e-12), 1.0), 0.0)
+    critical = (2.0 / (gamma + 1.0)) ** (gamma / (gamma - 1.0))
+    choked = pr <= critical
+
+    if choked:
+        pr_eff = critical
+    else:
+        pr_eff = pr
+
+    temp_ratio = pr_eff ** ((gamma - 1.0) / gamma)
+    T_exit = max(T_up * temp_ratio, 1.0)
+
+    if choked:
+        flow_coeff = math.sqrt(gamma / gas_constant) * (2.0 / (gamma + 1.0)) ** (
+            (gamma + 1.0) / (2.0 * (gamma - 1.0))
+        )
+        m_dot = cd * area * p_up / math.sqrt(T_up) * flow_coeff
+    else:
+        term = (pr ** (2.0 / gamma) - pr ** ((gamma + 1.0) / gamma))
+        term = max(term, 0.0)
+        flow_coeff = math.sqrt(2.0 * gamma / (gas_constant * (gamma - 1.0)) * term)
+        m_dot = cd * area * p_up / math.sqrt(T_up) * flow_coeff
+
+    cp = gamma * gas_constant / max(gamma - 1.0, 1e-9)
+    h0 = cp * T_up
+    return float(m_dot), float(T_exit), float(h0)
+
+
+def build_exhaust_coupling(
+    angle: np.ndarray,
+    p_stag: np.ndarray,
+    t_stag: np.ndarray,
+    firing_order: list[int],
+) -> dict[int, dict[str, np.ndarray]]:
+    """Create per-cylinder coupling data from a shared 0D trace."""
+
+    coupling: dict[int, dict[str, np.ndarray]] = {}
+    for cyl in firing_order:
+        coupling[int(cyl)] = {
+            "angle": np.asarray(angle, dtype=float),
+            "p_stag": np.asarray(p_stag, dtype=float),
+            "t_stag": np.asarray(t_stag, dtype=float),
+        }
+    return coupling

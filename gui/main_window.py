@@ -1246,6 +1246,9 @@ class MainWindow(QMainWindow):
             tailpipe,
             block.firing_order,
             collector_volume=collector.volume,
+            settings=self.engine.simulation_settings,
+            camshaft=self.engine.camshaft,
+            head=self.engine.head,
         )
         self.audio_synth = AudioSynthesizer()
         self.wave_history = []

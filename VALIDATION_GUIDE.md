@@ -11,7 +11,10 @@ Esta guía resume cómo validar PyWaveDyn sin depender de la GUI, usando solo co
    - Identidades: `python -m pytest -q tests/test_identities.py`
    - Tendencias: `python -m pytest -q tests/test_trends.py`
    - Bandas de sanidad: `python -m pytest -q tests/test_sanity_bands.py`
-6. **Presets canónicos:** cargar `presets/honda_k20.json`, `presets/chevy_350.json`, `presets/ferrari_f1.json` en pruebas o herramientas externas según sea necesario.
+6. **CLI headless (dyno/scope):**
+   - `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:4000:500 --out out_dyno.json`
+   - `python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2500 --cycles 1 --out out_scope.json`
+7. **Presets canónicos:** cargar `presets/honda_k20.json`, `presets/chevy_350.json`, `presets/ferrari_f1.json` en pruebas o herramientas externas según sea necesario.
 
 **Nota sobre presets y CR:** si un preset define `combustion_chamber_vol`, ese valor overridea la geometría implícita al declarar la relación de compresión; mantener `combustion_chamber_vol` coherente con `compression_ratio` (véase `tools/audit_presets.py`).
 
@@ -22,6 +25,8 @@ Esta guía resume cómo validar PyWaveDyn sin depender de la GUI, usando solo co
 ## Expectativas mínimas
 - **0D (thermo):** `CylinderSimulator.run_cycle` devuelve diccionario con torque/potencia/bmep/VE/knock finitos y no negativos (torque/potencia), sin NaN/inf.
 - **1D (simulator):** Las condiciones de borde construyen estados fantasmas con presión ambiente y densidad/energía positivas; el estado `U` se mantiene finito tras aplicar el outlet (ver `tests/test_contract_1d_bc.py`, marcado integration).
+- **Válvula/boquilla:** `tests/test_valve_area_curtain.py` valida que el área de cortina sea monotónica con la alzada; `tests/test_nozzle_choking.py` valida el cambio entre régimen ahogado y no ahogado.
+- **Acoplamiento 0D→1D (escape):** `tests/integration/test_0d_to_1d_scope.py` verifica que la presión 1D responda a la apertura real de válvula sin NaN.
 
 ## Definición de “implementado”
 Un feature se considera implementado cuando existe un comando reproducible y/o un test verde que lo cubre. Las features marcadas como futuras en `FEATURES.md` requieren un test o comando adicional antes de considerarse completas.

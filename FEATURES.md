@@ -5,6 +5,8 @@
 
 ## 2) Wave Scope 1D (simulator/numerics)
 - [x] Solver 1D de escape (Euler + Lax–Wendroff + celdas fantasma + colector) — Evidencia: `core/simulator.py`, `core/numerics.py`, `gui/widgets/scope_widget.py`. Test de contrato marcado integration: `tests/test_contract_1d_bc.py` (ejecutar opt-in con `python -m pytest -m integration -q tests/test_contract_1d_bc.py`).
+- [x] Área real de válvula (cortina + Cd) en 1D — Evidencia: `core/simulator.py`, `tests/test_valve_area_curtain.py`.
+- [x] Acople 0D→1D unidireccional (escape) — Evidencia: `tests/integration/test_0d_to_1d_scope.py` (marcado integration).
 - [ ] Acople 0D→1D bidireccional — Criterio de aceptación: test de integración que compare backpressure dinámica del 1D con la heurística 0D y afecte el ciclo.
 
 ## 3) Audio (acoustics)
@@ -22,3 +24,6 @@
 - [x] Contratos básicos 0D/1D — Evidencia: `tests/test_contract_0d.py`, `tests/test_contract_1d_bc.py` (integration).
 - [x] Presets legacy movidos a `presets/legacy/` — Evidencia: `AUDIT_REPORT.md`.
 - [ ] Cobertura de regresión para presets legacy — Criterio: tests marcados `legacy` que carguen presets legacy y validen no-NaN/no-negatividad.
+ 
+## 7) CLI Headless
+- [x] CLI dyno/scope reproducible — Evidencia: `pywavedyn/cli.py`, `tests/test_cli_outputs.py`.
