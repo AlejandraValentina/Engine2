@@ -51,10 +51,17 @@ class CylinderControlVolume:
 
 
 def slider_crank_volume(theta: float, bore: float, stroke: float, conrod: float, clearance: float) -> Tuple[float, float]:
+    if conrod <= 0.0:
+        raise ValueError("conrod length must be positive")
     r = stroke / 2.0
     l = conrod
     area = math.pi * (bore * 0.5) ** 2
-    term = 1.0 - math.cos(theta) + (r / l) * (1.0 - math.sqrt(1.0 - (math.sin(theta) ** 2) * (r / l) ** 2))
+    sin_theta = math.sin(theta)
+    cos_theta = math.cos(theta)
+    ratio = r / l
+    root = max(1.0 - (sin_theta**2) * (ratio**2), 1e-12)
+    sqrt_root = math.sqrt(root)
+    term = 1.0 - cos_theta + ratio * (1.0 - sqrt_root)
     V = clearance + area * r * term
-    dVdtheta = area * r * (math.sin(theta) + (r / l) * (math.sin(theta) * math.cos(theta)) / math.sqrt(1.0 - (math.sin(theta) ** 2) * (r / l) ** 2))
+    dVdtheta = area * r * (sin_theta + ratio * (sin_theta * cos_theta) / sqrt_root)
     return V, dVdtheta
