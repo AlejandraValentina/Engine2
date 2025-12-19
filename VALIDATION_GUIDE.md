@@ -25,6 +25,7 @@ Esta guía resume cómo validar PyWaveDyn sin depender de la GUI, usando solo co
 - **CLI smoke (metadata):**
   - `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:2500:500 --out out_dyno.json`
   - `python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2000 --cycles 1 --out out_scope.json`
+  - v2 integration (opt-in): `python -m pytest -q -m integration tests/integration/test_ram_charging.py tests/integration/test_blowdown_wave_time.py`
 
 ## Comportamiento de validación en la GUI
 - **Carga (non-strict):** al abrir un JSON, `Engine.validate_with_issues()` reúne advertencias. Se muestra un cuadro de aviso pero el proyecto se carga.

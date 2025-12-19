@@ -30,3 +30,8 @@
 
 ## 8) Selfcheck & Validation Cases
 - [x] Selfcheck gate con dataset mínimo — Evidencia: `validation_cases/`, `pywavedyn/cli.py`, `tests/test_selfcheck_cli.py`. Run: `python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json`.
+
+## 9) Advanced Physics Core (v2)
+- [ ] Coupled 0D–1D core (Phase 1 scaffolding) — Planned: `core/advanced/`, `docs/TECHNICAL_SPECS_V2.md`.
+- [ ] v2 unit tests (nozzle/CFL/passive scalar/roundtrip) — Planned: `tests/test_cfl_dt.py`, `tests/test_conserved_roundtrip.py`, `tests/test_passive_scalar_bounds.py`.
+- [ ] v2 integration tests (ram charging / blowdown) — Planned: `tests/integration/test_ram_charging.py`, `tests/integration/test_blowdown_wave_time.py`.
