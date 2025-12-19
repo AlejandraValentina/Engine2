@@ -32,12 +32,53 @@ U = [\rho, \rho u, \rho E, \rho Y_{fresh}]
 - Speed of sound: \(a = \sqrt{\gamma R T}\).
 - Composition affects only oxygen availability / effective AFR (no variable \(\gamma/R\) yet).
 
-### 2.3 Numerical Scheme (TVD Requirement)
+### 2.3 Euler Fluxes and Closure (Phase 1)
+**Conserved vector:**
+\[
+U = [\rho, \rho u, \rho E, \rho Y]
+\]
+**Closure:**
+\[
+p = (\gamma - 1)\,\left(\rho E - 0.5\,\rho u^2\right)
+\]
+\[
+a = \sqrt{\gamma p/\rho} = \sqrt{\gamma R T}
+\]
+**Flux:**
+\[
+F(U) = [\rho u,\ \rho u^2 + p,\ u(\rho E + p),\ \rho u Y]
+\]
+
+### 2.4 Rusanov Flux (Explicit)
+At each interface:
+\[
+F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
+\]
+\[
+\alpha = \max(|u_L| + a_L,\ |u_R| + a_R)
+\]
+
+### 2.5 Numerical Scheme (TVD Requirement)
 **Phase 1 requirement:** a TVD flux-limited method to suppress ringing.
 - **Selected scheme:** MUSCL–Hancock reconstruction + Rusanov (local Lax–Friedrichs) flux.
-- **Limiter:** Minmod by default; Superbee is optional.
+- **Reconstruction variables:** **primitive** \((\rho, u, p, Y)\).
+- **Limiter:** Minmod by default; Superbee optional.
 
-### 2.4 Source Terms
+**Minmod definition (component-wise):**
+\[
+\text{minmod}(a,b) =
+\begin{cases}
+0 & ab \le 0 \\
+\text{sign}(a)\min(|a|,|b|) & ab > 0
+\end{cases}
+\]
+
+**Passive scalar guardrail (Phase 1):**
+- After update, compute \(Y = (\rho Y)/\rho\).
+- If tiny drift pushes \(Y\) slightly outside \([0,1]\), **clamp** to \([0,1]\) and recompute \(\rho Y = \rho\,Y\).
+- This clamp is a **numerical guardrail**, not physics.
+
+### 2.6 Source Terms
 - **Friction (Darcy–Weisbach):**
   \[
   S_{mom} = -\frac{f}{2D}\,\rho u|u|,\quad S_E = u\,S_{mom}
@@ -46,7 +87,7 @@ U = [\rho, \rho u, \rho E, \rho Y_{fresh}]
   - Phase 1 default **OFF**: `settings.enable_1d_heat_transfer = False`.
   - If enabled, use a documented wall heat-loss model with parameters declared in settings.
 
-### 2.5 Adaptive Time Step
+### 2.7 Adaptive Time Step
 \[
 \Delta t = \min\left(\Delta t_{max},\; CFL \cdot \min_i \frac{\Delta x_i}{|u_i| + a_i}\right)
 \]
@@ -94,34 +135,43 @@ A_{eff} = C_d A_{valve}
 - **Fixed-area option:** \(A_{valve} = constant\).
 - Units: \(D_{seat}\) [m], \(lift\) [m], \(A_{eff}\) [m²].
 
-### 4.2 Compressible Nozzle Flow (Phase 1 Only)
-**Inputs:**
-- Upstream totals: \(p_0, T_0, Y_0\)
-- Downstream static pressure: \(p_{down}\)
-- \(A_{eff}, \gamma, R, c_p\)
+### 4.2 Isentropic Nozzle Mass Flow (Phase 1)
+**Inputs:** \(p_0, T_0, p_{down}, A_{eff}, \gamma, R, C_d\)
 
-**Outputs (positive upstream → downstream):**
-- \(\dot{m}\)
-- \(\dot{H} = \dot{m}\,h_{tot,up}\) (Phase 1: \(h_{tot} \approx c_p T_0\))
-- \(\dot{Y} = \dot{m}\,Y_0\)
-
-**Choking condition:**
+Define:
 \[
-\left(\frac{p_{down}}{p_0}\right)_{crit} = \left(\frac{2}{\gamma+1}\right)^{\gamma/(\gamma-1)}
+ c_p = \frac{\gamma R}{\gamma - 1}
 \]
-- If \(p_{down}/p_0 \le (p_{down}/p_0)_{crit}\), use the choked formula.
-- Else, use the subsonic formula.
+\[
+ pr_{crit} = \left(\frac{2}{\gamma+1}\right)^{\gamma/(\gamma-1)}
+\]
 
-### 4.3 Boundary Application to 1D (Phase 1)
-- Use **flux-consistent ghost-cell boundary updates** from nozzle outputs.
-- Apply nozzle fluxes to \([\rho, \rho u, \rho E, \rho Y_{fresh}]\) at the boundary face.
-- **Do not** force pressure directly at the boundary.
+**Choking criterion:** choked if \(p_{down}/p_0 \le pr_{crit}\).
 
-### 4.4 Mixing Logic (Sign-Consistent)
-- Flow direction is defined by \(\dot{m}\) sign (or port velocity sign).
-- Inflow to cylinder (\(\dot{m} > 0\)): use \(Y_{in} = Y_{pipe}\).
-- Backflow to pipe (\(\dot{m} < 0\)): use \(Y_{out} = Y_{cyl}\).
-- Enables emergent EGR/reversion.
+**Choked flow:**
+\[
+\dot{m} = A_{eff} \, p_0 \, \sqrt{\frac{\gamma}{R T_0}}\,\left(\frac{2}{\gamma+1}\right)^{\frac{\gamma+1}{2(\gamma-1)}}
+\]
+
+**Subsonic flow:**
+\[
+pr = \frac{p_{down}}{p_0}
+\]
+\[
+\dot{m} = A_{eff} \, p_0 \, \sqrt{\frac{2\gamma}{R T_0 (\gamma-1)}\,\left(pr^{2/\gamma} - pr^{(\gamma+1)/\gamma}\right)}
+\]
+
+**Sign convention:**
+- \(\dot{m}\) is **signed** and positive from upstream → downstream.
+- \(\dot{H} = \dot{m}\,h_{tot,upstream}\), Phase 1 uses \(h_{tot} \approx c_p T_0\) (port kinetic term neglected unless explicitly modeled).
+- \(\dot{Y} = \dot{m}\,Y_{upstream}\).
+
+### 4.3 Boundary Flux Application (Phase 1 Recipe)
+**Option B (selected): ghost-cell construction + Rusanov flux.**
+- Construct a ghost-cell primitive state using upstream totals \((p_0, T_0, Y_0)\) and nozzle \(\dot{m}\).
+- Convert the ghost primitive to conserved \(U_{ghost}\) using the standard closure.
+- Use the same Rusanov flux as interior faces to compute the boundary face flux.
+- **No direct pressure forcing** at the boundary.
 
 ## 5) Orchestrator: Synchronization & Convergence
 ### 5.1 Time Integration (Single Global \(\Delta t\))
@@ -137,20 +187,36 @@ Stop when **both** are satisfied:
 - Relative error of indicated work \(\oint p\,dV\) over 720° < **0.5%** between cycles.
 
 ## 6) Outputs & Derived Results
-- **VE as result:**
+- **IVC definition:** IVC occurs when intake valve effective area \(A_{eff}\) crosses to zero on the closing edge (or at a fixed crank angle if specified in settings).
+- \(\rho_{ambient} = p_{amb}/(R T_{amb})\).
+- **VE (per-cylinder, averaged):**
   \[
-  VE_{real} = \frac{m_{fresh,IVC}}{\rho_{ambient} V_{disp}}
+  VE_{real} = \frac{m_{fresh,IVC}}{\rho_{ambient} V_{disp,per\,cyl}}
   \]
-- **Residual fraction:** \(1 - m_{fresh}/m_{total}\) at IVC (or defined compression start).
-- Provide histories for:
-  - \(p_{cyl}, T_{cyl}, \dot{m}_{intake}, \dot{m}_{exhaust}, Y_{cyl}\)
-  - Selected pipe probes (pressure, velocity, \(Y_{fresh}\)).
+  For multi-cylinder, compute per-cylinder VE and report the average.
+- **Residual fraction:**
+  \[
+  res\_frac = 1 - \frac{m_{fresh}}{m_{total}}\Big|_{IVC}
+  \]
+
+### 6.1 Indicated Work Discretization
+Per cylinder:
+\[
+W_{ind} = \sum_i 0.5\,(p_i + p_{i+1})\,(V_{i+1} - V_i)
+\]
+Total indicated work (multi-cylinder): multiply by `num_cylinders`.
+
+### 6.2 Histories & Probes
+Provide histories for:
+- \(p_{cyl}, T_{cyl}, \dot{m}_{intake}, \dot{m}_{exhaust}, Y_{cyl}\)
+- Selected pipe probes (pressure, velocity, \(Y_{fresh}\)).
 
 ## 7) Testing & Verification Requirements
 ### Unit Tests
 - Nozzle choking regime correctness.
-- Conservative transport of \(\rho Y_{fresh}\) (no negative \(Y\), stable bounds).
+- Conservative transport of \(\rho Y_{fresh}\) (no negative \(Y\), stable bounds with guardrail clamp).
 - CFL \(\Delta t\) computation decreases when \(|u|\) or \(a\) increases.
+- Primitive ↔ conserved roundtrip within tolerance.
 
 ### Integration Tests (marker: `integration`)
 - Intake pipe + cylinder shows ram charging (VE > 1 possible).
