@@ -87,4 +87,5 @@ See: FEATURES.md and VALIDATION_GUIDE.md.
 _Add your screenshots here to showcase the interface._
 
 ## License & Contributions
-License: TODO (add SPDX identifier and LICENSE file). Contributions, validation data, and new presets are welcome via issues and pull requests.
+SPDX-License-Identifier: MIT  
+License: MIT (see LICENSE). Contributions, validation data, and new presets are welcome via issues and pull requests.

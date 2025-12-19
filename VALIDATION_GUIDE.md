@@ -18,6 +18,13 @@ Esta guía resume cómo validar PyWaveDyn sin depender de la GUI, usando solo co
 
 **Nota sobre presets y CR:** si un preset define `combustion_chamber_vol`, ese valor overridea la geometría implícita al declarar la relación de compresión; mantener `combustion_chamber_vol` coherente con `compression_ratio` (véase `tools/audit_presets.py`).
 
+## Required checks (PR gate)
+- **Must pass:** `python -m pytest -q`
+- **Optional/CI integration:** `python -m pytest -q -m integration`
+- **CLI smoke (metadata):**
+  - `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:2500:500 --out out_dyno.json`
+  - `python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2000 --cycles 1 --out out_scope.json`
+
 ## Comportamiento de validación en la GUI
 - **Carga (non-strict):** al abrir un JSON, `Engine.validate_with_issues()` reúne advertencias. Se muestra un cuadro de aviso pero el proyecto se carga.
 - **Guardado (strict):** al guardar, la validación estricta bloquea el guardado si hay errores y muestra el mensaje en la barra de estado y un diálogo.

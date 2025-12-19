@@ -10,10 +10,22 @@
   - `presets/legacy/ferrari_355_v12.json` — preset previo no canónico.
 
 ## Tests
-- **Unit/contratos (se ejecutan por defecto)**: `tests/test_identities.py`, `tests/test_trends.py`, `tests/test_sanity_bands.py`, `tests/test_core.py`, `tests/test_contract_0d.py`, `tests/test_tiered_validation.py`, `tests/test_engine_suite.py`, `tests/test_physics.py`.
-- **Integration (opt-in)**: `tests/integration/test_thermo_k20.py`, `tests/test_contract_1d_bc.py` (BC 1D).
-- **Legacy/Frozen**: ninguno movido; usar marker `legacy` si se recuperan pruebas antiguas.
+- **Unit/contratos (por defecto)**:
+  - 0D contratos: `tests/test_contract_0d.py` — Run: `python -m pytest -q tests/test_contract_0d.py`
+  - Identidades/sanidad/trends: `tests/test_identities.py`, `tests/test_sanity_bands.py`, `tests/test_trends.py`
+  - Núcleo y física: `tests/test_core.py`, `tests/test_physics.py`, `tests/test_engine_suite.py`, `tests/test_tiered_validation.py`
+  - 1D unidades/BC: `tests/test_1d_units_and_friction.py`, `tests/test_1d_gas_properties.py`, `tests/test_1d_heat_transfer_disabled.py`
+  - Válvula y tobera: `tests/test_valve_area_curtain.py`, `tests/test_valve_area_placeholder.py`, `tests/test_nozzle_choking.py`
+  - Acople/flags: `tests/test_coupling_flag.py`, `tests/test_junction_coupling.py`
+  - CLI/metadata: `tests/test_cli_outputs.py`
+  - Presets/units: `tests/test_preset_consistency.py`, `tests/test_units_contracts.py`, `tests/test_wave_utils.py`, `tests/test_engine_validation_issues.py`
+- **Integration (opt-in)**:
+  - `tests/integration/test_thermo_k20.py`
+  - `tests/integration/test_0d_to_1d_scope.py`
+  - `tests/test_contract_1d_bc.py` (marcado integration)
+- **Legacy/Frozen**: ninguno actualmente (marker `legacy` disponible).
 
 ## Comandos de validación
-- Completo por defecto: `python -m pytest`
-- Integración (opt-in): `python -m pytest -m integration`
+- Completo por defecto: `python -m pytest -q`
+- Integración (opt-in): `python -m pytest -m integration -q`
+- CLI smoke: `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:3000:500 --out out.json`

@@ -13,7 +13,7 @@
 - **Dominio angular 0–720° CA** para cada ciclo: 0° TDC solape, 180° BDC fin admisión / inicio compresión, 360° TDC compresión, 540° BDC expansión, 720° TDC inicio nuevo ciclo.
 
 ## 2. Modelo 0D – Termodinámica (core/thermo.py)
-- **Desacoplo del 1D**: el solver 0D calcula par/potencia sin retroalimentación del solver 1D. El escape se modela con una contrapresión heurística \(P_{exh} = P_{amb}\cdot exhaust\_backpressure\_factor\) (default 1.05).
+- **Desacoplo del 1D**: el solver 0D calcula par/potencia sin retroalimentación del solver 1D. El escape se modela con una contrapresión heurística \(P_{exh} = P_{amb}\cdot exhaust\_backpressure\_factor\) (default 1.05). **Acoplamiento unidireccional opcional**: el 0D puede exportar condiciones de estancamiento \(P_{stag}, T_{stag}\) al scope 1D cuando está habilitado (`enable_0d_to_1d_exhaust_coupling`), pero **no** recibe feedback 1D→0D.
 - **Fases del ciclo (máscaras)**:
   - Admisión: 0°–IVC (cierre admisión).
   - Compresión: IVC–360°.

@@ -95,6 +95,6 @@ Note: This is a GUI-first workflow. Headless/CLI sweeps do not count as “imple
 
 ### Notes on Physics Models
 - **Gas Dynamics:** Pipes advance with a Lax–Wendroff finite-volume scheme, ghost cells for boundary reflection, ambient static-pressure outlets (P_amb imposed in the ghost cell), and stability clamps (density/energy, CFL timestep).
-- **Valve Flow:** Mass transfer uses isentropic relations with choking detection and discharge coefficients.
+- **Valve Flow:** Mass transfer uses isentropic relations with choking detection and discharge coefficients. The default 1D exhaust valve model uses curtain or fixed seat area (via `SimulationSettings.exhaust_valve_area_model`) with Cd from `SimulationSettings.exhaust_valve_cd` (override) or `CylinderHead.exhaust_valve_cd` and `CylinderHead.exhaust_valve_seat_diameter_mm`. The placeholder sinusoid is only used when valve geometry/cam data is unavailable or explicitly forced.
 - **Thermo Cycle:** Cylinder pressure uses phase-aware intake/compression/combustion/exhaust masks with Wiebe heat release and friction torque subtraction for brake output.
 - **Audio:** Raw pressure histories are interpolated to fixed-rate audio with optional DC removal to hear exhaust timbre.
