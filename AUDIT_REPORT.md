@@ -9,6 +9,11 @@
   - `presets/legacy/custom_twin_230cc.json` — esquema antiguo/pequeño desplazamiento.
   - `presets/legacy/ferrari_355_v12.json` — preset previo no canónico.
 
+## Validation Cases
+- `validation_cases/k20_like.json`, `validation_cases/v8_like.json`, `validation_cases/single_cyl_moto_like.json`
+- `validation_cases/scope_tube_pulse.json`, `validation_cases/scope_simple_header.json`
+- Expectativas: `validation_cases/expectations.json` (usado por `pywavedyn.cli selfcheck`).
+
 ## Tests
 - **Unit/contratos (por defecto)**:
   - 0D contratos: `tests/test_contract_0d.py` — Run: `python -m pytest -q tests/test_contract_0d.py`

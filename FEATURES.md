@@ -27,3 +27,6 @@
 
 ## 7) CLI Headless
 - [x] CLI dyno/scope reproducible — Evidencia: `pywavedyn/cli.py`, `tests/test_cli_outputs.py`. Run: `python -m pytest -q tests/test_cli_outputs.py`.
+
+## 8) Selfcheck & Validation Cases
+- [x] Selfcheck gate con dataset mínimo — Evidencia: `validation_cases/`, `pywavedyn/cli.py`, `tests/test_selfcheck_cli.py`. Run: `python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json`.

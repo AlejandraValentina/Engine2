@@ -20,6 +20,7 @@
   - Potencia: 360°–EVO (combustión inicia en \(360° - advance\)).
   - Escape: ≥EVO hasta 720° usando \(P_{exh}\) definido arriba (\(P_{amb}\cdot exhaust\_backpressure\_factor\)).
 - **Masa atrapada**: \(m_{air} = VE \cdot \tfrac{P_{manifold}\,V_{IVC}}{R\,T_{charge}}\), usando volumen real en IVC.
+- **Masa de trabajo (consistencia)**: el ciclo usa una masa única \(m_{work} = m_{air} + m_{fuel}\) para actualizar temperatura y presión en todo el ciclo (no se cambia de masa a mitad de la combustión).
 - **Combustión (Wiebe)**: \(x(\theta)=1-\exp\{-a\big(\tfrac{\theta-\theta_{start}}{\Delta\theta}\big)^{m+1}\}\) con \(a,m\) tomados de `Combustion.wiebe_a/m`. Calor químico \(Q_{chem} = m_{fuel}\,LHV\); eficiencia de combustión \(\eta_{comb}\) aplicada antes de pérdidas térmicas.
 - **Transferencia de calor (Woschni)**: coeficiente \(h_c = k_{w}\,B^{-0.2} P^{0.8} T^{-0.55} w^{0.8}\) escalado por `heat_loss_factor`; \(w\approx2.28\)·velocidad media de pistón. Pérdida: \(Q_{loss} = h_c A_{wall}(T_{gas}-T_{wall})\,dt\); \(T_{wall}\) ≈ 450 K. Para cilindros pequeños se escala con el factor de calibre documentado en el código (raíz de \(85/B\)). **Definición de unidades del factor de calibre:** forma adimensional equivalente: \(\sqrt{85\,mm/B_{mm}}\) o, en SI, \(\sqrt{0.085\,m/B_{m}}\).
 - **Energía neta**: \(dQ_{net} = \eta_{comb}\,dQ_{Wiebe} - dQ_{loss}\). \(U_{int}\) es la energía interna total del gas atrapado [J]; \(m\) es la masa atrapada usada en el cierre (constante en el ciclo 0D si no hay intercambio de masa).
@@ -27,6 +28,7 @@
   - Cierre termodinámico (gas ideal): \(T \leftarrow U_{int}/(m c_v)\) con \(c_v = R/(\gamma-1)\); \(p \leftarrow m R T / V\). \(\gamma\) y \(R\) se definen en la Sección 1.
 - **VE dinámica**: curva anclada en `Camshaft.peak_rpm`; penalización por Mach usando `Head.mach_tolerance`; área efectiva escalada por `Head.port_flow_efficiency`; pérdidas de admisión con `IntakeSystem.flow_loss_coefficient`; resonancia modulada por `SimulationSettings.tuning_sensitivity`. La limitación por capacidad de flujo usa un único cap por CFM (no se penaliza dos veces).
 - **Combustión dependiente de RPM/carga (opcional)**: si `Combustion.use_dynamic_burn_duration/use_dynamic_ca50` están activos, la duración y CA50 se ajustan con términos lineales en RPM y carga aproximada; si el usuario fija `burn_duration` o `target_ca50_deg_atdc`, se respetan esos overrides.
+- **Trace de submodelos (salida)**: `run_cycle` expone un bloque `trace` con `ve_prelim`, `ve_cam_factor`, `ve_mach_factor`, `ve_flow_cap_factor`, `ve_final`, además de `eta_combustion_used`, `start_angle_used`, `burn_duration_used` y `ca50_target_used`.
 - **Fricción y accesorios**: FMEP con coeficientes en `Friction` y multiplicador `global_scaling_factor`; se suma torque de accesorios para obtener par de fricción total. Par efectivo = Par indicado − Par fricción − pérdidas de bombeo con `pumping_loss_torque_nm = 0` por defecto (no se descuenta bombeo adicional en el 0D). **Diferencia entre bombeo implícito y torque extra:** el trabajo afectado por \(P_{exh}\) heurística ya impacta la fase de escape del ciclo; `pumping_loss_torque_nm` representa un término adicional externo y por defecto es 0.
 - **Knock**: calcula octanaje requerido a partir de compresión dinámica; si supera el octanaje disponible, activa `knock_warning` pero no modifica el solver 1D.
 
@@ -51,6 +53,7 @@
 1. **Entrada GUI (PySide6/pyqtgraph)** edita el modelo (`core/engine_components.py`) y lanza simulaciones.
    - Para evitar destrucción de widgets durante señales de edición, el formulario de Block actualiza campos derivados (desplazamiento/velocidad media de pistón) en el lugar y difiere cualquier reconstrucción completa con `QTimer.singleShot(0, ...)`.
 2. **Persistencia**: JSON ↔ dataclasses (`Engine.from_dict/to_dict`); presets canónicos en `presets/` y legacy en `presets/legacy/` (ver `AUDIT_REPORT.md`).
+   - **Validación no estricta**: `Engine.validate_with_issues()` devuelve una lista ordenada de issues para carga GUI; `validate(strict=True)` levanta error si hay issues.
 3. **Ciclo 0D (core/thermo.py)**: calcula par/potencia/VE/knock usando backpressure heurística; alimenta Dyno, Analysis, Optimizer.
 4. **Onda 1D (core/simulator.py + core/numerics.py + core/junctions.py)**: consume perfiles de presión 0D (acoplamiento unidireccional) o impulsos sintéticos como BC de válvula para visualización y síntesis de audio; no retroalimenta al 0D.
 5. **Acústica (acoustics/audio_generator.py)**: remuestrea presión de salida 1D y mezcla por firing order para generar WAV. Estado: prototipo; verificación pendiente por CLI/tests (ver FEATURES.md).

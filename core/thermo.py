@@ -255,6 +255,7 @@ class CylinderSimulator:
 
         m_air = ve * (P_manifold * V_IVC) / (gas_constant * T_charge)
         fuel_mass = m_air / fuel_stoich
+        working_mass_kg = max(m_air + fuel_mass, 1e-12)
         eta_combustion = float(np.clip(getattr(self.engine.combustion, "thermal_efficiency", 0.95), 0.0, 1.0))
         Q_total = fuel_mass * fuel_lhv
 
@@ -299,7 +300,7 @@ class CylinderSimulator:
             x_disp = max((V_curr - Vc) / max(area, 1e-12), 0.0)
             area_wall = head_area + piston_area + (math.pi * bore_m * x_disp)
 
-            T_gas = p_current * V_curr / max(m_air * gas_constant, 1e-9)
+            T_gas = p_current * V_curr / max(working_mass_kg * gas_constant, 1e-9)
             w_mean = 2.28 * piston_speed_mean
             h_c = (
                 woschni_k
@@ -318,8 +319,7 @@ class CylinderSimulator:
                 V_next = max(volume[idx + 1], 1e-9)
                 p_current = p_with_heat * (V_curr / V_next) ** gamma_curr
 
-        total_mass = max(m_air + fuel_mass, 1e-9)
-        temperature = pressure * volume / max(total_mass * gas_constant, 1e-9)
+        temperature = pressure * volume / max(working_mass_kg * gas_constant, 1e-9)
         exhaust_p_stag = pressure.copy()
         exhaust_t_stag = temperature.copy()
 
@@ -396,6 +396,18 @@ class CylinderSimulator:
             brake_torque,
         )
 
+        trace = {
+            "ve_prelim": float(ve_prelim),
+            "ve_cam_factor": float(ve_cam_factor),
+            "ve_mach_factor": float(ve_mach_factor),
+            "ve_flow_cap_factor": float(ve_flow_cap_factor),
+            "ve_final": float(ve),
+            "eta_combustion_used": float(eta_combustion),
+            "start_angle_used": float(start_angle),
+            "burn_duration_used": float(burn_duration),
+            "ca50_target_used": None if target_ca50 is None else float(target_ca50),
+        }
+
         return {
             "angle": angle_arr,
             "pressure": pressure,
@@ -425,6 +437,7 @@ class CylinderSimulator:
             "knock_warning": knock_warning,
             "burn_duration_deg": burn_duration,
             "target_ca50_deg_atdc": target_ca50,
+            "trace": trace,
         }
     def run_pro_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
         """Pro dyno path currently reuses the calibrated quick cycle."""

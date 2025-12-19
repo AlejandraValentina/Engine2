@@ -52,6 +52,10 @@ See: FEATURES.md and VALIDATION_GUIDE.md.
    ```bash
    python -m pytest
    ```
+9. **Run selfcheck (validation cases):**
+   ```bash
+   python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json
+   ```
 
 ## Docs
 - [TECHNICAL_DOCS.md](TECHNICAL_DOCS.md) – especificación técnica de modelos 0D/1D.

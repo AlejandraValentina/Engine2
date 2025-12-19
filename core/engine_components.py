@@ -607,42 +607,46 @@ class Engine:
 
     def validate_with_issues(self) -> list[str]:
         """Return a list of validation issues without raising."""
-        issues: list[str] = []
+        issues: list[tuple[str, str]] = []
 
-        def _fail(msg: str) -> None:
-            issues.append(msg)
+        def _fail(path: str, msg: str) -> None:
+            issues.append((path, msg))
 
         if self.block.bore <= 0 or self.block.stroke <= 0 or self.block.conrod_length <= 0:
-            _fail("Block geometry must be positive (bore/stroke/conrod)")
+            _fail("block.geometry", "Block geometry must be positive (bore/stroke/conrod)")
         if self.block.num_cylinders < 1:
-            _fail("Engine must have at least one cylinder")
+            _fail("block.num_cylinders", "Engine must have at least one cylinder")
         if self.head.compression_ratio <= 1.0:
-            _fail("Compression ratio must exceed 1.0")
+            _fail("head.compression_ratio", "Compression ratio must exceed 1.0")
         if getattr(self.head, "port_flow_cfm", 0.0) < 0.0:
-            _fail("Port flow CFM must be non-negative")
+            _fail("head.port_flow_cfm", "Port flow CFM must be non-negative")
         throttle_cfm = getattr(self.intake, "throttle_cfm", None)
         throttle_flow_cfm = getattr(self.intake, "throttle_flow_cfm", None)
         if throttle_cfm is not None and throttle_cfm < 0:
-            _fail("Throttle CFM must be non-negative")
+            _fail("intake.throttle_cfm", "Throttle CFM must be non-negative")
         if throttle_flow_cfm is not None and throttle_flow_cfm < 0:
-            _fail("Throttle flow CFM must be non-negative")
+            _fail("intake.throttle_flow_cfm", "Throttle flow CFM must be non-negative")
         if getattr(self.intake, "runner_length", 1.0) <= 0.0 or getattr(self.intake, "runner_diameter", 1.0) <= 0.0:
-            _fail("Intake runner geometry must be positive")
+            _fail("intake.geometry", "Intake runner geometry must be positive")
         if getattr(self.combustion, "thermal_efficiency", 0.5) <= 0.0:
-            _fail("Combustion thermal efficiency must be positive")
+            _fail("combustion.thermal_efficiency", "Combustion thermal efficiency must be positive")
         if getattr(self.fuel, "energy_density", 0.0) <= 0.0:
-            _fail("Fuel energy density must be positive")
+            _fail("fuel.energy_density", "Fuel energy density must be positive")
         exhaust_cd = getattr(self.simulation_settings, "exhaust_valve_cd", None)
         if exhaust_cd is None:
             exhaust_cd = getattr(self.head, "exhaust_valve_cd", 0.85)
         if not (0.0 < float(exhaust_cd) <= 1.2):
-            _fail("Exhaust valve Cd must be between 0 and 1.2")
+            _fail("head.exhaust_valve_cd", "Exhaust valve Cd must be between 0 and 1.2")
         seat_mm = getattr(self.head, "exhaust_valve_seat_diameter_mm", self.head.exhaust_valve_diameter_mm)
         if seat_mm is None or seat_mm <= 0.0:
-            _fail("Exhaust valve seat diameter must be positive")
+            _fail("head.exhaust_valve_seat_diameter_mm", "Exhaust valve seat diameter must be positive")
         if getattr(self.simulation_settings, "exhaust_valve_area_model", "curtain") not in {"curtain", "fixed"}:
-            _fail("Exhaust valve area model must be 'curtain' or 'fixed'")
-        return issues
+            _fail(
+                "simulation_settings.exhaust_valve_area_model",
+                "Exhaust valve area model must be 'curtain' or 'fixed'",
+            )
+
+        return [msg for _path, msg in sorted(issues, key=lambda item: item[0])]
 
     def validate(self, strict: bool = False) -> bool:
         """Validate basic physical ranges; raise if strict and invalid."""
