@@ -562,10 +562,13 @@ class Engine:
 
     def validate(self, strict: bool = False) -> bool:
         """Validate basic physical ranges; raise if strict and invalid."""
+        ok = True
 
         def _fail(msg: str) -> None:
+            nonlocal ok
             if strict:
                 raise ValueError(msg)
+            ok = False
 
         if self.block.bore <= 0 or self.block.stroke <= 0 or self.block.conrod_length <= 0:
             _fail("Block geometry must be positive (bore/stroke/conrod)")
@@ -587,7 +590,7 @@ class Engine:
             _fail("Combustion thermal efficiency must be positive")
         if getattr(self.fuel, "energy_density", 0.0) <= 0.0:
             _fail("Fuel energy density must be positive")
-        return True
+        return ok
 
     @classmethod
     def load_from_file(cls, filename: str) -> "Engine":
