@@ -18,6 +18,10 @@ Esta guía resume cómo validar PyWaveDyn sin depender de la GUI, usando solo co
 
 **Nota sobre presets y CR:** si un preset define `combustion_chamber_vol`, ese valor overridea la geometría implícita al declarar la relación de compresión; mantener `combustion_chamber_vol` coherente con `compression_ratio` (véase `tools/audit_presets.py`).
 
+## Comportamiento de validación en la GUI
+- **Carga (non-strict):** al abrir un JSON, `Engine.validate_with_issues()` reúne advertencias. Se muestra un cuadro de aviso pero el proyecto se carga.
+- **Guardado (strict):** al guardar, la validación estricta bloquea el guardado si hay errores y muestra el mensaje en la barra de estado y un diálogo.
+
 ## Instalación de dependencias
 - Base: `python -m pip install -r requirements.txt`
 - Desarrollo y pruebas: `python -m pip install -r requirements-dev.txt`

@@ -49,6 +49,7 @@
 
 ## 4. Arquitectura y Flujo de Datos
 1. **Entrada GUI (PySide6/pyqtgraph)** edita el modelo (`core/engine_components.py`) y lanza simulaciones.
+   - Para evitar destrucción de widgets durante señales de edición, el formulario de Block actualiza campos derivados (desplazamiento/velocidad media de pistón) en el lugar y difiere cualquier reconstrucción completa con `QTimer.singleShot(0, ...)`.
 2. **Persistencia**: JSON ↔ dataclasses (`Engine.from_dict/to_dict`); presets canónicos en `presets/` y legacy en `presets/legacy/` (ver `AUDIT_REPORT.md`).
 3. **Ciclo 0D (core/thermo.py)**: calcula par/potencia/VE/knock usando backpressure heurística; alimenta Dyno, Analysis, Optimizer.
 4. **Onda 1D (core/simulator.py + core/numerics.py + core/junctions.py)**: consume perfiles de presión 0D (acoplamiento unidireccional) o impulsos sintéticos como BC de válvula para visualización y síntesis de audio; no retroalimenta al 0D.

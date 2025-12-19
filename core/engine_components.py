@@ -605,15 +605,12 @@ class Engine:
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=2)
 
-    def validate(self, strict: bool = False) -> bool:
-        """Validate basic physical ranges; raise if strict and invalid."""
-        ok = True
+    def validate_with_issues(self) -> list[str]:
+        """Return a list of validation issues without raising."""
+        issues: list[str] = []
 
         def _fail(msg: str) -> None:
-            nonlocal ok
-            if strict:
-                raise ValueError(msg)
-            ok = False
+            issues.append(msg)
 
         if self.block.bore <= 0 or self.block.stroke <= 0 or self.block.conrod_length <= 0:
             _fail("Block geometry must be positive (bore/stroke/conrod)")
@@ -645,7 +642,14 @@ class Engine:
             _fail("Exhaust valve seat diameter must be positive")
         if getattr(self.simulation_settings, "exhaust_valve_area_model", "curtain") not in {"curtain", "fixed"}:
             _fail("Exhaust valve area model must be 'curtain' or 'fixed'")
-        return ok
+        return issues
+
+    def validate(self, strict: bool = False) -> bool:
+        """Validate basic physical ranges; raise if strict and invalid."""
+        issues = self.validate_with_issues()
+        if issues and strict:
+            raise ValueError("; ".join(issues))
+        return not issues
 
     @classmethod
     def load_from_file(cls, filename: str) -> "Engine":

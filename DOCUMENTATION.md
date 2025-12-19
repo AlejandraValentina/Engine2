@@ -57,7 +57,8 @@ PyWaveDyn is a verification-focused 0D virtual dyno plus a 1D exhaust wave-scope
 ### Defining an Engine in the GUI
 1. Launch the application (`python main.py`).
 2. Use the **Project Explorer** tree to select a component (Block, Head, Camshaft, Intake, Exhaust, Supercharger).
-3. The **Properties** tab will auto-focus and show editable fields. Adjust values with spin boxes or combo boxes; changes write directly to the underlying data model.
+3. The **Properties** tab will auto-focus and show editable fields. Adjust values with spin boxes or combo boxes; changes write directly to the underlying data model. Derived fields (such as displacement and mean piston speed) update in-place without rebuilding the entire form.
+4. If a value update fails, the GUI surfaces the error in the status bar and a dialog instead of silently swallowing it.
 
 ### Running the Dyno
 1. Open the **Dyno Graph** tab.
@@ -80,8 +81,9 @@ Note: This is a GUI-first workflow and may not be present in every build. It doe
 3. Click **Save WAV** to export the buffered signal; pressure is resampled to 44.1 kHz, filtered, normalized, and written as a `.wav` file.
 
 ### Saving/Loading JSON Configurations
-- **Save:** Use the toolbar save icon or File → Save to write the current `Engine` configuration to JSON via `Engine.save_to_file`.
-- **Load:** Use File → Load to restore an existing configuration; the tree and property editors refresh automatically.
+- **Save:** Use the toolbar save icon or File → Save to write the current `Engine` configuration to JSON via `Engine.save_to_file`. If the project already has a filename, Save writes directly to that path; otherwise it behaves like Save As.
+- **Save As:** File → Save As always prompts for a filename.
+- **Load:** Use File → Load to restore an existing configuration; the tree and property editors refresh automatically. The window title and overview header show the loaded filename.
 
 ### Running Optimization Sweeps
 Note: This is a GUI-first workflow. Headless/CLI sweeps do not count as “implemented” until there is a reproducible command/test (see FEATURES.md).

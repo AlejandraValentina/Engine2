@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 import traceback
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
@@ -70,11 +72,14 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("PyWaveDyn - Virtual Dyno")
         self.resize(1280, 800)
 
         self.engine = Engine()
         self.audio_synth = AudioSynthesizer()
+        self.current_project_path: Optional[str] = None
+        self.block_displacement_label: Optional[QLabel] = None
+        self.block_piston_speed_label: Optional[QLabel] = None
+        self._update_window_title()
 
         self.navigation_tree = QTreeWidget()
         self.navigation_tree.setHeaderHidden(True)
@@ -139,6 +144,10 @@ class MainWindow(QMainWindow):
         save_action = QAction("Save", self)
         save_action.triggered.connect(self.save_engine)
         file_menu.addAction(save_action)
+
+        save_as_action = QAction("Save As...", self)
+        save_as_action.triggered.connect(self.save_engine_as)
+        file_menu.addAction(save_as_action)
 
         load_action = QAction("Load", self)
         load_action.triggered.connect(self.load_project)
@@ -456,6 +465,8 @@ class MainWindow(QMainWindow):
     def _clear_property_form(self) -> None:
         while self.property_form.rowCount():
             self.property_form.removeRow(0)
+        self.block_displacement_label = None
+        self.block_piston_speed_label = None
 
     def _show_placeholder(self, message: str) -> None:
         self._clear_property_form()
@@ -499,7 +510,13 @@ class MainWindow(QMainWindow):
 
     def _build_block_form(self, block: Block) -> None:
         self._clear_property_form()
-        self.property_form.addRow(self._label_value("Displacement (cc)", f"{block.displacement_cc:.1f}"))
+        self.block_displacement_label = QLabel(f"{block.displacement_cc:.1f}")
+        displacement_row = self._label_value("Displacement (cc)", self.block_displacement_label)
+        self.property_form.addRow(displacement_row)
+        mean_piston_speed = 2.0 * (block.stroke * 1e-3) * block.redline_rpm / 60.0
+        self.block_piston_speed_label = QLabel(f"{mean_piston_speed:.2f}")
+        piston_row = self._label_value("Mean Piston Speed @ Redline (m/s)", self.block_piston_speed_label)
+        self.property_form.addRow(piston_row)
 
         bore_spin = self._double_spin(block.bore, 50.0, 110.0, 0.1)
         self._bind_spin(bore_spin, lambda val: self._update_value(block, "bore", val), "bore")
@@ -978,6 +995,12 @@ class MainWindow(QMainWindow):
         spin.setValue(value)
         return spin
 
+    def _update_window_title(self) -> None:
+        title = "PyWaveDyn - Virtual Dyno"
+        if self.current_project_path:
+            title = f"{title} — {Path(self.current_project_path).name}"
+        self.setWindowTitle(title)
+
     def _bind_spin(self, spin: Any, setter: Any, attr_name: Optional[str] = None) -> None:
         def handler() -> None:
             label = attr_name or "value"
@@ -985,20 +1008,26 @@ class MainWindow(QMainWindow):
                 val = spin.value()
                 setter(val)
                 self.statusBar().showMessage(f"Updated {label} to {val}", 2000)
-            except Exception:
-                traceback.print_exc()
-                self.statusBar().showMessage(f"Failed to update {label}; see console for details", 4000)
-                QMessageBox.critical(self, "Update Error", f"Failed to update {label}; see console for details")
+            except Exception as exc:
+                logger = logging.getLogger(__name__)
+                trace = traceback.format_exc()
+                logger.error("Failed to update %s: %s\n%s", label, exc, trace)
+                message = f"Failed to update {label}: {exc}"
+                self.statusBar().showMessage(message, 4000)
+                QMessageBox.critical(self, "Update Error", message)
 
         spin.editingFinished.connect(handler)
 
-    def _label_value(self, label: str, value: str) -> QWidget:
+    def _label_value(self, label: str, value: str | QLabel) -> QWidget:
         container = QWidget()
         layout = QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(QLabel(label))
         layout.addStretch()
-        layout.addWidget(QLabel(value))
+        if isinstance(value, QLabel):
+            layout.addWidget(value)
+        else:
+            layout.addWidget(QLabel(value))
         container.setLayout(layout)
         return container
 
@@ -1006,8 +1035,20 @@ class MainWindow(QMainWindow):
         setattr(obj, attr, value)
         current_item = self.navigation_tree.currentItem()
         if current_item and isinstance(obj, Block):
-            QTimer.singleShot(0, lambda o=obj: self._build_block_form(o))
+            self._update_block_derived_labels(obj)
+            if attr in {"config"}:
+                self._schedule_block_form_rebuild(obj)
         self.update_overview()
+
+    def _update_block_derived_labels(self, block: Block) -> None:
+        if self.block_displacement_label is not None:
+            self.block_displacement_label.setText(f"{block.displacement_cc:.1f}")
+        if self.block_piston_speed_label is not None:
+            mean_piston_speed = 2.0 * (block.stroke * 1e-3) * block.redline_rpm / 60.0
+            self.block_piston_speed_label.setText(f"{mean_piston_speed:.2f}")
+
+    def _schedule_block_form_rebuild(self, block: Block) -> None:
+        QTimer.singleShot(0, lambda b=block: self._build_block_form(b))
 
     def _clear_head_chamber_override(self, head: CylinderHead) -> None:
         head.combustion_chamber_vol = 0.0
@@ -1037,6 +1078,10 @@ class MainWindow(QMainWindow):
     def update_overview(self) -> None:
         if not hasattr(self, "overview_browser"):
             return
+
+        project_name = "Unsaved Project"
+        if self.current_project_path:
+            project_name = Path(self.current_project_path).name
 
         block = self.engine.block
         head = self.engine.head
@@ -1078,7 +1123,7 @@ class MainWindow(QMainWindow):
             ]
 
         html_parts = [
-            "<h2>Project: PyWaveDyn Engine</h2>",
+            f"<h2>Project: {project_name}</h2>",
             "<h3>Short Block</h3>",
             "<ul>",
             f"<li><b>Config:</b> {block.config} {block.num_cylinders}</li>",
@@ -1153,9 +1198,29 @@ class MainWindow(QMainWindow):
 
     # -------------------------- File IO -----------------------------------
     def save_engine(self) -> None:
-        filename, _ = QFileDialog.getSaveFileName(self, "Save Engine", "engine.json", "JSON Files (*.json)")
+        if self.current_project_path:
+            self._save_engine_to_path(self.current_project_path)
+            return
+        self.save_engine_as()
+
+    def save_engine_as(self) -> None:
+        filename, _ = QFileDialog.getSaveFileName(self, "Save Engine As", "engine.json", "JSON Files (*.json)")
         if filename:
-            self.engine.save_to_file(filename)
+            self._save_engine_to_path(filename)
+
+    def _save_engine_to_path(self, filename: str) -> None:
+        try:
+            self.engine.validate(strict=True)
+        except ValueError as exc:
+            message = f"Cannot save engine: {exc}"
+            self.statusBar().showMessage(message, 4000)
+            QMessageBox.critical(self, "Validation Error", message)
+            return
+        self.engine.save_to_file(filename)
+        self.current_project_path = filename
+        self._update_window_title()
+        self.update_overview()
+        self.statusBar().showMessage("Engine saved.", 2000)
 
     def load_project(self) -> None:
         filename, _ = QFileDialog.getOpenFileName(self, "Load Engine", "", "JSON Files (*.json)")
@@ -1164,14 +1229,25 @@ class MainWindow(QMainWindow):
                 data = json.load(f)
 
             self.engine = Engine.from_dict(data)
+            issues = self.engine.validate_with_issues()
             self.wave_solver = None
             self.audio_synth = AudioSynthesizer()
             self.timer.stop()
             self.refresh_tree()
             self.update_properties_panel(None)
+            self.current_project_path = filename
+            self._update_window_title()
             self.update_overview()
             self.main_stack.setCurrentIndex(0)
             self.tabs.setCurrentIndex(0)
+            if issues:
+                issue_text = "\n".join(f"- {issue}" for issue in issues)
+                QMessageBox.warning(
+                    self,
+                    "Validation Warnings",
+                    f"Engine loaded with validation warnings:\n{issue_text}",
+                )
+                self.statusBar().showMessage("Loaded engine with validation warnings.", 4000)
 
     # Backwards compatibility with older action wiring
     def load_engine(self) -> None:  # pragma: no cover - retained for older menu hookups
