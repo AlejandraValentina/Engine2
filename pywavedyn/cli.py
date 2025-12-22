@@ -123,7 +123,7 @@ def run_dyno(engine_path: Path, rpm_spec: str, out_path: Path) -> None:
         "metadata": _metadata(engine, raw, coupling_mode="none"),
         "results": results,
     }
-    out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
+    _write_json(out_path, output)
 
 
 def run_scope(engine_path: Path, rpm: float, cycles: int, out_path: Path) -> None:
@@ -155,7 +155,7 @@ def run_scope(engine_path: Path, rpm: float, cycles: int, out_path: Path) -> Non
         "tail_pressure_pa": list(audio),
         "pressure_matrix_pa": matrix.tolist(),
     }
-    out_path.write_text(json.dumps(output, indent=2), encoding="utf-8")
+    _write_json(out_path, output)
 
 
 def _read_expectations(path: Path) -> dict:
@@ -170,6 +170,11 @@ def _case_engine_path(expectations_path: Path, case_file: str) -> Path:
 def _check_finite(name: str, array: np.ndarray, issues: list[str]) -> None:
     if not np.isfinite(array).all():
         issues.append(f"{name} contains NaN/inf")
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def run_selfcheck(expectations_path: Path, out_path: Path) -> int:
@@ -258,7 +263,7 @@ def run_selfcheck(expectations_path: Path, out_path: Path) -> int:
 
         report["cases"].append(case_entry)
 
-    out_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    _write_json(out_path, report)
     return exit_code
 
 
