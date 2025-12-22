@@ -61,6 +61,7 @@ from core.engine_components import (
 )
 from core.junctions import Junction
 from core.model import Pipe
+from core.pro_dyno_v2 import ProDynoV2Runner
 from core.simulator import Engine1DSolver
 from core.thermo import CylinderSimulator
 from core.wave_utils import compute_image_levels, compute_pressure_matrix
@@ -1599,16 +1600,13 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Fabrication Report", "\n".join(report_lines))
 
     def run_pro_dyno_sweep(self) -> None:
-        simulator = CylinderSimulator(self.engine)
         max_rpm = int(self.engine.block.redline_rpm)
         rpm_values = list(range(1000, max_rpm + 500, 500))
-        power_hp: list[float] = []
-        torque_nm: list[float] = []
-
-        for rpm in rpm_values:
-            result = simulator.run_pro_cycle(rpm)
-            power_hp.append(result.get("mean_power_hp", 0.0))
-            torque_nm.append(result.get("mean_torque_nm", 0.0))
+        runner = ProDynoV2Runner(self.engine)
+        results = runner.run_sweep(rpm_values)
+        rpm_values = results.get("rpm", rpm_values)
+        power_hp = results.get("mean_power_hp", [])
+        torque_nm = results.get("mean_torque_nm", [])
 
         self.pro_dyno_plot.clear()
         self.pro_dyno_plot.addLegend(clear=True)

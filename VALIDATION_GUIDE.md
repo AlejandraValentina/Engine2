@@ -14,7 +14,8 @@ Esta guía resume cómo validar PyWaveDyn sin depender de la GUI, usando solo co
 6. **CLI headless (dyno/scope):**
    - `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:4000:500 --out out_dyno.json`
    - `python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2500 --cycles 1 --out out_scope.json`
-7. **Presets canónicos:** cargar `presets/honda_k20.json`, `presets/chevy_350.json`, `presets/ferrari_f1.json` en pruebas o herramientas externas según sea necesario.
+7. **Pro Dyno v2 (advanced core sweep):** `python -m pytest -q tests/test_pro_dyno_v2.py`.
+8. **Presets canónicos:** cargar `presets/honda_k20.json`, `presets/chevy_350.json`, `presets/ferrari_f1.json` en pruebas o herramientas externas según sea necesario.
 
 **Nota sobre presets y CR:** si un preset define `combustion_chamber_vol`, ese valor overridea la geometría implícita al declarar la relación de compresión; mantener `combustion_chamber_vol` coherente con `compression_ratio` (véase `tools/audit_presets.py`).
 
