@@ -19,8 +19,12 @@ def nozzle_mass_flow(
 ) -> Tuple[float, float, float]:
     """Return (mdot, Hdot, Ydot) with positive flow from upstream -> downstream."""
 
-    if area_eff <= 0.0 or p0 <= 0.0 or T0 <= 0.0:
-        raise ValueError("Invalid nozzle inputs (area_eff, p0, T0 must be positive)")
+    if area_eff < 0.0:
+        raise ValueError("Invalid nozzle inputs (area_eff must be non-negative)")
+    if area_eff == 0.0:
+        return 0.0, 0.0, 0.0
+    if p0 <= 0.0 or T0 <= 0.0:
+        raise ValueError("Invalid nozzle inputs (p0, T0 must be positive)")
 
     def _mdot_mag(p_up: float, T_up: float, p_static: float) -> float:
         pr = max(min(p_static / p_up, 1.0), 0.0)
