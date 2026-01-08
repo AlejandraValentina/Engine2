@@ -20,6 +20,7 @@ def _init_pipe_state(
     T_amb: float,
     gamma: float,
     gas_constant: float,
+    friction_factor: float = 1.0,
 ):
     L_m = float(pipe_data.length) * 1e-3
     estimated_N = int(np.ceil(L_m / target_dx))
@@ -30,7 +31,9 @@ def _init_pipe_state(
     diam_out_m = float(pipe_data.diameter_outlet) * 1e-3
     diameters = np.linspace(diam_in_m, diam_out_m, N)
     areas = math.pi * (diameters * 0.5) ** 2
-    friction_coeffs = np.full(N, pipe_data.friction_coeff, dtype=np.float64)
+    friction_coeffs = np.full(N, pipe_data.friction_coeff, dtype=np.float64) * float(
+        friction_factor
+    )
 
     rho0 = p_atm / (gas_constant * T_amb)
     u0 = 0.0
@@ -52,13 +55,18 @@ def _init_pipe_state(
 
 
 def _pressure_from_state(
-    U: np.ndarray, p_min: float, p_max: float, gamma: float
+    U: np.ndarray,
+    p_min: float,
+    p_max: float,
+    gamma: float,
+    rho_min: float = 1e-12,
 ) -> np.ndarray:
     rho = U[:, 0]
     mom = U[:, 1]
     energy = U[:, 2]
-    u = mom / rho
-    p = (gamma - 1.0) * (energy - 0.5 * rho * u * u)
+    rho_safe = np.maximum(rho, rho_min)
+    u = mom / rho_safe
+    p = (gamma - 1.0) * (energy - 0.5 * rho_safe * u * u)
     return np.clip(p, p_min, p_max)
 
 
@@ -104,31 +112,26 @@ def compute_exhaust_valve_area(
     head: CylinderHead,
     settings: SimulationSettings,
 ) -> float:
-    """Compute effective exhaust valve area using lift and discharge coefficient."""
+    """Compute geometric exhaust valve area from lift and seat diameter."""
 
     model = getattr(settings, "exhaust_valve_area_model", "curtain")
     seat_mm = head.exhaust_valve_seat_diameter_mm or head.exhaust_valve_diameter_mm
     seat_mm = float(seat_mm) if seat_mm is not None else 0.0
     valves = max(int(head.exhaust_valves), 1)
-    cd = getattr(settings, "exhaust_valve_cd", None)
-    if cd is None:
-        cd = head.exhaust_valve_cd
-    cd = float(cd)
 
-    if seat_mm <= 0.0 or cd <= 0.0:
+    if seat_mm <= 0.0:
         return 0.0
 
     if model == "fixed":
         seat_m = seat_mm * 1e-3
-        area = math.pi * (seat_m * 0.5) ** 2 * valves
-        return cd * area
+        return valves * math.pi * (seat_m * 0.5) ** 2
 
     lift_mm = float(camshaft.get_lift(cyl_angle, intake=False))
     if lift_mm <= 0.0:
         return 0.0
-    curtain_area_mm2 = math.pi * seat_mm * lift_mm * valves
-    curtain_area_m2 = curtain_area_mm2 * 1e-6
-    return cd * curtain_area_m2
+    seat_m = seat_mm * 1e-3
+    lift_m = lift_mm * 1e-3
+    return math.pi * seat_m * lift_m * valves
 
 
 def rusanov_flux(U_L: np.ndarray, U_R: np.ndarray, gamma: float) -> np.ndarray:
@@ -192,12 +195,24 @@ class Engine1DSolver:
 
         self.primary_states = [
             _init_pipe_state(
-                pipe, target_dx, p_atm, T_amb, self.gamma, self.gas_constant
+                pipe,
+                target_dx,
+                p_atm,
+                T_amb,
+                self.gamma,
+                self.gas_constant,
+                self.settings.pipe_friction_factor,
             )
             for pipe in primary_pipes
         ]
         self.tail_state = _init_pipe_state(
-            tailpipe, target_dx, p_atm, T_amb, self.gamma, self.gas_constant
+            tailpipe,
+            target_dx,
+            p_atm,
+            T_amb,
+            self.gamma,
+            self.gas_constant,
+            self.settings.pipe_friction_factor,
         )
 
         self.collector = Junction(
@@ -231,11 +246,18 @@ class Engine1DSolver:
                 self.settings.clamp_p_min,
                 self.settings.clamp_p_max,
                 self.gamma,
+                self.settings.clamp_rho_min,
             )[0]
         )
+        rho_cell = float(state["U"][1, 0])
+        rho_safe = max(rho_cell, self.settings.clamp_rho_min)
+        T_cell = max(p_down / (self.gas_constant * rho_safe), 1.0)
+        T_res = float(T_stag)
+        if (not np.isfinite(T_res)) or T_res <= 0.0:
+            T_res = T_cell
         mdot, _, h0 = mass_flow_nozzle(
             float(p_stag),
-            float(max(T_stag, 1.0)),
+            float(max(T_res, 1.0)),
             float(p_down),
             float(valve_area),
             float(self.gamma),
@@ -249,7 +271,7 @@ class Engine1DSolver:
         mflux = mdot / max(A_pipe, 1e-12)
 
         rho_res = max(
-            float(p_stag) / (self.gas_constant * float(max(T_stag, 1.0))),
+            float(p_stag) / (self.gas_constant * float(max(T_res, 1.0))),
             self.settings.clamp_rho_min,
         )
         u_res = float(
@@ -306,7 +328,8 @@ class Engine1DSolver:
         U_i = tail["U"][-2]
         rho_i = float(U_i[0])
         mom_i = float(U_i[1])
-        u_i = mom_i / rho_i
+        rho_safe = max(rho_i, self.settings.clamp_rho_min)
+        u_i = mom_i / rho_safe
 
         p_ghost = float(self.p_atm)
         if u_i > 0.0:
@@ -316,9 +339,10 @@ class Engine1DSolver:
                     self.settings.clamp_p_min,
                     self.settings.clamp_p_max,
                     self.gamma,
+                    self.settings.clamp_rho_min,
                 )[0]
             )
-            T_ghost = max(p_i / (self.gas_constant * rho_i), 1.0)
+            T_ghost = max(p_i / (self.gas_constant * rho_safe), 1.0)
         else:
             T_ghost = float(self.T_amb)
 
@@ -368,9 +392,11 @@ class Engine1DSolver:
                 T_cyl = self.T_amb
 
             if valve_area > 0.0:
-                cd_val = getattr(self.settings, "exhaust_valve_cd", None)
-                if cd_val is None and self.head is not None:
+                cd_val = None
+                if self.head is not None:
                     cd_val = self.head.exhaust_valve_cd
+                if cd_val is None:
+                    cd_val = getattr(self.settings, "exhaust_valve_cd", None)
                 cd_val = 0.9 if cd_val is None else float(cd_val)
                 self._apply_inlet(state, p_cyl, T_cyl, valve_area, dt, Cd=cd_val)
             else:
@@ -383,11 +409,16 @@ class Engine1DSolver:
 
     def _pipe_dt(self, state: Dict) -> float:
         rho = state["U"][:, 0]
-        u = state["U"][:, 1] / rho
+        rho_safe = np.maximum(rho, self.settings.clamp_rho_min)
+        u = state["U"][:, 1] / rho_safe
         p = _pressure_from_state(
-            state["U"], self.settings.clamp_p_min, self.settings.clamp_p_max, self.gamma
+            state["U"],
+            self.settings.clamp_p_min,
+            self.settings.clamp_p_max,
+            self.gamma,
+            self.settings.clamp_rho_min,
         )
-        a = np.sqrt(self.gamma * p / rho)
+        a = np.sqrt(self.gamma * p / rho_safe)
         max_wave_speed = np.max(np.abs(u) + a) + 1e-5
         return 0.4 * state["dx"] / max_wave_speed
 

@@ -73,6 +73,7 @@ class CylinderSimulator:
         gamma_air: float,
         gas_constant: float,
         ambient_temp_k: float,
+        return_debug: bool = False,
     ):
         """Estimate volumetric efficiency and Mach index with configurable choking."""
         cam_peak = max(getattr(self.engine.camshaft, "peak_rpm", 5500.0), 1500.0)
@@ -110,7 +111,9 @@ class CylinderSimulator:
         flow_loss_factor = max(0.0, 1.0 - flow_loss)
         ve *= flow_loss_factor
 
-        return ve, mach_index, base_curve, choke_factor, flow_loss_factor
+        if return_debug:
+            return ve, mach_index, base_curve, choke_factor, flow_loss_factor
+        return ve, mach_index
 
     def run_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
         """Run a 720° four-stroke cycle and return pressure/torque traces."""
@@ -183,7 +186,14 @@ class CylinderSimulator:
 
         piston_speed = 2.0 * stroke_m * rpm / 60.0
         base_ve, mach_index, ve_cam_factor, ve_mach_factor, ve_flow_loss_factor = self._calculate_dynamic_ve(
-            rpm, piston_speed, bore_m, cam.intake_duration, gamma_air, gas_constant, ambient_temp_k
+            rpm,
+            piston_speed,
+            bore_m,
+            cam.intake_duration,
+            gamma_air,
+            gas_constant,
+            ambient_temp_k,
+            return_debug=True,
         )
 
         runner_length_m = max(mm_to_m(self.engine.intake.runner_length), 1e-6)

@@ -25,8 +25,9 @@ def flux_vector(U, gamma=DEFAULT_GAMMA):
     rho = U[0]
     mom = U[1]
     energy = U[2]
-    u = mom / rho
-    kinetic = 0.5 * rho * u * u
+    rho_safe = max(rho, 1e-12)
+    u = mom / rho_safe
+    kinetic = 0.5 * rho_safe * u * u
     # Ideal gas EOS: p = (gamma - 1) * (E - 0.5*rho*u^2)
     p = (gamma - 1.0) * (energy - kinetic)
     F = np.empty(3, dtype=np.float64)
@@ -42,8 +43,9 @@ def source_terms(U, dx, D, f, Tw, heat_transfer_enabled):
     rho = U[0]
     mom = U[1]
     energy = U[2]
-    u = mom / rho
-    friction = -0.5 * rho * u * np.abs(u) * f / D
+    rho_safe = max(rho, 1e-12)
+    u = mom / rho_safe
+    friction = -0.5 * rho_safe * u * np.abs(u) * f / D
     heat_transfer = 0.0
     if heat_transfer_enabled:
         # Placeholder: heat transfer is intentionally disabled in the current core.
@@ -96,10 +98,15 @@ def lax_wendroff_step(
         rho_i = U_grid[i, 0]
         mom_i = U_grid[i, 1]
         energy_i = U_grid[i, 2]
-        u_i = mom_i / rho_i
+        rho_safe = max(rho_i, clamp_rho_min)
+        u_i = mom_i / rho_safe
+        p_i = (gamma - 1.0) * (energy_i - 0.5 * mom_i * u_i)
+        if p_i < clamp_p_min:
+            p_i = clamp_p_min
 
-        geom_1 = -rho_i * u_i * u_i * dA_dx / areas[i]
-        geom_2 = -energy_i * u_i * dA_dx / areas[i]
+        geom_0 = -(rho_safe * u_i) * dA_dx / areas[i]
+        geom_1 = -rho_safe * u_i * u_i * dA_dx / areas[i]
+        geom_2 = -(u_i * (energy_i + p_i)) * dA_dx / areas[i]
 
         diameter = max(diameters[i], 1e-12)
         S = source_terms(U_grid[i], dx, diameter, friction_coeffs[i], 0.0, heat_transfer_enabled)
@@ -121,7 +128,7 @@ def lax_wendroff_step(
             flux_diff2 = F_half[i, 2] - F_half[i - 1, 2]
 
         coef = dt / dx
-        U_new[i, 0] = U_grid[i, 0] - coef * flux_diff0 + dt * (S0)
+        U_new[i, 0] = U_grid[i, 0] - coef * flux_diff0 + dt * (S0 + geom_0)
         U_new[i, 1] = U_grid[i, 1] - coef * flux_diff1 + dt * (S1 + geom_1)
         U_new[i, 2] = U_grid[i, 2] - coef * flux_diff2 + dt * (S2 + geom_2)
 
@@ -134,7 +141,10 @@ def lax_wendroff_step(
         rho_i = max(U_new[i, 0], clamp_rho_min)
         mom_i = U_new[i, 1]
         u_i = mom_i / rho_i
-        u_i = np.clip(u_i, -clamp_u_max, clamp_u_max)
+        if u_i > clamp_u_max:
+            u_i = clamp_u_max
+        elif u_i < -clamp_u_max:
+            u_i = -clamp_u_max
         mom_i = rho_i * u_i
 
         kinetic = 0.5 * rho_i * u_i * u_i
