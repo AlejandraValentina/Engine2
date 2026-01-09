@@ -30,10 +30,11 @@ class ProDynoV2Runner:
         max_cycles = int(self.settings.get("max_cycles", 4))
         if warm_start:
             max_cycles = max(2, min(max_cycles, 3))
+        cp_value = self.settings.get("cp") if "cp" in self.settings else None
         cfg = OrchestratorConfig(
             gamma=float(self.settings.get("gamma", 1.35)),
             gas_constant=float(self.settings.get("gas_constant", 287.0)),
-            cp=float(self.settings.get("cp", 1005.0)),
+            cp=float(cp_value) if cp_value is not None else None,
             cfl=float(self.settings.get("cfl", 0.5)),
             dt_max=float(self.settings.get("dt_max", 5e-5)),
             max_cycles=max_cycles,
@@ -51,7 +52,7 @@ class ProDynoV2Runner:
         head = self.engine.head
         seat_mm = head.exhaust_valve_seat_diameter_mm or head.exhaust_valve_diameter_mm
         seat_m = float(seat_mm) * 1e-3
-        lift_m = float(cam.intake_lift) * 1e-3
+        lift_m = float(cam.exhaust_lift) * 1e-3
         return ValveTiming(
             open_start_deg=360.0,
             open_end_deg=540.0,
