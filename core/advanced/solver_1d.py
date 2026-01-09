@@ -233,7 +233,8 @@ def muscl_hancock_step(
     _guard_state(U, gamma, gas_constant, "muscl_hancock_step input")
 
     prim_full = conserved_to_primitive(U, gamma, gas_constant)
-    prim = prim_full[:, [0, 1, 2, 4]]
+    rho_rec = np.maximum(prim_full[:, 0], _DENSITY_FLOOR)
+    prim = np.stack([rho_rec, prim_full[:, 1], prim_full[:, 2], prim_full[:, 4]], axis=1)
     prim_ext = np.zeros((N + 2, 4))
     prim_ext[1:-1] = prim
     prim_ext[0] = prim[0]
@@ -262,7 +263,11 @@ def muscl_hancock_step(
     _guard_state(U_half, gamma, gas_constant, "muscl_hancock_step predictor")
 
     prim_half_full = conserved_to_primitive(U_half, gamma, gas_constant)
-    prim_half = prim_half_full[:, [0, 1, 2, 4]]
+    rho_half_rec = np.maximum(prim_half_full[:, 0], _DENSITY_FLOOR)
+    prim_half = np.stack(
+        [rho_half_rec, prim_half_full[:, 1], prim_half_full[:, 2], prim_half_full[:, 4]],
+        axis=1,
+    )
     prim_half_ext = np.zeros((N + 2, 4))
     prim_half_ext[1:-1] = prim_half
     prim_half_ext[0] = prim_half[0]
