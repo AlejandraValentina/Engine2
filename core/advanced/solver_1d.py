@@ -177,6 +177,21 @@ def _primitive_to_conserved(prim: np.ndarray, gamma: float, gas_constant: float,
     return U
 
 
+def _primitive_to_conserved_row(prim4: np.ndarray, gamma: float, gas_constant: float) -> np.ndarray:
+    rho = float(prim4[0])
+    u = float(prim4[1])
+    p = float(prim4[2])
+    Y = float(prim4[3])
+    if rho <= 0.0:
+        raise ValueError("rho must be positive")
+    if p <= 0.0:
+        raise ValueError("p must be positive")
+    T = p / (rho * gas_constant)
+    e_int = gas_constant * T / (gamma - 1.0)
+    E = e_int + 0.5 * u * u
+    return np.array([rho, rho * u, rho * E, rho * Y], dtype=float)
+
+
 def flux(U: np.ndarray, gamma: float) -> np.ndarray:
     rho = U[:, 0]
     rho_safe = np.maximum(rho, 1e-12)
@@ -284,8 +299,17 @@ def muscl_hancock_step(
     UR_face[1:-1] = U_L[1:]
     UL_face[0] = U_L[0]
     UR_face[0] = U_L[0]
-    UL_face[-1] = U_R[-1]
-    UR_face[-1] = U_R[-1]
+    if p_outlet is None:
+        UL_face[-1] = U_R[-1]
+        UR_face[-1] = U_R[-1]
+    else:
+        prim_out = _outlet_primitive(prim[-1], p_outlet, gamma)
+        if np.allclose(prim_out, prim[-1]):
+            U_out = U_R[-1]
+        else:
+            U_out = _primitive_to_conserved_row(prim_out, gamma, gas_constant)
+        UL_face[-1] = U_R[-1]
+        UR_face[-1] = U_out
 
     F_face = _rusanov_flux(UL_face, UR_face, gamma, gas_constant)
     U_half = U - 0.5 * dt / dx * (F_face[1:] - F_face[:-1])
@@ -321,8 +345,17 @@ def muscl_hancock_step(
     UR_face[1:-1] = U_half_L[1:]
     UL_face[0] = U_half_L[0]
     UR_face[0] = U_half_L[0]
-    UL_face[-1] = U_half_R[-1]
-    UR_face[-1] = U_half_R[-1]
+    if p_outlet is None:
+        UL_face[-1] = U_half_R[-1]
+        UR_face[-1] = U_half_R[-1]
+    else:
+        prim_out_half = _outlet_primitive(prim_half[-1], p_outlet, gamma)
+        if np.allclose(prim_out_half, prim_half[-1]):
+            U_out_half = U_half_R[-1]
+        else:
+            U_out_half = _primitive_to_conserved_row(prim_out_half, gamma, gas_constant)
+        UL_face[-1] = U_half_R[-1]
+        UR_face[-1] = U_out_half
 
     F_star = _rusanov_flux(UL_face, UR_face, gamma, gas_constant)
     U_new = U - dt / dx * (F_star[1:] - F_star[:-1])

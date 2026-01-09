@@ -38,9 +38,10 @@ def test_non_reflecting_outlet_reduces_reflection() -> None:
     dt = 0.4 * dx / a0
     steps = int(2.0 * length / (a0 * dt))
 
-    def run_case(p_outlet: float | None) -> float:
+    def run_case(p_outlet: float | None) -> tuple[float, float]:
         U = U0.copy()
         peak = 0.0
+        tail_pressures = []
         t_start = length / a0
         for step in range(steps):
             U = muscl_hancock_step(U, dx, dt, gamma, R, p_outlet=p_outlet)
@@ -48,10 +49,17 @@ def test_non_reflecting_outlet_reduces_reflection() -> None:
                 continue
             p_probe = _pressure_from_state(U, gamma)[-3]
             peak = max(peak, p_probe - p0)
-        return peak
+            if step > int(0.7 * steps):
+                tail_pressures.append(p_probe)
+        mean_tail = float(np.mean(tail_pressures)) if tail_pressures else float(p_probe)
+        return peak, mean_tail
 
-    peak_copy = run_case(None)
-    peak_non_reflect = run_case(p0)
+    peak_copy, _ = run_case(None)
+    peak_non_reflect, mean_p1 = run_case(0.9 * p0)
+    _, mean_p2 = run_case(1.1 * p0)
 
     assert peak_copy > 0.0
     assert peak_non_reflect < 0.6 * peak_copy
+    assert mean_p2 > mean_p1
+    assert abs(mean_p1 - 0.9 * p0) < 0.3 * p0
+    assert abs(mean_p2 - 1.1 * p0) < 0.3 * p0
