@@ -18,6 +18,7 @@ class ValveTiming:
     max_lift_m: float
     seat_diameter_m: float
     cd: float
+    n_valves: int = 1
 
     def area_eff(self, angle_deg: float) -> float:
         angle = angle_deg % 720.0
@@ -35,7 +36,7 @@ class ValveTiming:
             phase = ((angle - start) % 720.0) / max(span, 1e-6)
 
         lift = self.max_lift_m * (math.sin(math.pi * phase) ** 2)
-        area = math.pi * self.seat_diameter_m * lift
+        area = math.pi * self.seat_diameter_m * lift * max(self.n_valves, 1)
         return self.cd * max(area, 0.0)
 
 
@@ -80,6 +81,9 @@ def ghost_state_from_nozzle(
     gamma: float,
     gas_constant: float,
 ) -> np.ndarray:
+    """Build a ghost state from upstream totals (Phase-1 approximation)."""
+    if p0 < 1e3 or T0 < 50.0:
+        raise ValueError(f"Invalid ghost totals (p0={p0:.3e}, T0={T0:.3e})")
     rho = max(p0 / (gas_constant * T0), 1e-9)
     u = mdot / max(rho * area_face, 1e-9)
     a = math.sqrt(max(gamma * gas_constant * T0, 1e-12))

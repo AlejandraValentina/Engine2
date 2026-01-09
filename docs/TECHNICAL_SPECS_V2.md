@@ -142,7 +142,7 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 \[
 A_{eff} = C_d A_{valve}
 \]
-- **Curtain model (default):** \(A_{valve} = \pi D_{seat} \cdot lift\).
+- **Curtain model (default):** \(A_{valve} = N_{valves} \pi D_{seat} \cdot lift\).
 - **Fixed-area option:** \(A_{valve} = constant\).
 - Units: \(D_{seat}\) [m], \(lift\) [m], \(A_{eff}\) [m²].
 
