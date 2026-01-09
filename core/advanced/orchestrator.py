@@ -41,10 +41,18 @@ class OrchestratorConfig:
     roughness_m: float = 0.0
     mu: float = 1.8e-5
     loss_coeff: float = 0.0
+    pipe_role: str = "intake"
+    initial_Y: Optional[float] = None
+    periodicity_tol: float = 0.01
+    periodicity_required: int = 2
 
     def __post_init__(self) -> None:
         if self.cp is None:
             self.cp = self.gamma * self.gas_constant / max(self.gamma - 1.0, 1e-9)
+        if self.periodicity_tol < 0.0:
+            raise ValueError("periodicity_tol must be non-negative")
+        if self.periodicity_required < 1:
+            raise ValueError("periodicity_required must be >= 1")
 
 
 class Orchestrator:
@@ -72,11 +80,17 @@ class Orchestrator:
         p0 = 101325.0
         T0 = p0 / (rho0 * self.cfg.gas_constant)
         E0 = self.cfg.gas_constant * T0 / (self.cfg.gamma - 1.0)
+        if self.cfg.initial_Y is not None:
+            Y_init = self.cfg.initial_Y
+        else:
+            Y_init = 0.0 if self.cfg.pipe_role == "exhaust" else 1.0
+        if not (0.0 <= Y_init <= 1.0):
+            raise ValueError("initial_Y must be within [0, 1]")
         U = np.zeros((pipe_cells + 1, 4))
         U[1:, 0] = rho0
         U[1:, 1] = rho0 * u0
         U[1:, 2] = rho0 * (E0 + 0.5 * u0 * u0)
-        U[1:, 3] = rho0
+        U[1:, 3] = rho0 * Y_init
         U[0] = U[1]
 
         cyl = CylinderControlVolume(
@@ -94,17 +108,20 @@ class Orchestrator:
         ve_history: List[float] = []
         work_history: List[float] = []
         trapped_history: List[float] = []
+        periodicity_history: List[float] = []
 
         omega = rpm * 2.0 * math.pi / 60.0
         dt_theta = math.radians(1.0) / max(omega, 1e-9)
         cycle = 0
         last_trapped = None
         last_work = None
+        periodicity_count = 0
 
         while cycle < self.cfg.max_cycles:
             indicated_work = 0.0
             prev_p = None
             prev_V = None
+            U_cycle_start = U.copy()
             for step in range(int(720.0 / 1.0)):
                 angle_deg = step
                 theta = math.radians(angle_deg)
@@ -212,9 +229,20 @@ class Orchestrator:
 
             trapped_history.append(cyl.m_fresh)
             work_history.append(indicated_work)
+            denom = max(np.linalg.norm(U_cycle_start[1:]), 1e-12)
+            periodicity_metric = float(np.linalg.norm(U[1:] - U_cycle_start[1:]) / denom)
+            periodicity_history.append(periodicity_metric)
+            if periodicity_metric < self.cfg.periodicity_tol:
+                periodicity_count += 1
+            else:
+                periodicity_count = 0
 
             if last_trapped is not None and last_work is not None:
-                if abs(trapped_history[-1] - last_trapped) / max(last_trapped, 1e-9) < self.cfg.convergence_tol and abs(work_history[-1] - last_work) / max(abs(last_work), 1e-9) < self.cfg.convergence_tol:
+                cv_ok = (
+                    abs(trapped_history[-1] - last_trapped) / max(last_trapped, 1e-9) < self.cfg.convergence_tol
+                    and abs(work_history[-1] - last_work) / max(abs(last_work), 1e-9) < self.cfg.convergence_tol
+                )
+                if cv_ok and periodicity_count >= self.cfg.periodicity_required:
                     break
             last_trapped = trapped_history[-1]
             last_work = work_history[-1]
@@ -226,4 +254,5 @@ class Orchestrator:
             "ve": ve_history,
             "trapped_mass": trapped_history,
             "indicated_work": work_history,
+            "periodicity_metric": periodicity_history,
         }

@@ -231,10 +231,16 @@ At each step:
 3. Advance cylinder control volume using \(dm/dt\), \(d(m u_{int})/dt\), and \(dV/dt\).
 4. Advance 1D network by one TVD step with source terms + boundary fluxes.
 
+**Pipe mixture initialization (Phase 2):**
+- `pipe_role="intake"` initializes \(Y=1.0\); `pipe_role="exhaust"` initializes \(Y=0.0\).
+- `initial_Y` can override the default (must be within \([0,1]\)).
+
 ### 5.2 Cycle-to-Cycle Convergence
 Stop when **both** are satisfied:
 - Relative error of trapped mass at IVC < **0.5%** between cycles.
 - Relative error of indicated work \(\oint p\,dV\) over 720° < **0.5%** between cycles.
+- Periodicity metric on the 1D state (L2 norm of \(U_{end}-U_{start}\) over physical cells)
+  below `periodicity_tol` for `periodicity_required` consecutive cycles.
 
 ## 6) Outputs & Derived Results
 - **IVC definition:** IVC occurs when intake valve effective area \(A_{eff}\) crosses to zero on the closing edge (or at a fixed crank angle if specified in settings).
