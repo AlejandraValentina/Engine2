@@ -98,6 +98,14 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - `dt_max` configurable; `dt_min` optional safety lower bound.
 - Orchestrator recomputes \(\Delta t\) every step from the current 1D state.
 
+### 2.8 Outlet Boundary (Phase 1)
+- Default outlet uses a copy/Neumann condition (legacy behavior).
+- When `p_outlet` is provided to the 1D step, the right boundary uses a simple non-reflecting
+  characteristic update:
+  - For subsonic outflow, hold the outgoing characteristic and set the incoming one to match
+    \(p_{outlet}\).
+  - For inflow or supersonic outflow, fall back to copy to avoid over-constraint.
+
 ## 3) 0D Thermodynamics (Open Control Volume Cylinder)
 ### 3.1 State Tracking (Minimum)
 - \(m_{total}\) [kg], \(m_{fresh}\) [kg]

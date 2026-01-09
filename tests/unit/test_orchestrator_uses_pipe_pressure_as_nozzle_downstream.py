@@ -67,7 +67,16 @@ def test_orchestrator_uses_pipe_pressure_as_nozzle_downstream(monkeypatch: pytes
         ghost[3] = ghost_marker
         return ghost
 
-    def fake_step(U: np.ndarray, dx: float, dt: float, gamma: float, gas_constant: float, friction_factor: float = 0.0, diameter: float = 1.0) -> np.ndarray:
+    def fake_step(
+        U: np.ndarray,
+        dx: float,
+        dt: float,
+        gamma: float,
+        gas_constant: float,
+        friction_factor: float = 0.0,
+        diameter: float = 1.0,
+        p_outlet: float | None = None,
+    ) -> np.ndarray:
         return U
 
     def fake_cfl_dt(U: np.ndarray, dx: float, gamma: float, gas_constant: float, cfl: float, dt_max: float) -> float:

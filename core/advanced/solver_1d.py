@@ -218,6 +218,31 @@ def _apply_scalar_guard(U: np.ndarray, label: str) -> None:
     U[:, 3] = rho * Y_clipped
 
 
+def _outlet_primitive(prim_i: np.ndarray, p_outlet: float, gamma: float) -> np.ndarray:
+    rho_i = float(prim_i[0])
+    u_i = float(prim_i[1])
+    p_i = float(prim_i[2])
+    Y_i = float(prim_i[3])
+
+    rho_safe = max(rho_i, _DENSITY_FLOOR)
+    p_safe = max(p_i, _PRESSURE_FLOOR)
+    a_i = math.sqrt(gamma * p_safe / rho_safe)
+
+    if u_i <= 0.0 or abs(u_i) >= a_i:
+        return np.array([rho_i, u_i, p_i, Y_i], dtype=float)
+
+    p_out = max(p_outlet, _PRESSURE_FLOOR)
+    rho_out = rho_safe * (p_out / p_safe) ** (1.0 / gamma)
+    a_out = math.sqrt(gamma * p_out / rho_out)
+    J_plus = u_i + 2.0 * a_i / (gamma - 1.0)
+    u_out = J_plus - 2.0 * a_out / (gamma - 1.0)
+
+    if not math.isfinite(u_out) or u_out <= 0.0:
+        return np.array([rho_i, u_i, p_i, Y_i], dtype=float)
+
+    return np.array([rho_out, u_out, p_out, Y_i], dtype=float)
+
+
 def muscl_hancock_step(
     U: np.ndarray,
     dx: float,
@@ -226,6 +251,7 @@ def muscl_hancock_step(
     gas_constant: float,
     friction_factor: float = 0.0,
     diameter: float = 1.0,
+    p_outlet: float | None = None,
 ) -> np.ndarray:
     """Advance one step with MUSCL-Hancock + Rusanov."""
 
@@ -238,7 +264,10 @@ def muscl_hancock_step(
     prim_ext = np.zeros((N + 2, 4))
     prim_ext[1:-1] = prim
     prim_ext[0] = prim[0]
-    prim_ext[-1] = prim[-1]
+    if p_outlet is None:
+        prim_ext[-1] = prim[-1]
+    else:
+        prim_ext[-1] = _outlet_primitive(prim[-1], p_outlet, gamma)
 
     dP_plus = prim_ext[2:] - prim_ext[1:-1]
     dP_minus = prim_ext[1:-1] - prim_ext[:-2]
@@ -271,7 +300,10 @@ def muscl_hancock_step(
     prim_half_ext = np.zeros((N + 2, 4))
     prim_half_ext[1:-1] = prim_half
     prim_half_ext[0] = prim_half[0]
-    prim_half_ext[-1] = prim_half[-1]
+    if p_outlet is None:
+        prim_half_ext[-1] = prim_half[-1]
+    else:
+        prim_half_ext[-1] = _outlet_primitive(prim_half[-1], p_outlet, gamma)
 
     dP_plus = prim_half_ext[2:] - prim_half_ext[1:-1]
     dP_minus = prim_half_ext[1:-1] - prim_half_ext[:-2]

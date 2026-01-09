@@ -57,7 +57,16 @@ def test_orchestrator_ghost_uses_upstream_totals_on_backflow(monkeypatch: pytest
         captured["Y0"] = Y0
         raise _Stop()
 
-    def fake_step(U: np.ndarray, dx: float, dt: float, gamma: float, gas_constant: float, friction_factor: float = 0.0, diameter: float = 1.0) -> np.ndarray:
+    def fake_step(
+        U: np.ndarray,
+        dx: float,
+        dt: float,
+        gamma: float,
+        gas_constant: float,
+        friction_factor: float = 0.0,
+        diameter: float = 1.0,
+        p_outlet: float | None = None,
+    ) -> np.ndarray:
         return U
 
     def fake_cfl_dt(U: np.ndarray, dx: float, gamma: float, gas_constant: float, cfl: float, dt_max: float) -> float:

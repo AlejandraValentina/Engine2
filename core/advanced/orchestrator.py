@@ -161,7 +161,14 @@ class Orchestrator:
                     U[0] = ghost
                     dt_cfl = cfl_dt(U, dx, self.cfg.gamma, self.cfg.gas_constant, self.cfg.cfl, self.cfg.dt_max)
                     dt_step = min(dt_cfl, dt_theta - t_elapsed)
-                    U = muscl_hancock_step(U, dx, dt_step, self.cfg.gamma, self.cfg.gas_constant)
+                    U = muscl_hancock_step(
+                        U,
+                        dx,
+                        dt_step,
+                        self.cfg.gamma,
+                        self.cfg.gas_constant,
+                        p_outlet=p0,
+                    )
                     t_elapsed += dt_step
 
                 angle_history.append(angle_deg + cycle * 720.0)
