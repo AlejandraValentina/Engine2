@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+import logging
 from typing import Tuple
 
 import numpy as np
@@ -63,6 +64,28 @@ def ghost_state_from_nozzle(
 ) -> np.ndarray:
     rho = max(p0 / (gas_constant * T0), 1e-9)
     u = mdot / max(rho * area_face, 1e-9)
+    a = math.sqrt(max(gamma * gas_constant * T0, 1e-12))
+    u_cap = 5.0 * a
+    if abs(u) > u_cap:
+        global _GHOST_VELOCITY_CAP_COUNT
+        _GHOST_VELOCITY_CAP_COUNT += 1
+        logger.error(
+            "Ghost velocity cap applied: u=%.3e cap=%.3e count=%d",
+            float(u),
+            float(u_cap),
+            _GHOST_VELOCITY_CAP_COUNT,
+        )
+        if _GHOST_VELOCITY_CAP_COUNT > _GHOST_VELOCITY_CAP_LIMIT:
+            raise ValueError("Ghost velocity cap limit exceeded")
+        u = float(np.clip(u, -u_cap, u_cap))
     prim = Primitive1D(rho=rho, u=u, p=p0, T=T0, Y=Y0)
     cons = primitive_to_conserved(prim, gamma, gas_constant)
     return np.array([cons.rho, cons.rhou, cons.rhoE, cons.rhoY], dtype=float)
+logger = logging.getLogger(__name__)
+_GHOST_VELOCITY_CAP_COUNT = 0
+_GHOST_VELOCITY_CAP_LIMIT = 20
+
+
+def reset_ghost_counters() -> None:
+    global _GHOST_VELOCITY_CAP_COUNT
+    _GHOST_VELOCITY_CAP_COUNT = 0

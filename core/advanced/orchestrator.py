@@ -6,9 +6,14 @@ from typing import Dict, List, Tuple
 
 import numpy as np
 
-from core.advanced.coupling import ValveTiming, boundary_flux_from_nozzle, ghost_state_from_nozzle
+from core.advanced.coupling import (
+    ValveTiming,
+    boundary_flux_from_nozzle,
+    ghost_state_from_nozzle,
+    reset_ghost_counters,
+)
 from core.advanced.cylinder_cv import CylinderControlVolume, slider_crank_volume
-from core.advanced.solver_1d import cfl_dt, muscl_hancock_step
+from core.advanced.solver_1d import cfl_dt, muscl_hancock_step, reset_guard_counters
 
 
 @dataclass
@@ -38,6 +43,8 @@ class Orchestrator:
         clearance_m3: float,
         valve: ValveTiming,
     ) -> Dict[str, List[float]]:
+        reset_guard_counters()
+        reset_ghost_counters()
         dx = pipe_length_m / pipe_cells
         area_face = math.pi * (pipe_diameter_m * 0.5) ** 2
         rho0 = 1.2
@@ -94,8 +101,23 @@ class Orchestrator:
                     self.cfg.cp,
                 )
 
+                if mdot >= 0.0:
+                    mdot_in = 0.0
+                    Hdot_in = 0.0
+                    Ydot_in = 0.0
+                    mdot_out = mdot
+                    Hdot_out = Hdot
+                    Ydot_out = Ydot
+                else:
+                    mdot_in = -mdot
+                    Hdot_in = -Hdot
+                    Ydot_in = -Ydot
+                    mdot_out = 0.0
+                    Hdot_out = 0.0
+                    Ydot_out = 0.0
+
                 Qdot = 0.0
-                cyl.update(dt, mdot, Hdot, Ydot, 0.0, 0.0, 0.0, Qdot, dVdt)
+                cyl.update(dt, mdot_in, Hdot_in, Ydot_in, mdot_out, Hdot_out, Ydot_out, Qdot, dVdt)
 
                 ghost = ghost_state_from_nozzle(
                     cyl.p,
