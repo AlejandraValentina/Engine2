@@ -37,8 +37,11 @@ class CylinderControlVolume:
         e_tot = self.m_total * u_int
         e_dot = Qdot_net - self.p * dVdt + (Hdot_in - Hdot_out)
 
-        self.m_total = max(self.m_total + m_total_dot * dt, 1e-9)
-        self.m_fresh = max(self.m_fresh + m_fresh_dot * dt, 0.0)
+        m_total = max(self.m_total + m_total_dot * dt, 1e-9)
+        m_fresh = self.m_fresh + m_fresh_dot * dt
+        m_fresh = min(max(m_fresh, 0.0), m_total)
+        self.m_total = m_total
+        self.m_fresh = m_fresh
         e_tot = max(e_tot + e_dot * dt, 1e-9)
         self.T = max(e_tot / (self.m_total * self.gas_constant / (self.gamma - 1.0)), 1e-6)
         self.p = self.m_total * self.gas_constant * self.T / max(self.V, 1e-12)
@@ -46,7 +49,7 @@ class CylinderControlVolume:
     def apply_combustion(self, dt: float, m_fuel_inj: float, wiebe_fraction: float) -> float:
         m_fuel_burn = min(m_fuel_inj * wiebe_fraction, self.m_fresh / max(self.afr_stoich, 1e-9))
         m_air_consumed = m_fuel_burn * self.afr_stoich
-        self.m_fresh = max(self.m_fresh - m_air_consumed, 0.0)
+        self.m_fresh = min(max(self.m_fresh - m_air_consumed, 0.0), self.m_total)
         return m_fuel_burn * self.lhv * self.eta_comb / max(dt, 1e-9)
 
 
