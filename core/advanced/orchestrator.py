@@ -13,6 +13,7 @@ from core.advanced.coupling import (
     reset_ghost_counters,
 )
 from core.advanced.cylinder_cv import CylinderControlVolume, slider_crank_volume
+from core.advanced.state import stagnation_from_static
 from core.advanced.solver_1d import cfl_dt, conserved_to_primitive, muscl_hancock_step
 
 try:
@@ -31,6 +32,7 @@ class OrchestratorConfig:
     dt_max: float = 5e-5
     max_cycles: int = 5
     convergence_tol: float = 0.005
+    coupling_phase: str = "phase2"
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -106,6 +108,10 @@ class Orchestrator:
                 p_pipe = prim_pipe[2]
                 T_pipe = prim_pipe[3]
                 Y_pipe = prim_pipe[4]
+                u_pipe = prim_pipe[1]
+                p0_pipe, T0_pipe = stagnation_from_static(
+                    p_pipe, T_pipe, u_pipe, self.cfg.gamma, self.cfg.gas_constant
+                )
                 Y_cyl = cyl.m_fresh / max(cyl.m_total, 1e-9)
                 mdot, Hdot, Ydot, _ = boundary_flux_from_nozzle(
                     cyl.p,
@@ -117,8 +123,8 @@ class Orchestrator:
                     gamma=self.cfg.gamma,
                     gas_constant=self.cfg.gas_constant,
                     cp=self.cfg.cp,
-                    p0_down=p_pipe,
-                    T0_down=T_pipe,
+                    p0_down=p0_pipe,
+                    T0_down=T0_pipe,
                     Y0_down=Y_pipe,
                 )
 
@@ -144,8 +150,8 @@ class Orchestrator:
                     ghost_T = cyl.T
                     ghost_Y = Y_cyl
                 else:
-                    ghost_p = p_pipe
-                    ghost_T = T_pipe
+                    ghost_p = p0_pipe
+                    ghost_T = T0_pipe
                     ghost_Y = Y_pipe
                 ghost = ghost_state_from_nozzle(
                     ghost_p,
@@ -155,6 +161,7 @@ class Orchestrator:
                     max(area_face, 1e-9),
                     self.cfg.gamma,
                     self.cfg.gas_constant,
+                    phase=self.cfg.coupling_phase,
                 )
                 t_elapsed = 0.0
                 while t_elapsed < dt_theta:

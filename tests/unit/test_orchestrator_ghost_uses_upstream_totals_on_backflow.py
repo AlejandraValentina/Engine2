@@ -5,6 +5,7 @@ np = pytest.importorskip("numpy")
 import numpy as np
 
 import core.advanced.orchestrator as orchestrator_module
+from core.advanced.state import stagnation_from_static
 from core.advanced.coupling import ValveTiming
 
 
@@ -17,10 +18,15 @@ def test_orchestrator_ghost_uses_upstream_totals_on_backflow(monkeypatch: pytest
     class _Stop(Exception):
         pass
 
+    u_pipe = 120.0
+    expected_p0, expected_T0 = stagnation_from_static(
+        p_pipe, T_pipe, u_pipe, orchestrator_module.OrchestratorConfig().gamma, orchestrator_module.OrchestratorConfig().gas_constant
+    )
+
     def fake_conserved_to_primitive(U: np.ndarray, gamma: float, gas_constant: float) -> np.ndarray:
         prim = np.zeros((U.shape[0], 5))
         prim[:, 0] = 1.0
-        prim[:, 1] = 0.0
+        prim[:, 1] = u_pipe
         prim[:, 2] = p_pipe
         prim[:, 3] = T_pipe
         prim[:, 4] = Y_pipe
@@ -51,6 +57,7 @@ def test_orchestrator_ghost_uses_upstream_totals_on_backflow(monkeypatch: pytest
         area_face: float,
         gamma: float,
         gas_constant: float,
+        phase: str = "phase2",
     ) -> np.ndarray:
         captured["p0"] = p0
         captured["T0"] = T0
@@ -100,6 +107,6 @@ def test_orchestrator_ghost_uses_upstream_totals_on_backflow(monkeypatch: pytest
             valve=valve,
         )
 
-    assert pytest.approx(p_pipe, rel=0.0, abs=1e-9) == captured.get("p0")
-    assert pytest.approx(T_pipe, rel=0.0, abs=1e-9) == captured.get("T0")
+    assert pytest.approx(expected_p0, rel=1e-9, abs=1e-6) == captured.get("p0")
+    assert pytest.approx(expected_T0, rel=1e-9, abs=1e-6) == captured.get("T0")
     assert pytest.approx(Y_pipe, rel=0.0, abs=1e-9) == captured.get("Y0")

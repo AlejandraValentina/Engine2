@@ -1,6 +1,7 @@
 import pytest
 
 from core.advanced.coupling import ValveTiming, boundary_flux_from_nozzle
+from core.advanced.state import stagnation_from_static
 
 
 def test_nozzle_backflow_uses_downstream_totals() -> None:
@@ -15,6 +16,8 @@ def test_nozzle_backflow_uses_downstream_totals() -> None:
     p_down = 150000.0
     T_down = 600.0
     Y_down = 0.9
+    u_down = 120.0
+    p0_down, T0_down = stagnation_from_static(p_down, T_down, u_down, gamma, R)
 
     valve = ValveTiming(
         open_start_deg=0.0,
@@ -34,11 +37,11 @@ def test_nozzle_backflow_uses_downstream_totals() -> None:
         gamma=gamma,
         gas_constant=R,
         cp=cp,
-        p0_down=p_down,
-        T0_down=T_down,
+        p0_down=p0_down,
+        T0_down=T0_down,
         Y0_down=Y_down,
     )
 
     assert mdot < 0.0
-    assert pytest.approx(cp * T_down, rel=1e-6, abs=1e-9) == (Hdot / mdot)
+    assert pytest.approx(cp * T0_down, rel=1e-6, abs=1e-9) == (Hdot / mdot)
     assert pytest.approx(Y_down, rel=1e-6, abs=1e-9) == (Ydot / mdot)

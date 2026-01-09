@@ -8,7 +8,13 @@ from typing import Optional, Tuple
 import numpy as np
 
 from core.advanced.nozzle import nozzle_mass_flow
-from core.advanced.state import Primitive1D, primitive_to_conserved
+from core.advanced.state import (
+    Primitive1D,
+    mdot_from_stagnation,
+    primitive_to_conserved,
+    speed_of_sound,
+    static_from_stagnation_and_mach,
+)
 
 
 @dataclass
@@ -73,7 +79,7 @@ def boundary_flux_from_nozzle(
     return mdot, Hdot, Ydot, area_eff
 
 
-def ghost_state_from_nozzle(
+def _ghost_state_phase1(
     p0: float,
     T0: float,
     Y0: float,
@@ -102,6 +108,59 @@ def ghost_state_from_nozzle(
             raise ValueError("Ghost velocity cap limit exceeded")
         u = float(np.clip(u, -u_cap, u_cap))
     prim = Primitive1D(rho=rho, u=u, p=p0, T=T0, Y=Y0)
+    cons = primitive_to_conserved(prim, gamma, gas_constant)
+    return np.array([cons.rho, cons.rhou, cons.rhoE, cons.rhoY], dtype=float)
+
+
+def ghost_state_from_nozzle(
+    p0: float,
+    T0: float,
+    Y0: float,
+    mdot: float,
+    area_face: float,
+    gamma: float,
+    gas_constant: float,
+    phase: str = "phase2",
+) -> np.ndarray:
+    """Build a ghost state from upstream stagnation totals (Phase 2)."""
+    if phase == "phase1":
+        return _ghost_state_phase1(p0, T0, Y0, mdot, area_face, gamma, gas_constant)
+    if area_face <= 0.0:
+        raise ValueError("area_face must be positive")
+    if p0 <= 0.0 or T0 <= 0.0:
+        raise ValueError("p0 and T0 must be positive")
+
+    if mdot == 0.0:
+        rho = p0 / (gas_constant * T0)
+        prim = Primitive1D(rho=rho, u=0.0, p=p0, T=T0, Y=Y0)
+        cons = primitive_to_conserved(prim, gamma, gas_constant)
+        return np.array([cons.rho, cons.rhou, cons.rhoE, cons.rhoY], dtype=float)
+
+    mdot_mag = abs(mdot)
+    mdot_choked = abs(
+        mdot_from_stagnation(p0, T0, area_face, 1.0, gamma, gas_constant)
+    )
+    if mdot_mag > 1.001 * mdot_choked:
+        raise ValueError(
+            f"Ghost inversion mdot exceeds choked limit: mdot={mdot_mag:.3e} limit={mdot_choked:.3e}"
+        )
+
+    target = mdot_mag
+    lo = 1e-6
+    hi = min(0.999, max(1e-6, mdot_mag / max(mdot_choked, 1e-12)))
+    for _ in range(60):
+        mid = 0.5 * (lo + hi)
+        mdot_mid = abs(mdot_from_stagnation(p0, T0, area_face, mid, gamma, gas_constant))
+        if mdot_mid < target:
+            lo = mid
+        else:
+            hi = mid
+    M = 0.5 * (lo + hi)
+    p_static, T_static = static_from_stagnation_and_mach(p0, T0, M, gamma, gas_constant)
+    a = speed_of_sound(gamma, gas_constant, T_static)
+    u = math.copysign(M * a, mdot)
+    rho = p_static / (gas_constant * T_static)
+    prim = Primitive1D(rho=rho, u=u, p=p_static, T=T_static, Y=Y0)
     cons = primitive_to_conserved(prim, gamma, gas_constant)
     return np.array([cons.rho, cons.rhou, cons.rhoE, cons.rhoY], dtype=float)
 logger = logging.getLogger(__name__)
