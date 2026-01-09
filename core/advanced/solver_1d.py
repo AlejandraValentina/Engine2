@@ -49,6 +49,7 @@ def _guard_state(U: np.ndarray, gamma: float, gas_constant: float, label: str) -
         for idx in np.where(bad_rho)[0]:
             rho_old = float(U[idx, 0])
             mom_old = float(U[idx, 1])
+            rhoY_old = float(U[idx, 3])
             rho_safe = max(abs(rho_old), _DENSITY_FLOOR)
             u = mom_old / rho_safe
             if abs(u) > u_cap:
@@ -64,10 +65,13 @@ def _guard_state(U: np.ndarray, gamma: float, gas_constant: float, label: str) -
                 if _VELOCITY_FIX_COUNT > _VELOCITY_FIX_LIMIT:
                     raise ValueError(f"Velocity cap limit exceeded in {label}")
                 u = float(np.clip(u, -u_cap, u_cap))
+            Y_old = rhoY_old / max(rho_old, _DENSITY_FLOOR)
+            Y_old = float(np.clip(Y_old, 0.0, 1.0))
             rho_fix = _DENSITY_FLOOR
             U[idx, 0] = rho_fix
             U[idx, 1] = rho_fix * u
             U[idx, 2] = _PRESSURE_FLOOR / (gamma - 1.0) + 0.5 * rho_fix * u * u
+            U[idx, 3] = rho_fix * Y_old
 
     rho_safe = np.maximum(U[:, 0], _DENSITY_FLOOR)
     u = U[:, 1] / rho_safe
@@ -86,6 +90,7 @@ def _guard_state(U: np.ndarray, gamma: float, gas_constant: float, label: str) -
             raise ValueError(f"Pressure floor limit exceeded in {label}")
         for idx in np.where(bad_p)[0]:
             rho = float(U[idx, 0])
+            rhoY_old = float(U[idx, 3])
             u = float(U[idx, 1]) / max(rho, _DENSITY_FLOOR)
             if abs(u) > u_cap:
                 _VELOCITY_FIX_COUNT += 1
@@ -101,6 +106,10 @@ def _guard_state(U: np.ndarray, gamma: float, gas_constant: float, label: str) -
                     raise ValueError(f"Velocity cap limit exceeded in {label}")
                 u = float(np.clip(u, -u_cap, u_cap))
             U[idx, 2] = _PRESSURE_FLOOR / (gamma - 1.0) + 0.5 * rho * u * u
+            Y_old = rhoY_old / max(rho, _DENSITY_FLOOR)
+            Y_old = float(np.clip(Y_old, 0.0, 1.0))
+            rho_fix = rho if rho > 0.0 else _DENSITY_FLOOR
+            U[idx, 3] = rho_fix * Y_old
 
 
 def _pressure_from_conserved(U: np.ndarray, gamma: float) -> np.ndarray:
@@ -181,6 +190,34 @@ def flux(U: np.ndarray, gamma: float) -> np.ndarray:
     return F
 
 
+def _rusanov_flux(UL: np.ndarray, UR: np.ndarray, gamma: float, gas_constant: float) -> np.ndarray:
+    F_UL = flux(UL, gamma)
+    F_UR = flux(UR, gamma)
+
+    prim_L = conserved_to_primitive(UL, gamma, gas_constant)
+    prim_R = conserved_to_primitive(UR, gamma, gas_constant)
+    a_L = np.sqrt(gamma * prim_L[:, 2] / np.maximum(prim_L[:, 0], _DENSITY_FLOOR))
+    a_R = np.sqrt(gamma * prim_R[:, 2] / np.maximum(prim_R[:, 0], _DENSITY_FLOOR))
+    smax = np.maximum(np.abs(prim_L[:, 1]) + a_L, np.abs(prim_R[:, 1]) + a_R)
+
+    return 0.5 * (F_UL + F_UR) - 0.5 * smax[:, None] * (UR - UL)
+
+
+def _apply_scalar_guard(U: np.ndarray, label: str) -> None:
+    rho = U[:, 0]
+    rho_safe = np.maximum(rho, _DENSITY_FLOOR)
+    Y = U[:, 3] / rho_safe
+    Y_clipped = np.clip(Y, 0.0, 1.0)
+    max_delta = float(np.max(np.abs(Y - Y_clipped)))
+    if max_delta > 1e-3:
+        bad_idx = np.where(np.abs(Y - Y_clipped) > 1e-3)[0].tolist()
+        raise ValueError(
+            "Passive scalar out of bounds in "
+            f"{label}: min={float(np.min(Y)):.3e} max={float(np.max(Y)):.3e} idx={bad_idx}"
+        )
+    U[:, 3] = rho * Y_clipped
+
+
 def muscl_hancock_step(
     U: np.ndarray,
     dx: float,
@@ -211,34 +248,46 @@ def muscl_hancock_step(
 
     U_L = _primitive_to_conserved(prim_L, gamma, gas_constant, "muscl_hancock_step predictor L")
     U_R = _primitive_to_conserved(prim_R, gamma, gas_constant, "muscl_hancock_step predictor R")
-    F_L = flux(U_L, gamma)
-    F_R = flux(U_R, gamma)
+    UL_face = np.zeros((N + 1, 4))
+    UR_face = np.zeros((N + 1, 4))
+    UL_face[1:-1] = U_R[:-1]
+    UR_face[1:-1] = U_L[1:]
+    UL_face[0] = U_L[0]
+    UR_face[0] = U_L[0]
+    UL_face[-1] = U_R[-1]
+    UR_face[-1] = U_R[-1]
 
-    U_L = U_L - 0.5 * dt / dx * (F_R - F_L)
-    U_R = U_R - 0.5 * dt / dx * (F_R - F_L)
-    _guard_state(U_L, gamma, gas_constant, "muscl_hancock_step predictor L")
-    _guard_state(U_R, gamma, gas_constant, "muscl_hancock_step predictor R")
+    F_face = _rusanov_flux(UL_face, UR_face, gamma, gas_constant)
+    U_half = U - 0.5 * dt / dx * (F_face[1:] - F_face[:-1])
+    _guard_state(U_half, gamma, gas_constant, "muscl_hancock_step predictor")
 
-    UL = np.zeros((N + 1, 4))
-    UR = np.zeros((N + 1, 4))
-    UL[1:-1] = U_R[:-1]
-    UR[1:-1] = U_L[1:]
-    UL[0] = U_L[0]
-    UR[0] = U_L[0]
-    UL[-1] = U_R[-1]
-    UR[-1] = U_R[-1]
+    prim_half_full = conserved_to_primitive(U_half, gamma, gas_constant)
+    prim_half = prim_half_full[:, [0, 1, 2, 4]]
+    prim_half_ext = np.zeros((N + 2, 4))
+    prim_half_ext[1:-1] = prim_half
+    prim_half_ext[0] = prim_half[0]
+    prim_half_ext[-1] = prim_half[-1]
 
-    F_UL = flux(UL, gamma)
-    F_UR = flux(UR, gamma)
+    dP_plus = prim_half_ext[2:] - prim_half_ext[1:-1]
+    dP_minus = prim_half_ext[1:-1] - prim_half_ext[:-2]
+    slopes_half = minmod(dP_minus, dP_plus)
 
-    prim_L = conserved_to_primitive(UL, gamma, gas_constant)
-    prim_R = conserved_to_primitive(UR, gamma, gas_constant)
-    a_L = np.sqrt(gamma * prim_L[:, 2] / np.maximum(prim_L[:, 0], _DENSITY_FLOOR))
-    a_R = np.sqrt(gamma * prim_R[:, 2] / np.maximum(prim_R[:, 0], _DENSITY_FLOOR))
-    smax = np.maximum(np.abs(prim_L[:, 1]) + a_L, np.abs(prim_R[:, 1]) + a_R)
+    prim_half_L = prim_half - 0.5 * slopes_half
+    prim_half_R = prim_half + 0.5 * slopes_half
 
-    F_star = 0.5 * (F_UL + F_UR) - 0.5 * smax[:, None] * (UR - UL)
+    U_half_L = _primitive_to_conserved(prim_half_L, gamma, gas_constant, "muscl_hancock_step corrector L")
+    U_half_R = _primitive_to_conserved(prim_half_R, gamma, gas_constant, "muscl_hancock_step corrector R")
 
+    UL_face = np.zeros((N + 1, 4))
+    UR_face = np.zeros((N + 1, 4))
+    UL_face[1:-1] = U_half_R[:-1]
+    UR_face[1:-1] = U_half_L[1:]
+    UL_face[0] = U_half_L[0]
+    UR_face[0] = U_half_L[0]
+    UL_face[-1] = U_half_R[-1]
+    UR_face[-1] = U_half_R[-1]
+
+    F_star = _rusanov_flux(UL_face, UR_face, gamma, gas_constant)
     U_new = U - dt / dx * (F_star[1:] - F_star[:-1])
 
     if friction_factor > 0.0:
@@ -249,13 +298,9 @@ def muscl_hancock_step(
         U_new[:, 1] += dt * S_mom
         U_new[:, 2] += dt * u * S_mom
 
-    rho = U_new[:, 0]
-    rho_safe = np.maximum(rho, _DENSITY_FLOOR)
-    Y = U_new[:, 3] / rho_safe
-    Y = np.clip(Y, 0.0, 1.0)
-    U_new[:, 3] = rho_safe * Y
-
+    _apply_scalar_guard(U_new, "muscl_hancock_step")
     _guard_state(U_new, gamma, gas_constant, "muscl_hancock_step output")
+    _apply_scalar_guard(U_new, "muscl_hancock_step post-guard")
     return U_new
 
 

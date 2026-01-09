@@ -31,6 +31,7 @@ U = [\rho, \rho u, \rho E, \rho Y_{fresh}]
 - Constant \(\gamma\) and \(R\) (ideal gas).
 - Speed of sound: \(a = \sqrt{\gamma R T}\).
 - Composition affects only oxygen availability / effective AFR (no variable \(\gamma/R\) yet).
+- In Phase 1, \(c_p\) is **consistent** with \(\gamma\) and \(R\): \(c_p = \gamma R/(\gamma-1)\).
 
 ### 2.3 Euler Fluxes and Closure (Phase 1)
 **Conserved vector:**
@@ -63,6 +64,7 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - **Selected scheme:** MUSCL–Hancock reconstruction + Rusanov (local Lax–Friedrichs) flux.
 - **Reconstruction variables:** **primitive** \((\rho, u, p, Y)\).
 - **Limiter:** Minmod by default; Superbee optional.
+- **Hancock predictor:** uses interface Rusanov flux divergence \(F_{i+1/2} - F_{i-1/2}\) at \(t^n\) to build \(U^{n+1/2}\) before the corrector.
 
 **Minmod definition (component-wise):**
 \[
@@ -76,6 +78,7 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 **Passive scalar guardrail (Phase 1):**
 - After update, compute \(Y = (\rho Y)/\rho\).
 - If tiny drift pushes \(Y\) slightly outside \([0,1]\), **clamp** to \([0,1]\) and recompute \(\rho Y = \rho\,Y\).
+- If drift exceeds \(1\text{e-}3\) in any cell, raise an error with diagnostics (min/max \(Y\), indices).
 - This clamp is a **numerical guardrail**, not physics.
 
 ### 2.6 Source Terms
@@ -150,7 +153,7 @@ Define:
 
 **Operational backflow rule (signed convention):**
 - If \(p_{down} \le p_0\): use upstream totals \((p_0, T_0, Y_0)\) and downstream static \(p_{down}\). Compute \(\dot{m}_{mag}\) from the formulas below and set \(\dot{m} = +\dot{m}_{mag}\).
-- If \(p_{down} > p_0\): **swap roles**. Use upstream totals from the downstream side \((p_{0,rev}, T_{0,rev}, Y_{0,rev})\) and downstream static \(p_{down,rev}\) from the original upstream side. Compute \(\dot{m}_{mag}\) with the same formulas and set \(\dot{m} = -\dot{m}_{mag}\).
+- If \(p_{down} > p_0\): **swap roles**. Use upstream totals from the downstream side \((p_{0,rev}, T_{0,rev}, Y_{0,rev})\) and downstream static \(p_{down,rev}\) from the original upstream side. Compute \(\dot{m}_{mag}\) with the same formulas and set \(\dot{m} = -\dot{m}_{mag}\). In practice, \(T_{0,rev}\) and \(Y_{0,rev}\) come from the **downstream pipe cell**.
 - \(\dot{H}\) and \(\dot{Y}\) always use **upstream totals** of the actual flow direction:
   - \(\dot{H} = \dot{m}\,h_{tot,upstream}\) with \(h_{tot} \approx c_p T_0\) in Phase 1.
   - \(\dot{Y} = \dot{m}\,Y_{upstream}\).
@@ -191,6 +194,8 @@ Then:
 - Use the standard Rusanov numerical flux between ghost and the first interior cell.
 - Apply that flux to update the boundary cell exactly like any interior face.
 - **No direct pressure forcing** at the boundary.
+
+**Indexing convention:** in the coupled 1D pipe, `U[0]` is the ghost cell and `U[1]` is the first **physical** cell. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
 
 **Note:** Any clamping of \(u_g\) is a **numerical guardrail** and must be minimal and documented.
 
