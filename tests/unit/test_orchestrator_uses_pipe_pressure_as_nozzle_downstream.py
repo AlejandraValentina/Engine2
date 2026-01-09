@@ -44,6 +44,9 @@ def test_orchestrator_uses_pipe_pressure_as_nozzle_downstream(monkeypatch: pytes
         p0_down: Optional[float] = None,
         T0_down: Optional[float] = None,
         Y0_down: Optional[float] = None,
+        loss_coeff: float = 0.0,
+        rho_down: Optional[float] = None,
+        u_down: Optional[float] = None,
     ) -> tuple[float, float, float, float]:
         call_count["boundary"] += 1
         if call_count["boundary"] >= 2:
@@ -80,6 +83,9 @@ def test_orchestrator_uses_pipe_pressure_as_nozzle_downstream(monkeypatch: pytes
         outlet_mode: str | None = None,
         reflection_coeff: float | None = None,
         impedance: float | None = None,
+        friction_model: str | None = None,
+        roughness: float = 0.0,
+        mu: float = 1.8e-5,
     ) -> np.ndarray:
         return U
 

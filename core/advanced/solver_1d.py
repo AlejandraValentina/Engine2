@@ -195,6 +195,21 @@ def _primitive_to_conserved_row(prim4: np.ndarray, gamma: float, gas_constant: f
     return np.array([rho, rho * u, rho * E, rho * Y], dtype=float)
 
 
+def _friction_factor_swamee_jain(
+    Re: np.ndarray, roughness: float, diameter: float
+) -> np.ndarray:
+    if diameter <= 0.0:
+        raise ValueError("diameter must be positive")
+    if roughness < 0.0:
+        raise ValueError("roughness must be non-negative")
+    Re_safe = np.maximum(Re, 1e-8)
+    rel_eps = roughness / diameter
+    f_lam = 64.0 / Re_safe
+    term = rel_eps / 3.7 + 5.74 / np.power(Re_safe, 0.9)
+    f_turb = 0.25 / np.square(np.log10(term))
+    return np.where(Re_safe < 2300.0, f_lam, f_turb)
+
+
 def flux(U: np.ndarray, gamma: float) -> np.ndarray:
     rho = U[:, 0]
     rho_safe = np.maximum(rho, 1e-12)
@@ -353,6 +368,9 @@ def muscl_hancock_step(
     outlet_mode: str | None = None,
     reflection_coeff: float | None = None,
     impedance: float | None = None,
+    friction_model: str | None = None,
+    roughness: float = 0.0,
+    mu: float = 1.8e-5,
 ) -> np.ndarray:
     """Advance one step with MUSCL-Hancock + Rusanov."""
 
@@ -455,11 +473,28 @@ def muscl_hancock_step(
     F_star = _rusanov_flux(UL_face, UR_face, gamma, gas_constant)
     U_new = U - dt / dx * (F_star[1:] - F_star[:-1])
 
-    if friction_factor > 0.0:
+    if friction_model is None:
+        use_friction = friction_factor > 0.0
+    else:
+        use_friction = True
+
+    if use_friction:
+        if friction_model is None:
+            f = friction_factor
+        elif friction_model == "swamee-jain":
+            if mu <= 0.0:
+                raise ValueError("mu must be positive for friction_model")
+            rho = U_new[:, 0]
+            rho_safe = np.maximum(rho, 1e-12)
+            u = U_new[:, 1] / rho_safe
+            Re = rho_safe * np.abs(u) * diameter / mu
+            f = _friction_factor_swamee_jain(Re, roughness, diameter)
+        else:
+            raise ValueError(f"Unknown friction_model '{friction_model}'")
         rho = U_new[:, 0]
         rho_safe = np.maximum(rho, 1e-12)
         u = U_new[:, 1] / rho_safe
-        S_mom = -(friction_factor / (2.0 * diameter)) * rho * u * np.abs(u)
+        S_mom = -(f / (2.0 * diameter)) * rho * u * np.abs(u)
         U_new[:, 1] += dt * S_mom
         U_new[:, 2] += dt * u * S_mom
 

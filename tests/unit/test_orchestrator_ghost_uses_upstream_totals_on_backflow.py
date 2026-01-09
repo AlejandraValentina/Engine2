@@ -1,3 +1,5 @@
+from typing import Optional
+
 import pytest
 
 np = pytest.importorskip("numpy")
@@ -46,6 +48,9 @@ def test_orchestrator_ghost_uses_upstream_totals_on_backflow(monkeypatch: pytest
         p0_down=None,
         T0_down=None,
         Y0_down=None,
+        loss_coeff: float = 0.0,
+        rho_down: Optional[float] = None,
+        u_down: Optional[float] = None,
     ) -> tuple[float, float, float, float]:
         return -0.1, -1.0, -0.01, valve.area_eff(angle_deg)
 
@@ -76,6 +81,9 @@ def test_orchestrator_ghost_uses_upstream_totals_on_backflow(monkeypatch: pytest
         outlet_mode: str | None = None,
         reflection_coeff: float | None = None,
         impedance: float | None = None,
+        friction_model: str | None = None,
+        roughness: float = 0.0,
+        mu: float = 1.8e-5,
     ) -> np.ndarray:
         return U
 

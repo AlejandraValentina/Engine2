@@ -37,6 +37,10 @@ class OrchestratorConfig:
     p_outlet: Optional[float] = None
     outlet_reflection: Optional[float] = None
     outlet_impedance: Optional[float] = None
+    enable_friction: bool = False
+    roughness_m: float = 0.0
+    mu: float = 1.8e-5
+    loss_coeff: float = 0.0
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -113,6 +117,7 @@ class Orchestrator:
                 T_pipe = prim_pipe[3]
                 Y_pipe = prim_pipe[4]
                 u_pipe = prim_pipe[1]
+                rho_pipe = prim_pipe[0]
                 p0_pipe, T0_pipe = stagnation_from_static(
                     p_pipe, T_pipe, u_pipe, self.cfg.gamma, self.cfg.gas_constant
                 )
@@ -130,6 +135,9 @@ class Orchestrator:
                     p0_down=p0_pipe,
                     T0_down=T0_pipe,
                     Y0_down=Y_pipe,
+                    loss_coeff=self.cfg.loss_coeff,
+                    rho_down=rho_pipe,
+                    u_down=u_pipe,
                 )
 
                 if mdot >= 0.0:
@@ -182,10 +190,15 @@ class Orchestrator:
                         dt_step,
                         self.cfg.gamma,
                         self.cfg.gas_constant,
+                        friction_factor=0.0,
+                        diameter=pipe_diameter_m,
                         p_outlet=p_outlet,
                         outlet_mode=self.cfg.outlet_mode,
                         reflection_coeff=self.cfg.outlet_reflection,
                         impedance=self.cfg.outlet_impedance,
+                        friction_model="swamee-jain" if self.cfg.enable_friction else None,
+                        roughness=self.cfg.roughness_m,
+                        mu=self.cfg.mu,
                     )
                     t_elapsed += dt_step
 

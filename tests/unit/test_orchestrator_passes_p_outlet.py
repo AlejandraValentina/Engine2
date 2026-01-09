@@ -1,3 +1,5 @@
+from typing import Optional
+
 import pytest
 
 np = pytest.importorskip("numpy")
@@ -28,6 +30,9 @@ def test_orchestrator_passes_p_outlet(monkeypatch: pytest.MonkeyPatch) -> None:
         p0_down=None,
         T0_down=None,
         Y0_down=None,
+        loss_coeff: float = 0.0,
+        rho_down: Optional[float] = None,
+        u_down: Optional[float] = None,
     ) -> tuple[float, float, float, float]:
         return 0.0, 0.0, 0.0, valve.area_eff(angle_deg)
 
@@ -55,6 +60,9 @@ def test_orchestrator_passes_p_outlet(monkeypatch: pytest.MonkeyPatch) -> None:
         outlet_mode: str | None = None,
         reflection_coeff: float | None = None,
         impedance: float | None = None,
+        friction_model: str | None = None,
+        roughness: float = 0.0,
+        mu: float = 1.8e-5,
     ) -> np.ndarray:
         captured["p_outlet"] = float(p_outlet) if p_outlet is not None else None
         raise _Stop()

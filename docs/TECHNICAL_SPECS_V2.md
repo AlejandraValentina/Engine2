@@ -86,6 +86,10 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
   \[
   S_{mom} = -\frac{f}{2D}\,\rho u|u|,\quad S_E = u\,S_{mom}
   \]
+  - **Phase 2 correlation:** compute \(f\) from Reynolds number and roughness:
+    - Laminar: \(f = 64/Re\)
+    - Turbulent (Swamee-Jain): \(f = 0.25/\log_{10}^2\left(\epsilon/(3.7D) + 5.74/Re^{0.9}\right)\)
+    - \(Re = \rho |u| D/\mu\)
 - **Heat transfer (1D):**
   - Phase 1 default **OFF**: `settings.enable_1d_heat_transfer = False`.
   - If enabled, use a documented wall heat-loss model with parameters declared in settings.
@@ -209,6 +213,11 @@ Then:
 - Use the standard Rusanov numerical flux between ghost and the first interior cell.
 - Apply that flux to update the boundary cell exactly like any interior face.
 - **No direct pressure forcing** at the boundary.
+
+**Local losses (optional Phase 2):**
+- Apply a loss coefficient \(K\) at the pipe entrance/exit as an added static drop:
+  \(\Delta p = K \cdot 0.5 \rho u^2\).
+- Implemented as an adjustment to the downstream static pressure used for nozzle flow.
 
 **Indexing convention:** in the coupled 1D pipe, `U[0]` is the ghost cell and `U[1]` is the first **physical** cell. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
 

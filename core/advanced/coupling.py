@@ -60,13 +60,26 @@ def boundary_flux_from_nozzle(
     p0_down: Optional[float] = None,
     T0_down: Optional[float] = None,
     Y0_down: Optional[float] = None,
+    loss_coeff: float = 0.0,
+    rho_down: Optional[float] = None,
+    u_down: Optional[float] = None,
 ) -> Tuple[float, float, float, float]:
     """Compute boundary flux using a valve/nozzle contract (Phase 1 reservoir)."""
     area_eff = valve.area_eff(angle_deg)
+    if loss_coeff < 0.0:
+        raise ValueError("loss_coeff must be non-negative")
+    p_eff = p_down
+    if loss_coeff > 0.0:
+        if rho_down is None or u_down is None:
+            raise ValueError("loss_coeff requires rho_down and u_down")
+        dp_loss = 0.5 * loss_coeff * rho_down * u_down * u_down
+        if not math.isfinite(dp_loss) or dp_loss < 0.0:
+            raise ValueError("Invalid local loss pressure drop")
+        p_eff = p_down + dp_loss
     mdot, Hdot, Ydot = nozzle_mass_flow(
         p0,
         T0,
-        p_down,
+        p_eff,
         area_eff,
         gamma,
         gas_constant,
