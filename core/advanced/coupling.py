@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 import logging
-from typing import Tuple
+from typing import Optional, Tuple
 
 import numpy as np
 
@@ -44,12 +44,30 @@ def boundary_flux_from_nozzle(
     T0: float,
     Y0: float,
     p_down: float,
-    area_eff: float,
+    *,
+    valve: ValveTiming,
+    angle_deg: float,
     gamma: float,
     gas_constant: float,
     cp: float,
+    p0_down: Optional[float] = None,
+    T0_down: Optional[float] = None,
+    Y0_down: Optional[float] = None,
 ) -> Tuple[float, float, float, float]:
-    mdot, Hdot, Ydot = nozzle_mass_flow(p0, T0, p_down, area_eff, gamma, gas_constant, cp, Y0)
+    area_eff = valve.area_eff(angle_deg)
+    mdot, Hdot, Ydot = nozzle_mass_flow(
+        p0,
+        T0,
+        p_down,
+        area_eff,
+        gamma,
+        gas_constant,
+        cp,
+        Y0,
+        p0_down=p0_down,
+        T0_down=T0_down,
+        Y0_down=Y0_down,
+    )
     return mdot, Hdot, Ydot, area_eff
 
 

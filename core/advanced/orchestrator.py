@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -13,18 +13,28 @@ from core.advanced.coupling import (
     reset_ghost_counters,
 )
 from core.advanced.cylinder_cv import CylinderControlVolume, slider_crank_volume
-from core.advanced.solver_1d import cfl_dt, muscl_hancock_step, reset_guard_counters
+from core.advanced.solver_1d import cfl_dt, conserved_to_primitive, muscl_hancock_step
+
+try:
+    from core.advanced.solver_1d import reset_guard_counters
+except ImportError:  # pragma: no cover - compat for older solver_1d
+    def reset_guard_counters() -> None:
+        return None
 
 
 @dataclass
 class OrchestratorConfig:
     gamma: float = 1.35
     gas_constant: float = 287.0
-    cp: float = 1005.0
+    cp: Optional[float] = None
     cfl: float = 0.5
     dt_max: float = 5e-5
     max_cycles: int = 5
     convergence_tol: float = 0.005
+
+    def __post_init__(self) -> None:
+        if self.cp is None:
+            self.cp = self.gamma * self.gas_constant / max(self.gamma - 1.0, 1e-9)
 
 
 class Orchestrator:
@@ -52,11 +62,12 @@ class Orchestrator:
         p0 = 101325.0
         T0 = p0 / (rho0 * self.cfg.gas_constant)
         E0 = self.cfg.gas_constant * T0 / (self.cfg.gamma - 1.0)
-        U = np.zeros((pipe_cells, 4))
-        U[:, 0] = rho0
-        U[:, 1] = rho0 * u0
-        U[:, 2] = rho0 * (E0 + 0.5 * u0 * u0)
-        U[:, 3] = rho0
+        U = np.zeros((pipe_cells + 1, 4))
+        U[1:, 0] = rho0
+        U[1:, 1] = rho0 * u0
+        U[1:, 2] = rho0 * (E0 + 0.5 * u0 * u0)
+        U[1:, 3] = rho0
+        U[0] = U[1]
 
         cyl = CylinderControlVolume(
             m_total=rho0 * clearance_m3,
@@ -75,13 +86,15 @@ class Orchestrator:
         trapped_history: List[float] = []
 
         omega = rpm * 2.0 * math.pi / 60.0
-        dt = self.cfg.dt_max
+        dt_theta = math.radians(1.0) / max(omega, 1e-9)
         cycle = 0
         last_trapped = None
         last_work = None
 
         while cycle < self.cfg.max_cycles:
             indicated_work = 0.0
+            prev_p = None
+            prev_V = None
             for step in range(int(720.0 / 1.0)):
                 angle_deg = step
                 theta = math.radians(angle_deg)
@@ -89,16 +102,24 @@ class Orchestrator:
                 cyl.V = V
                 dVdt = dVdtheta * omega
 
-                area = valve.area_eff(angle_deg)
+                prim_pipe = conserved_to_primitive(U[[1]], self.cfg.gamma, self.cfg.gas_constant)[0]
+                p_pipe = prim_pipe[2]
+                T_pipe = prim_pipe[3]
+                Y_pipe = prim_pipe[4]
+                Y_cyl = cyl.m_fresh / max(cyl.m_total, 1e-9)
                 mdot, Hdot, Ydot, _ = boundary_flux_from_nozzle(
                     cyl.p,
                     cyl.T,
-                    cyl.m_fresh / max(cyl.m_total, 1e-9),
-                    p0,
-                    area,
-                    self.cfg.gamma,
-                    self.cfg.gas_constant,
-                    self.cfg.cp,
+                    Y_cyl,
+                    p_pipe,
+                    valve=valve,
+                    angle_deg=angle_deg,
+                    gamma=self.cfg.gamma,
+                    gas_constant=self.cfg.gas_constant,
+                    cp=self.cfg.cp,
+                    p0_down=p_pipe,
+                    T0_down=T_pipe,
+                    Y0_down=Y_pipe,
                 )
 
                 if mdot >= 0.0:
@@ -115,28 +136,41 @@ class Orchestrator:
                     mdot_out = 0.0
                     Hdot_out = 0.0
                     Ydot_out = 0.0
-
                 Qdot = 0.0
-                cyl.update(dt, mdot_in, Hdot_in, Ydot_in, mdot_out, Hdot_out, Ydot_out, Qdot, dVdt)
+                cyl.update(dt_theta, mdot_in, Hdot_in, Ydot_in, mdot_out, Hdot_out, Ydot_out, Qdot, dVdt)
 
+                if mdot >= 0.0:
+                    ghost_p = cyl.p
+                    ghost_T = cyl.T
+                    ghost_Y = Y_cyl
+                else:
+                    ghost_p = p_pipe
+                    ghost_T = T_pipe
+                    ghost_Y = Y_pipe
                 ghost = ghost_state_from_nozzle(
-                    cyl.p,
-                    cyl.T,
-                    cyl.m_fresh / max(cyl.m_total, 1e-9),
+                    ghost_p,
+                    ghost_T,
+                    ghost_Y,
                     mdot,
                     max(area_face, 1e-9),
                     self.cfg.gamma,
                     self.cfg.gas_constant,
                 )
-                U[0] = ghost
-                U = muscl_hancock_step(U, dx, dt, self.cfg.gamma, self.cfg.gas_constant)
-
-                dt = cfl_dt(U, dx, self.cfg.gamma, self.cfg.gas_constant, self.cfg.cfl, self.cfg.dt_max)
+                t_elapsed = 0.0
+                while t_elapsed < dt_theta:
+                    U[0] = ghost
+                    dt_cfl = cfl_dt(U, dx, self.cfg.gamma, self.cfg.gas_constant, self.cfg.cfl, self.cfg.dt_max)
+                    dt_step = min(dt_cfl, dt_theta - t_elapsed)
+                    U = muscl_hancock_step(U, dx, dt_step, self.cfg.gamma, self.cfg.gas_constant)
+                    t_elapsed += dt_step
 
                 angle_history.append(angle_deg + cycle * 720.0)
                 p_history.append(cyl.p)
                 ve_history.append(cyl.m_fresh / max(rho0 * (math.pi * (bore_m * 0.5) ** 2) * stroke_m, 1e-9))
-                indicated_work += cyl.p * dVdtheta * math.radians(1.0)
+                if prev_p is not None and prev_V is not None:
+                    indicated_work += 0.5 * (prev_p + cyl.p) * (V - prev_V)
+                prev_p = cyl.p
+                prev_V = V
 
             trapped_history.append(cyl.m_fresh)
             work_history.append(indicated_work)
