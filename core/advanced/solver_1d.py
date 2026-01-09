@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import logging
+import math
 import numpy as np
+
+from core.advanced.limiters import minmod
 
 logger = logging.getLogger(__name__)
 _PRESSURE_FIX_COUNT = 0
@@ -12,7 +15,9 @@ _DENSITY_FIX_LIMIT = 20
 _DENSITY_FLOOR = 1e-9
 _VELOCITY_FIX_COUNT = 0
 _VELOCITY_FIX_LIMIT = 20
-_U_MAX = 5.0 * np.sqrt(1.35 * _PRESSURE_FLOOR / _DENSITY_FLOOR)
+
+def _u_max(gamma: float) -> float:
+    return 200.0 * math.sqrt(max(gamma, 1e-9))
 
 
 def reset_guard_counters() -> None:
@@ -27,6 +32,7 @@ def _guard_state(U: np.ndarray, gamma: float, gas_constant: float, label: str) -
     if not np.isfinite(U).all():
         raise ValueError(f"Non-finite state in {label}")
 
+    u_cap = _u_max(gamma)
     rho = U[:, 0]
     bad_rho = rho <= 0.0
     if np.any(bad_rho):
@@ -45,19 +51,19 @@ def _guard_state(U: np.ndarray, gamma: float, gas_constant: float, label: str) -
             mom_old = float(U[idx, 1])
             rho_safe = max(abs(rho_old), _DENSITY_FLOOR)
             u = mom_old / rho_safe
-            if abs(u) > _U_MAX:
+            if abs(u) > u_cap:
                 _VELOCITY_FIX_COUNT += 1
                 logger.error(
                     "Velocity cap applied in %s (density fix): cell=%d u=%.3e cap=%.3e count=%d",
                     label,
                     int(idx),
                     float(u),
-                    float(_U_MAX),
+                    float(u_cap),
                     _VELOCITY_FIX_COUNT,
                 )
                 if _VELOCITY_FIX_COUNT > _VELOCITY_FIX_LIMIT:
                     raise ValueError(f"Velocity cap limit exceeded in {label}")
-                u = float(np.clip(u, -_U_MAX, _U_MAX))
+                u = float(np.clip(u, -u_cap, u_cap))
             rho_fix = _DENSITY_FLOOR
             U[idx, 0] = rho_fix
             U[idx, 1] = rho_fix * u
@@ -81,19 +87,19 @@ def _guard_state(U: np.ndarray, gamma: float, gas_constant: float, label: str) -
         for idx in np.where(bad_p)[0]:
             rho = float(U[idx, 0])
             u = float(U[idx, 1]) / max(rho, _DENSITY_FLOOR)
-            if abs(u) > _U_MAX:
+            if abs(u) > u_cap:
                 _VELOCITY_FIX_COUNT += 1
                 logger.error(
                     "Velocity cap applied in %s (pressure fix): cell=%d u=%.3e cap=%.3e count=%d",
                     label,
                     int(idx),
                     float(u),
-                    float(_U_MAX),
+                    float(u_cap),
                     _VELOCITY_FIX_COUNT,
                 )
                 if _VELOCITY_FIX_COUNT > _VELOCITY_FIX_LIMIT:
                     raise ValueError(f"Velocity cap limit exceeded in {label}")
-                u = float(np.clip(u, -_U_MAX, _U_MAX))
+                u = float(np.clip(u, -u_cap, u_cap))
             U[idx, 2] = _PRESSURE_FLOOR / (gamma - 1.0) + 0.5 * rho * u * u
 
 
@@ -114,6 +120,52 @@ def conserved_to_primitive(U: np.ndarray, gamma: float, gas_constant: float) -> 
     p = rho_safe * gas_constant * T
     Y = U[:, 3] / rho_safe
     return np.stack([rho, u, p, T, Y], axis=1)
+
+
+def _primitive_to_conserved(prim: np.ndarray, gamma: float, gas_constant: float, label: str) -> np.ndarray:
+    global _DENSITY_FIX_COUNT, _PRESSURE_FIX_COUNT
+    rho = prim[:, 0]
+    u = prim[:, 1]
+    p = prim[:, 2]
+    Y = prim[:, 3]
+
+    bad_rho = rho <= 0.0
+    if np.any(bad_rho):
+        _DENSITY_FIX_COUNT += int(np.count_nonzero(bad_rho))
+        logger.error(
+            "Density floor applied in %s: cells=%s min_rho=%.3e count=%d",
+            label,
+            np.where(bad_rho)[0].tolist(),
+            float(np.min(rho)),
+            _DENSITY_FIX_COUNT,
+        )
+        if _DENSITY_FIX_COUNT > _DENSITY_FIX_LIMIT:
+            raise ValueError(f"Density floor limit exceeded in {label}")
+        rho = np.where(bad_rho, _DENSITY_FLOOR, rho)
+
+    bad_p = p <= 0.0
+    if np.any(bad_p):
+        _PRESSURE_FIX_COUNT += int(np.count_nonzero(bad_p))
+        logger.error(
+            "Pressure floor applied in %s: cells=%s min_p=%.3e count=%d",
+            label,
+            np.where(bad_p)[0].tolist(),
+            float(np.min(p)),
+            _PRESSURE_FIX_COUNT,
+        )
+        if _PRESSURE_FIX_COUNT > _PRESSURE_FIX_LIMIT:
+            raise ValueError(f"Pressure floor limit exceeded in {label}")
+        p = np.where(bad_p, _PRESSURE_FLOOR, p)
+
+    T = p / (rho * gas_constant)
+    e_int = gas_constant * T / (gamma - 1.0)
+    E = e_int + 0.5 * u * u
+    U = np.zeros((prim.shape[0], 4))
+    U[:, 0] = rho
+    U[:, 1] = rho * u
+    U[:, 2] = rho * E
+    U[:, 3] = rho * Y
+    return U
 
 
 def flux(U: np.ndarray, gamma: float) -> np.ndarray:
@@ -142,21 +194,47 @@ def muscl_hancock_step(
 
     N = U.shape[0]
     _guard_state(U, gamma, gas_constant, "muscl_hancock_step input")
-    U_ext = np.zeros((N + 2, 4))
-    U_ext[1:-1] = U
-    U_ext[0] = U[0]
-    U_ext[-1] = U[-1]
 
-    UL = U_ext[:-1]
-    UR = U_ext[1:]
+    prim_full = conserved_to_primitive(U, gamma, gas_constant)
+    prim = prim_full[:, [0, 1, 2, 4]]
+    prim_ext = np.zeros((N + 2, 4))
+    prim_ext[1:-1] = prim
+    prim_ext[0] = prim[0]
+    prim_ext[-1] = prim[-1]
+
+    dP_plus = prim_ext[2:] - prim_ext[1:-1]
+    dP_minus = prim_ext[1:-1] - prim_ext[:-2]
+    slopes = minmod(dP_minus, dP_plus)
+
+    prim_L = prim - 0.5 * slopes
+    prim_R = prim + 0.5 * slopes
+
+    U_L = _primitive_to_conserved(prim_L, gamma, gas_constant, "muscl_hancock_step predictor L")
+    U_R = _primitive_to_conserved(prim_R, gamma, gas_constant, "muscl_hancock_step predictor R")
+    F_L = flux(U_L, gamma)
+    F_R = flux(U_R, gamma)
+
+    U_L = U_L - 0.5 * dt / dx * (F_R - F_L)
+    U_R = U_R - 0.5 * dt / dx * (F_R - F_L)
+    _guard_state(U_L, gamma, gas_constant, "muscl_hancock_step predictor L")
+    _guard_state(U_R, gamma, gas_constant, "muscl_hancock_step predictor R")
+
+    UL = np.zeros((N + 1, 4))
+    UR = np.zeros((N + 1, 4))
+    UL[1:-1] = U_R[:-1]
+    UR[1:-1] = U_L[1:]
+    UL[0] = U_L[0]
+    UR[0] = U_L[0]
+    UL[-1] = U_R[-1]
+    UR[-1] = U_R[-1]
 
     F_UL = flux(UL, gamma)
     F_UR = flux(UR, gamma)
 
     prim_L = conserved_to_primitive(UL, gamma, gas_constant)
     prim_R = conserved_to_primitive(UR, gamma, gas_constant)
-    a_L = np.sqrt(gamma * prim_L[:, 2] / prim_L[:, 0])
-    a_R = np.sqrt(gamma * prim_R[:, 2] / prim_R[:, 0])
+    a_L = np.sqrt(gamma * prim_L[:, 2] / np.maximum(prim_L[:, 0], _DENSITY_FLOOR))
+    a_R = np.sqrt(gamma * prim_R[:, 2] / np.maximum(prim_R[:, 0], _DENSITY_FLOOR))
     smax = np.maximum(np.abs(prim_L[:, 1]) + a_L, np.abs(prim_R[:, 1]) + a_R)
 
     F_star = 0.5 * (F_UL + F_UR) - 0.5 * smax[:, None] * (UR - UL)
@@ -171,6 +249,12 @@ def muscl_hancock_step(
         U_new[:, 1] += dt * S_mom
         U_new[:, 2] += dt * u * S_mom
 
+    rho = U_new[:, 0]
+    rho_safe = np.maximum(rho, _DENSITY_FLOOR)
+    Y = U_new[:, 3] / rho_safe
+    Y = np.clip(Y, 0.0, 1.0)
+    U_new[:, 3] = rho_safe * Y
+
     _guard_state(U_new, gamma, gas_constant, "muscl_hancock_step output")
     return U_new
 
@@ -178,6 +262,8 @@ def muscl_hancock_step(
 def cfl_dt(U: np.ndarray, dx: float, gamma: float, gas_constant: float, cfl: float, dt_max: float) -> float:
     _guard_state(U, gamma, gas_constant, "cfl_dt input")
     prim = conserved_to_primitive(U, gamma, gas_constant)
-    a = np.sqrt(gamma * prim[:, 2] / prim[:, 0])
+    rho_safe = np.maximum(prim[:, 0], _DENSITY_FLOOR)
+    p_safe = np.maximum(prim[:, 2], _PRESSURE_FLOOR)
+    a = np.sqrt(gamma * p_safe / rho_safe)
     max_speed = np.max(np.abs(prim[:, 1]) + a)
     return min(dt_max, cfl * dx / max(max_speed, 1e-9))
