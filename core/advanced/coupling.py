@@ -55,6 +55,7 @@ def boundary_flux_from_nozzle(
     T0_down: Optional[float] = None,
     Y0_down: Optional[float] = None,
 ) -> Tuple[float, float, float, float]:
+    """Compute boundary flux using a valve/nozzle contract (Phase 1 reservoir)."""
     area_eff = valve.area_eff(angle_deg)
     mdot, Hdot, Ydot = nozzle_mass_flow(
         p0,
@@ -81,7 +82,7 @@ def ghost_state_from_nozzle(
     gamma: float,
     gas_constant: float,
 ) -> np.ndarray:
-    """Build a ghost state from upstream totals (Phase-1 approximation)."""
+    """Build a ghost state from upstream reservoir conditions (Phase 1: v≈0)."""
     if p0 < 1e3 or T0 < 50.0:
         raise ValueError(f"Invalid ghost totals (p0={p0:.3e}, T0={T0:.3e})")
     rho = max(p0 / (gas_constant * T0), 1e-9)

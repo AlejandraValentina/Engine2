@@ -150,6 +150,9 @@ A_{eff} = C_d A_{valve}
 **Inputs:** \(p_0, T_0, p_{down}, A_{eff}, \gamma, R\).
 
 **Note on Cd:** Cd is already **baked into** \(A_{eff}\). Do **not** multiply by Cd again.
+**Phase 1 reservoir convention:** treat \(p_0, T_0\) as **reservoir static** values with
+\(v \approx 0\), so \(p_0 \approx p\) and \(T_0 \approx T\). True stagnation totals are
+reserved for Phase 2.
 
 Define:
 \[
@@ -190,7 +193,7 @@ Define:
 - \(A_{face}\) = cross-sectional area of the pipe-end finite-volume face (**not** valve area).
 
 Ghost primitive state (upstream reservoir model):
-- \(p_g = p_{0,upstream}\)
+- \(p_g = p_{0,upstream}\) (Phase 1 reservoir static)
 - Phase 1 approximates \(p_0 \approx p\) for the reservoir ghost; later phases may distinguish \(p_0\) and \(p\) explicitly.
 - \(T_g = T_{0,upstream}\)
 - \(\rho_g = p_g/(R T_g)\)
