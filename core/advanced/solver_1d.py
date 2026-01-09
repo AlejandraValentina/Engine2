@@ -15,16 +15,19 @@ _DENSITY_FIX_LIMIT = 20
 _DENSITY_FLOOR = 1e-9
 _VELOCITY_FIX_COUNT = 0
 _VELOCITY_FIX_LIMIT = 20
+_OUTLET_FALLBACK_COUNT = 0
+_OUTLET_FALLBACK_LIMIT = 10
 
 def _u_max(gamma: float) -> float:
     return 200.0 * math.sqrt(max(gamma, 1e-9))
 
 
 def reset_guard_counters() -> None:
-    global _PRESSURE_FIX_COUNT, _DENSITY_FIX_COUNT, _VELOCITY_FIX_COUNT
+    global _PRESSURE_FIX_COUNT, _DENSITY_FIX_COUNT, _VELOCITY_FIX_COUNT, _OUTLET_FALLBACK_COUNT
     _PRESSURE_FIX_COUNT = 0
     _DENSITY_FIX_COUNT = 0
     _VELOCITY_FIX_COUNT = 0
+    _OUTLET_FALLBACK_COUNT = 0
 
 
 def _guard_state(U: np.ndarray, gamma: float, gas_constant: float, label: str) -> None:
@@ -258,6 +261,86 @@ def _outlet_primitive(prim_i: np.ndarray, p_outlet: float, gamma: float) -> np.n
     return np.array([rho_out, u_out, p_out, Y_i], dtype=float)
 
 
+def _outlet_primitive_bc(
+    prim_i: np.ndarray,
+    p_outlet: float,
+    gamma: float,
+    gas_constant: float,
+    outlet_mode: str,
+    reflection_coeff: float | None,
+    impedance: float | None,
+) -> np.ndarray:
+    global _OUTLET_FALLBACK_COUNT
+    if outlet_mode == "copy":
+        return prim_i
+    if outlet_mode == "non_reflecting":
+        return _outlet_primitive(prim_i, p_outlet, gamma)
+    if outlet_mode != "impedance":
+        raise ValueError(f"Unknown outlet_mode '{outlet_mode}'")
+
+    rho_i = float(prim_i[0])
+    u_i = float(prim_i[1])
+    p_i = float(prim_i[2])
+    Y_i = float(prim_i[3])
+    rho_safe = max(rho_i, _DENSITY_FLOOR)
+    p_safe = max(p_i, _PRESSURE_FLOOR)
+    a_i = math.sqrt(gamma * p_safe / rho_safe)
+
+    if u_i <= 0.0 or abs(u_i) >= a_i:
+        return np.array([rho_i, u_i, p_i, Y_i], dtype=float)
+
+    p_ref = max(p_outlet, _PRESSURE_FLOOR)
+    rho_ref = rho_safe * (p_ref / p_safe) ** (1.0 / gamma)
+    T_ref = p_ref / (rho_ref * gas_constant)
+    a_ref = math.sqrt(max(gamma * gas_constant * T_ref, 1e-12))
+
+    if reflection_coeff is None:
+        if impedance is None:
+            R = 0.0
+        else:
+            z0 = rho_safe * a_i
+            if impedance <= 0.0:
+                _OUTLET_FALLBACK_COUNT += 1
+                logger.error("Outlet impedance invalid; falling back to non_reflecting")
+                if _OUTLET_FALLBACK_COUNT > _OUTLET_FALLBACK_LIMIT:
+                    raise ValueError("Outlet impedance fallback limit exceeded")
+                return _outlet_primitive(prim_i, p_outlet, gamma)
+            R = (impedance - z0) / (impedance + z0)
+    else:
+        R = reflection_coeff
+
+    if not math.isfinite(R) or abs(R) > 1.0:
+        _OUTLET_FALLBACK_COUNT += 1
+        logger.error("Outlet reflection coefficient invalid; falling back to non_reflecting")
+        if _OUTLET_FALLBACK_COUNT > _OUTLET_FALLBACK_LIMIT:
+            raise ValueError("Outlet reflection fallback limit exceeded")
+        return _outlet_primitive(prim_i, p_outlet, gamma)
+
+    J_plus = u_i + 2.0 * a_i / (gamma - 1.0)
+    J_plus_ref = 2.0 * a_ref / (gamma - 1.0)
+    J_minus_ref = -J_plus_ref
+    J_minus = J_minus_ref + R * (J_plus - J_plus_ref)
+    u_out = 0.5 * (J_plus + J_minus)
+    a_out = 0.25 * (gamma - 1.0) * (J_plus - J_minus)
+    if a_out <= 0.0 or not math.isfinite(a_out) or not math.isfinite(u_out):
+        _OUTLET_FALLBACK_COUNT += 1
+        logger.error("Outlet impedance produced invalid state; falling back to non_reflecting")
+        if _OUTLET_FALLBACK_COUNT > _OUTLET_FALLBACK_LIMIT:
+            raise ValueError("Outlet impedance fallback limit exceeded")
+        return _outlet_primitive(prim_i, p_outlet, gamma)
+
+    T_out = a_out * a_out / (gamma * gas_constant)
+    p_out = p_ref * (T_out / T_ref) ** (gamma / (gamma - 1.0))
+    if p_out <= 0.0 or T_out <= 0.0:
+        _OUTLET_FALLBACK_COUNT += 1
+        logger.error("Outlet impedance produced nonphysical p/T; falling back to non_reflecting")
+        if _OUTLET_FALLBACK_COUNT > _OUTLET_FALLBACK_LIMIT:
+            raise ValueError("Outlet impedance fallback limit exceeded")
+        return _outlet_primitive(prim_i, p_outlet, gamma)
+    rho_out = p_out / (gas_constant * T_out)
+    return np.array([rho_out, u_out, p_out, Y_i], dtype=float)
+
+
 def muscl_hancock_step(
     U: np.ndarray,
     dx: float,
@@ -267,11 +350,19 @@ def muscl_hancock_step(
     friction_factor: float = 0.0,
     diameter: float = 1.0,
     p_outlet: float | None = None,
+    outlet_mode: str | None = None,
+    reflection_coeff: float | None = None,
+    impedance: float | None = None,
 ) -> np.ndarray:
     """Advance one step with MUSCL-Hancock + Rusanov."""
 
     N = U.shape[0]
     _guard_state(U, gamma, gas_constant, "muscl_hancock_step input")
+    mode = outlet_mode
+    if mode is None:
+        mode = "non_reflecting" if p_outlet is not None else "copy"
+    if p_outlet is None and mode != "copy":
+        raise ValueError("p_outlet must be set when outlet_mode is not 'copy'")
 
     prim_full = conserved_to_primitive(U, gamma, gas_constant)
     rho_rec = np.maximum(prim_full[:, 0], _DENSITY_FLOOR)
@@ -279,10 +370,12 @@ def muscl_hancock_step(
     prim_ext = np.zeros((N + 2, 4))
     prim_ext[1:-1] = prim
     prim_ext[0] = prim[0]
-    if p_outlet is None:
+    if mode == "copy":
         prim_ext[-1] = prim[-1]
     else:
-        prim_ext[-1] = _outlet_primitive(prim[-1], p_outlet, gamma)
+        prim_ext[-1] = _outlet_primitive_bc(
+            prim[-1], float(p_outlet), gamma, gas_constant, mode, reflection_coeff, impedance
+        )
 
     dP_plus = prim_ext[2:] - prim_ext[1:-1]
     dP_minus = prim_ext[1:-1] - prim_ext[:-2]
@@ -299,11 +392,11 @@ def muscl_hancock_step(
     UR_face[1:-1] = U_L[1:]
     UL_face[0] = U_L[0]
     UR_face[0] = U_L[0]
-    if p_outlet is None:
+    if mode == "copy":
         UL_face[-1] = U_R[-1]
         UR_face[-1] = U_R[-1]
     else:
-        prim_out = _outlet_primitive(prim[-1], p_outlet, gamma)
+        prim_out = prim_ext[-1]
         if np.allclose(prim_out, prim[-1]):
             U_out = U_R[-1]
         else:
@@ -324,10 +417,12 @@ def muscl_hancock_step(
     prim_half_ext = np.zeros((N + 2, 4))
     prim_half_ext[1:-1] = prim_half
     prim_half_ext[0] = prim_half[0]
-    if p_outlet is None:
+    if mode == "copy":
         prim_half_ext[-1] = prim_half[-1]
     else:
-        prim_half_ext[-1] = _outlet_primitive(prim_half[-1], p_outlet, gamma)
+        prim_half_ext[-1] = _outlet_primitive_bc(
+            prim_half[-1], float(p_outlet), gamma, gas_constant, mode, reflection_coeff, impedance
+        )
 
     dP_plus = prim_half_ext[2:] - prim_half_ext[1:-1]
     dP_minus = prim_half_ext[1:-1] - prim_half_ext[:-2]
@@ -345,11 +440,11 @@ def muscl_hancock_step(
     UR_face[1:-1] = U_half_L[1:]
     UL_face[0] = U_half_L[0]
     UR_face[0] = U_half_L[0]
-    if p_outlet is None:
+    if mode == "copy":
         UL_face[-1] = U_half_R[-1]
         UR_face[-1] = U_half_R[-1]
     else:
-        prim_out_half = _outlet_primitive(prim_half[-1], p_outlet, gamma)
+        prim_out_half = prim_half_ext[-1]
         if np.allclose(prim_out_half, prim_half[-1]):
             U_out_half = U_half_R[-1]
         else:

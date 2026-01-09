@@ -77,6 +77,9 @@ def test_orchestrator_uses_pipe_pressure_as_nozzle_downstream(monkeypatch: pytes
         friction_factor: float = 0.0,
         diameter: float = 1.0,
         p_outlet: float | None = None,
+        outlet_mode: str | None = None,
+        reflection_coeff: float | None = None,
+        impedance: float | None = None,
     ) -> np.ndarray:
         return U
 

@@ -33,6 +33,10 @@ class OrchestratorConfig:
     max_cycles: int = 5
     convergence_tol: float = 0.005
     coupling_phase: str = "phase2"
+    outlet_mode: str = "non_reflecting"
+    p_outlet: Optional[float] = None
+    outlet_reflection: Optional[float] = None
+    outlet_impedance: Optional[float] = None
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -164,6 +168,10 @@ class Orchestrator:
                     phase=self.cfg.coupling_phase,
                 )
                 t_elapsed = 0.0
+                if self.cfg.outlet_mode == "copy":
+                    p_outlet = None
+                else:
+                    p_outlet = self.cfg.p_outlet if self.cfg.p_outlet is not None else p0
                 while t_elapsed < dt_theta:
                     U[0] = ghost
                     dt_cfl = cfl_dt(U, dx, self.cfg.gamma, self.cfg.gas_constant, self.cfg.cfl, self.cfg.dt_max)
@@ -174,7 +182,10 @@ class Orchestrator:
                         dt_step,
                         self.cfg.gamma,
                         self.cfg.gas_constant,
-                        p_outlet=p0,
+                        p_outlet=p_outlet,
+                        outlet_mode=self.cfg.outlet_mode,
+                        reflection_coeff=self.cfg.outlet_reflection,
+                        impedance=self.cfg.outlet_impedance,
                     )
                     t_elapsed += dt_step
 

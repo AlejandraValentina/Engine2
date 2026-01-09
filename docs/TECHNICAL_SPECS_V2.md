@@ -105,6 +105,9 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
   - For subsonic outflow, hold the outgoing characteristic and set the incoming one to match
     \(p_{outlet}\).
   - For inflow or supersonic outflow, fall back to copy to avoid over-constraint.
+- **Impedance mode:** optional outlet model using a reflection coefficient or impedance:
+  - `outlet_mode="impedance"` with `reflection_coeff` in \([-1,1]\), or
+  - `outlet_impedance` (Pa·s/m) converted using \(R = (Z - \rho a)/(Z + \rho a)\).
 
 ## 3) 0D Thermodynamics (Open Control Volume Cylinder)
 ### 3.1 State Tracking (Minimum)

@@ -52,6 +52,9 @@ def test_orchestrator_passes_p_outlet(monkeypatch: pytest.MonkeyPatch) -> None:
         friction_factor: float = 0.0,
         diameter: float = 1.0,
         p_outlet: float | None = None,
+        outlet_mode: str | None = None,
+        reflection_coeff: float | None = None,
+        impedance: float | None = None,
     ) -> np.ndarray:
         captured["p_outlet"] = float(p_outlet) if p_outlet is not None else None
         raise _Stop()
