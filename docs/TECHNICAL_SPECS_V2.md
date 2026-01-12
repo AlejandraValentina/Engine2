@@ -80,6 +80,7 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - If tiny drift pushes \(Y\) slightly outside \([0,1]\), **clamp** to \([0,1]\) and recompute \(\rho Y = \rho\,Y\).
 - If drift exceeds \(1\text{e-}3\) in any cell, raise an error with diagnostics (min/max \(Y\), indices).
 - This clamp is a **numerical guardrail**, not physics.
+- Guard runs **after** density/pressure floors, and recomposes using the floored density to keep \(\rho Y\) consistent.
 
 ### 2.6 Source Terms
 - **Friction (Darcy–Weisbach):**
@@ -90,6 +91,7 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
     - Laminar: \(f = 64/Re\)
     - Turbulent (Swamee-Jain): \(f = 0.25/\log_{10}^2\left(\epsilon/(3.7D) + 5.74/Re^{0.9}\right)\)
     - \(Re = \rho |u| D/\mu\)
+  - **Energy mode:** `wall_loss` applies \(S_E = u S_{mom}\); `adiabatic` skips explicit \(S_E\).
 - **Heat transfer (1D):**
   - Phase 1 default **OFF**: `settings.enable_1d_heat_transfer = False`.
   - If enabled, use a documented wall heat-loss model with parameters declared in settings.
@@ -101,6 +103,7 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - Defaults: `CFL = 0.5`.
 - `dt_max` configurable; `dt_min` optional safety lower bound.
 - Orchestrator recomputes \(\Delta t\) every step from the current 1D state.
+- CFL uses **physical cells only** (ghost cells excluded).
 
 ### 2.8 Outlet Boundary (Phase 1)
 - Default outlet uses a copy/Neumann condition (legacy behavior).
@@ -209,6 +212,7 @@ Ghost primitive state (upstream reservoir model):
 - Use stagnation totals \((p_0, T_0)\) on the **upstream** side and invert isentropic
   relations to obtain static \((p, T, u)\) for the ghost.
 - The inversion supports \( \dot{m} \to 0 \) by a small-M linear approximation and brackets Mach with \(M \in [0, 0.999]\).
+- Final inversion error is checked; inconsistent targets raise a diagnostic error.
 - \(T_g = T_{0,upstream}\)
 - \(\rho_g = p_g/(R T_g)\)
 - \(u_g = \dot{m}/(\rho_g A_{face})\) (signed)
