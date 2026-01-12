@@ -171,8 +171,12 @@ Define:
 \]
 
 **Operational backflow rule (signed convention):**
-- If \(p_{down} \le p_0\): use upstream totals \((p_0, T_0, Y_0)\) and downstream static \(p_{down}\). Compute \(\dot{m}_{mag}\) from the formulas below and set \(\dot{m} = +\dot{m}_{mag}\).
-- If \(p_{down} > p_0\): **swap roles**. Use upstream totals from the downstream side \((p_{0,rev}, T_{0,rev}, Y_{0,rev})\) and downstream static \(p_{down,rev}\) from the original upstream side. Compute \(\dot{m}_{mag}\) with the same formulas and set \(\dot{m} = -\dot{m}_{mag}\). In practice, \(T_{0,rev}\) and \(Y_{0,rev}\) come from the **downstream pipe cell**.
+- If downstream totals are available \((p_{0,down})\), determine direction by **stagnation pressures**:
+  - If \(p_0 \ge p_{0,down}\): forward (cyl → pipe).
+  - If \(p_0 < p_{0,down}\): reverse (pipe → cyl).
+- If downstream totals are not provided, fall back to static comparison \(p_{down} \le p_0\).
+- Forward: use upstream totals \((p_0, T_0, Y_0)\) and downstream static \(p_{down}\); \(\dot{m} = +\dot{m}_{mag}\).
+- Reverse: use upstream totals from the downstream side \((p_{0,rev}, T_{0,rev}, Y_{0,rev})\) and downstream static from the original upstream side; \(\dot{m} = -\dot{m}_{mag}\).
 - \(\dot{H}\) and \(\dot{Y}\) always use **upstream totals** of the actual flow direction:
   - \(\dot{H} = \dot{m}\,h_{tot,upstream}\) with \(h_{tot} \approx c_p T_0\) in Phase 1.
   - \(\dot{Y} = \dot{m}\,Y_{upstream}\).

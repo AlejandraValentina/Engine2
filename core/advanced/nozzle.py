@@ -40,7 +40,19 @@ def nozzle_mass_flow(
         flow_coeff = math.sqrt(2.0 * gamma / (gas_constant * (gamma - 1.0)) * term)
         return area_eff * p_up / math.sqrt(T_up) * flow_coeff
 
-    if p_down <= p0:
+    use_stagnation = p0_down is not None
+    if use_stagnation:
+        eps = 1e-6 * max(p0, p0_down, 1.0)
+        if p0 >= p0_down + eps:
+            forward = True
+        elif p0_down >= p0 + eps:
+            forward = False
+        else:
+            forward = True
+    else:
+        forward = p_down <= p0
+
+    if forward:
         mdot_mag = _mdot_mag(p0, T0, p_down)
         mdot = mdot_mag
         Hdot = mdot * cp * T0
