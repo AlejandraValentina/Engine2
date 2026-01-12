@@ -217,8 +217,15 @@ def ghost_state_from_nozzle(
         return np.array([cons.rho, cons.rhou, cons.rhoE, cons.rhoY], dtype=float)
 
     lo = 0.0
-    hi = 0.999
+    hi = 1e-6
     mdot_hi = abs(mdot_from_stagnation(p0, T0, area_face, hi, gamma, gas_constant))
+    while mdot_hi < target and hi < 0.999:
+        hi = min(hi * 2.0, 0.999)
+        mdot_hi = abs(mdot_from_stagnation(p0, T0, area_face, hi, gamma, gas_constant))
+    if mdot_hi < target:
+        raise ValueError(
+            f"Ghost inversion bracket failed: target={target:.3e} mdot_hi={mdot_hi:.3e}"
+        )
     for _ in range(60):
         mid = 0.5 * (lo + hi)
         mdot_mid = abs(mdot_from_stagnation(p0, T0, area_face, mid, gamma, gas_constant))
