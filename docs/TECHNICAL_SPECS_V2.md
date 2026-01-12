@@ -174,6 +174,7 @@ Define:
 - If downstream totals are available \((p_{0,down})\), determine direction by **stagnation pressures**:
   - If \(p_0 \ge p_{0,down}\): forward (cyl → pipe).
   - If \(p_0 < p_{0,down}\): reverse (pipe → cyl).
+- Use a small hysteresis band around \(p_0 \approx p_{0,down}\) to avoid chattering; within the band, fall back to static comparison.
 - If downstream totals are not provided, fall back to static comparison \(p_{down} \le p_0\).
 - Forward: use upstream totals \((p_0, T_0, Y_0)\) and downstream static \(p_{down}\); \(\dot{m} = +\dot{m}_{mag}\).
 - Reverse: use upstream totals from the downstream side \((p_{0,rev}, T_{0,rev}, Y_{0,rev})\) and downstream static from the original upstream side; \(\dot{m} = -\dot{m}_{mag}\).
@@ -207,6 +208,7 @@ Define:
 Ghost primitive state (upstream reservoir model):
 - Use stagnation totals \((p_0, T_0)\) on the **upstream** side and invert isentropic
   relations to obtain static \((p, T, u)\) for the ghost.
+- The inversion supports \( \dot{m} \to 0 \) by a small-M linear approximation and brackets Mach with \(M \in [0, 0.999]\).
 - \(T_g = T_{0,upstream}\)
 - \(\rho_g = p_g/(R T_g)\)
 - \(u_g = \dot{m}/(\rho_g A_{face})\) (signed)

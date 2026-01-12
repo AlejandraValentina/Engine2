@@ -7,7 +7,7 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from core.advanced.nozzle import nozzle_mass_flow
+from core.advanced.nozzle import mdot_mag_from_totals, nozzle_mass_flow
 from core.advanced.state import (
     Primitive1D,
     mdot_from_stagnation,
@@ -64,27 +64,24 @@ def boundary_flux_from_nozzle(
     rho_down: Optional[float] = None,
     u_down: Optional[float] = None,
 ) -> Tuple[float, float, float, float]:
-    """Compute boundary flux using a valve/nozzle contract (Phase 1 reservoir)."""
+    """Compute boundary flux using the valve/nozzle contract (Phase 1/2)."""
     area_eff = valve.area_eff(angle_deg)
     if loss_coeff < 0.0:
         raise ValueError("loss_coeff must be non-negative")
 
-    def _compute(p_eff: float, p0_down_eff: Optional[float]) -> Tuple[float, float, float]:
-        return nozzle_mass_flow(
-            p0,
-            T0,
-            p_eff,
-            area_eff,
-            gamma,
-            gas_constant,
-            cp,
-            Y0,
-            p0_down=p0_down_eff,
-            T0_down=T0_down,
-            Y0_down=Y0_down,
-        )
-
-    mdot0, Hdot0, Ydot0 = _compute(p_down, p0_down)
+    mdot0, Hdot0, Ydot0 = nozzle_mass_flow(
+        p0,
+        T0,
+        p_down,
+        area_eff,
+        gamma,
+        gas_constant,
+        cp,
+        Y0,
+        p0_down=p0_down,
+        T0_down=T0_down,
+        Y0_down=Y0_down,
+    )
     if loss_coeff <= 0.0:
         return mdot0, Hdot0, Ydot0, area_eff
 
@@ -97,28 +94,38 @@ def boundary_flux_from_nozzle(
     pressure_floor = 1e-6
     if mdot0 >= 0.0:
         p_eff = p_down + dp_loss
+        mdot_mag = mdot_mag_from_totals(p0, T0, p_eff, area_eff, gamma, gas_constant)
+        mdot = mdot_mag
+        Hdot = mdot * cp * T0
+        Ydot = mdot * Y0
     else:
-        p_eff = max(p_down - dp_loss, pressure_floor)
-    if p0_down is not None and p_down > pressure_floor:
-        p0_down_eff = p0_down * (p_eff / p_down)
-    else:
-        p0_down_eff = p0_down
+        p0_rev = p0_down if p0_down is not None else p_down
+        T0_rev = T0_down if T0_down is not None else T0
+        Y0_rev = Y0_down if Y0_down is not None else Y0
+        p_eff = max(p0 + dp_loss, pressure_floor)
+        mdot_mag = mdot_mag_from_totals(p0_rev, T0_rev, p_eff, area_eff, gamma, gas_constant)
+        mdot = -mdot_mag
+        Hdot = mdot * cp * T0_rev
+        Ydot = mdot * Y0_rev
 
-    mdot1, Hdot1, Ydot1 = _compute(p_eff, p0_down_eff)
-    if mdot0 == 0.0 or mdot1 == 0.0:
-        return mdot1, Hdot1, Ydot1, area_eff
-    if (mdot0 > 0.0) != (mdot1 > 0.0):
-        if mdot1 >= 0.0:
+    if mdot0 != 0.0 and mdot != 0.0 and (mdot0 > 0.0) != (mdot > 0.0):
+        if mdot >= 0.0:
             p_eff = p_down + dp_loss
+            mdot_mag = mdot_mag_from_totals(p0, T0, p_eff, area_eff, gamma, gas_constant)
+            mdot = mdot_mag
+            Hdot = mdot * cp * T0
+            Ydot = mdot * Y0
         else:
-            p_eff = max(p_down - dp_loss, pressure_floor)
-        if p0_down is not None and p_down > pressure_floor:
-            p0_down_eff = p0_down * (p_eff / p_down)
-        else:
-            p0_down_eff = p0_down
-        mdot2, Hdot2, Ydot2 = _compute(p_eff, p0_down_eff)
-        return mdot2, Hdot2, Ydot2, area_eff
-    return mdot1, Hdot1, Ydot1, area_eff
+            p0_rev = p0_down if p0_down is not None else p_down
+            T0_rev = T0_down if T0_down is not None else T0
+            Y0_rev = Y0_down if Y0_down is not None else Y0
+            p_eff = max(p0 + dp_loss, pressure_floor)
+            mdot_mag = mdot_mag_from_totals(p0_rev, T0_rev, p_eff, area_eff, gamma, gas_constant)
+            mdot = -mdot_mag
+            Hdot = mdot * cp * T0_rev
+            Ydot = mdot * Y0_rev
+
+    return mdot, Hdot, Ydot, area_eff
 
 
 def _ghost_state_phase1(
@@ -188,6 +195,13 @@ def ghost_state_from_nozzle(
         )
 
     target = mdot_mag
+    mdot_eps = max(1e-12, 1e-10 * mdot_choked)
+    if mdot_mag <= mdot_eps:
+        rho0 = p0 / (gas_constant * T0)
+        u = mdot / max(rho0 * area_face, 1e-12)
+        prim = Primitive1D(rho=rho0, u=u, p=p0, T=T0, Y=Y0)
+        cons = primitive_to_conserved(prim, gamma, gas_constant)
+        return np.array([cons.rho, cons.rhou, cons.rhoE, cons.rhoY], dtype=float)
     mdot_min = abs(
         mdot_from_stagnation(p0, T0, area_face, 1e-12, gamma, gas_constant)
     )
@@ -203,7 +217,8 @@ def ghost_state_from_nozzle(
         return np.array([cons.rho, cons.rhou, cons.rhoE, cons.rhoY], dtype=float)
 
     lo = 0.0
-    hi = min(0.999, max(1e-6, mdot_mag / max(mdot_choked, 1e-12)))
+    hi = 0.999
+    mdot_hi = abs(mdot_from_stagnation(p0, T0, area_face, hi, gamma, gas_constant))
     for _ in range(60):
         mid = 0.5 * (lo + hi)
         mdot_mid = abs(mdot_from_stagnation(p0, T0, area_face, mid, gamma, gas_constant))
@@ -212,6 +227,23 @@ def ghost_state_from_nozzle(
         else:
             hi = mid
     M = 0.5 * (lo + hi)
+    mdot_final = abs(mdot_from_stagnation(p0, T0, area_face, M, gamma, gas_constant))
+    rel_err = abs(mdot_final - target) / max(target, 1e-12)
+    if rel_err > 1e-3:
+        if mdot_hi < target:
+            M = 0.999
+            mdot_final = mdot_hi
+            rel_err = abs(mdot_final - target) / max(target, 1e-12)
+        if rel_err > 1e-3 and target <= mdot_min:
+            rho0 = p0 / (gas_constant * T0)
+            u = mdot / max(rho0 * area_face, 1e-12)
+            prim = Primitive1D(rho=rho0, u=u, p=p0, T=T0, Y=Y0)
+            cons = primitive_to_conserved(prim, gamma, gas_constant)
+            return np.array([cons.rho, cons.rhou, cons.rhoE, cons.rhoY], dtype=float)
+        if rel_err > 1e-3:
+            raise ValueError(
+                f"Ghost inversion did not converge: rel_err={rel_err:.3e} target={target:.3e}"
+            )
     p_static, T_static = static_from_stagnation_and_mach(p0, T0, M, gamma, gas_constant)
     a = speed_of_sound(gamma, gas_constant, T_static)
     u = math.copysign(M * a, mdot)
