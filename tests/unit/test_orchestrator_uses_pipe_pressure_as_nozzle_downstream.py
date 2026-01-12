@@ -86,6 +86,7 @@ def test_orchestrator_uses_pipe_pressure_as_nozzle_downstream(monkeypatch: pytes
         friction_model: str | None = None,
         roughness: float = 0.0,
         mu: float = 1.8e-5,
+        friction_energy_mode: str = "wall_loss",
     ) -> np.ndarray:
         return U
 

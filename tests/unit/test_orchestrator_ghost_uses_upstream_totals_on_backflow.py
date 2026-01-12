@@ -84,6 +84,7 @@ def test_orchestrator_ghost_uses_upstream_totals_on_backflow(monkeypatch: pytest
         friction_model: str | None = None,
         roughness: float = 0.0,
         mu: float = 1.8e-5,
+        friction_energy_mode: str = "wall_loss",
     ) -> np.ndarray:
         return U
 

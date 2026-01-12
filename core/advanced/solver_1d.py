@@ -371,6 +371,7 @@ def muscl_hancock_step(
     friction_model: str | None = None,
     roughness: float = 0.0,
     mu: float = 1.8e-5,
+    friction_energy_mode: str = "wall_loss",
 ) -> np.ndarray:
     """Advance one step with MUSCL-Hancock + Rusanov."""
 
@@ -496,7 +497,10 @@ def muscl_hancock_step(
         u = U_new[:, 1] / rho_safe
         S_mom = -(f / (2.0 * diameter)) * rho * u * np.abs(u)
         U_new[:, 1] += dt * S_mom
-        U_new[:, 2] += dt * u * S_mom
+        if friction_energy_mode == "wall_loss":
+            U_new[:, 2] += dt * u * S_mom
+        elif friction_energy_mode != "adiabatic":
+            raise ValueError(f"Unknown friction_energy_mode '{friction_energy_mode}'")
 
     _guard_state(U_new, gamma, gas_constant, "muscl_hancock_step output")
     _apply_scalar_guard(U_new, "muscl_hancock_step post-guard")

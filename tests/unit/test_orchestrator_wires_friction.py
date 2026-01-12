@@ -61,10 +61,12 @@ def test_orchestrator_wires_friction(monkeypatch: pytest.MonkeyPatch) -> None:
         friction_model: str | None = None,
         roughness: float = 0.0,
         mu: float = 1.8e-5,
+        friction_energy_mode: str = "wall_loss",
     ) -> np.ndarray:
         captured["friction_model"] = friction_model
         captured["roughness"] = roughness
         captured["mu"] = mu
+        captured["energy_mode"] = friction_energy_mode
         raise _Stop()
 
     def fake_cfl_dt(
@@ -116,3 +118,4 @@ def test_orchestrator_wires_friction(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured["friction_model"] == "swamee-jain"
     assert captured["roughness"] == pytest.approx(1e-5, rel=0.0, abs=1e-12)
     assert captured["mu"] == pytest.approx(2.1e-5, rel=0.0, abs=1e-12)
+    assert captured["energy_mode"] == "wall_loss"

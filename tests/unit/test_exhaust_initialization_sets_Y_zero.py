@@ -47,6 +47,7 @@ def test_exhaust_initialization_sets_Y_zero(monkeypatch: pytest.MonkeyPatch) -> 
         friction_model: str | None = None,
         roughness: float = 0.0,
         mu: float = 1.8e-5,
+        friction_energy_mode: str = "wall_loss",
     ) -> np.ndarray:
         Y = U[1, 3] / max(U[1, 0], 1e-12)
         assert Y == pytest.approx(0.0, rel=0.0, abs=1e-12)

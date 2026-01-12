@@ -63,6 +63,7 @@ def test_orchestrator_passes_p_outlet(monkeypatch: pytest.MonkeyPatch) -> None:
         friction_model: str | None = None,
         roughness: float = 0.0,
         mu: float = 1.8e-5,
+        friction_energy_mode: str = "wall_loss",
     ) -> np.ndarray:
         captured["p_outlet"] = float(p_outlet) if p_outlet is not None else None
         raise _Stop()

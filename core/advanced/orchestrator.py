@@ -39,6 +39,7 @@ class OrchestratorConfig:
     outlet_impedance: Optional[float] = None
     enable_friction: bool = False
     friction_model: str = "swamee-jain"
+    friction_energy_mode: str = "wall_loss"
     roughness_m: float = 0.0
     mu: float = 1.8e-5
     loss_coeff: float = 0.0
@@ -56,6 +57,8 @@ class OrchestratorConfig:
             raise ValueError("periodicity_required must be >= 1")
         if self.friction_model not in ("swamee-jain", "constant"):
             raise ValueError("friction_model must be 'swamee-jain' or 'constant'")
+        if self.friction_energy_mode not in ("wall_loss", "adiabatic"):
+            raise ValueError("friction_energy_mode must be 'wall_loss' or 'adiabatic'")
 
 
 class Orchestrator:
@@ -226,6 +229,7 @@ class Orchestrator:
                         reflection_coeff=self.cfg.outlet_reflection,
                         impedance=self.cfg.outlet_impedance,
                         friction_model=self.cfg.friction_model if self.cfg.enable_friction else None,
+                        friction_energy_mode=self.cfg.friction_energy_mode,
                         roughness=self.cfg.roughness_m,
                         mu=self.cfg.mu,
                     )
