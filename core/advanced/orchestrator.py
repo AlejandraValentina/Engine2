@@ -38,6 +38,7 @@ class OrchestratorConfig:
     outlet_reflection: Optional[float] = None
     outlet_impedance: Optional[float] = None
     enable_friction: bool = False
+    friction_model: str = "swamee-jain"
     roughness_m: float = 0.0
     mu: float = 1.8e-5
     loss_coeff: float = 0.0
@@ -53,6 +54,8 @@ class OrchestratorConfig:
             raise ValueError("periodicity_tol must be non-negative")
         if self.periodicity_required < 1:
             raise ValueError("periodicity_required must be >= 1")
+        if self.friction_model not in ("swamee-jain", "constant"):
+            raise ValueError("friction_model must be 'swamee-jain' or 'constant'")
 
 
 class Orchestrator:
@@ -213,7 +216,7 @@ class Orchestrator:
                         outlet_mode=self.cfg.outlet_mode,
                         reflection_coeff=self.cfg.outlet_reflection,
                         impedance=self.cfg.outlet_impedance,
-                        friction_model="swamee-jain" if self.cfg.enable_friction else None,
+                        friction_model=self.cfg.friction_model if self.cfg.enable_friction else None,
                         roughness=self.cfg.roughness_m,
                         mu=self.cfg.mu,
                     )
