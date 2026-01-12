@@ -221,7 +221,9 @@ Then:
 **Local losses (optional Phase 2):**
 - Apply a loss coefficient \(K\) at the pipe entrance/exit as an added static drop:
   \(\Delta p = K \cdot 0.5 \rho u^2\).
-- Implemented as an adjustment to the downstream static pressure used for nozzle flow.
+- Implemented as an adjustment to the downstream static pressure used for nozzle flow:
+  - Forward: \(p_{down,eff} = p_{down} + \Delta p\)
+  - Reverse: \(p_{down,eff} = \max(p_{down} - \Delta p, p_{min})\)
 
 **Indexing convention:** in the coupled 1D pipe, `U[0]` is the ghost cell and `U[1]` is the first **physical** cell. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
 

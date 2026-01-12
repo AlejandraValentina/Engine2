@@ -68,28 +68,57 @@ def boundary_flux_from_nozzle(
     area_eff = valve.area_eff(angle_deg)
     if loss_coeff < 0.0:
         raise ValueError("loss_coeff must be non-negative")
-    p_eff = p_down
-    if loss_coeff > 0.0:
-        if rho_down is None or u_down is None:
-            raise ValueError("loss_coeff requires rho_down and u_down")
-        dp_loss = 0.5 * loss_coeff * rho_down * u_down * u_down
-        if not math.isfinite(dp_loss) or dp_loss < 0.0:
-            raise ValueError("Invalid local loss pressure drop")
+
+    def _compute(p_eff: float, p0_down_eff: Optional[float]) -> Tuple[float, float, float]:
+        return nozzle_mass_flow(
+            p0,
+            T0,
+            p_eff,
+            area_eff,
+            gamma,
+            gas_constant,
+            cp,
+            Y0,
+            p0_down=p0_down_eff,
+            T0_down=T0_down,
+            Y0_down=Y0_down,
+        )
+
+    mdot0, Hdot0, Ydot0 = _compute(p_down, p0_down)
+    if loss_coeff <= 0.0:
+        return mdot0, Hdot0, Ydot0, area_eff
+
+    if rho_down is None or u_down is None:
+        raise ValueError("loss_coeff requires rho_down and u_down")
+    dp_loss = 0.5 * loss_coeff * rho_down * u_down * u_down
+    if not math.isfinite(dp_loss) or dp_loss < 0.0:
+        raise ValueError("Invalid local loss pressure drop")
+
+    pressure_floor = 1e-6
+    if mdot0 >= 0.0:
         p_eff = p_down + dp_loss
-    mdot, Hdot, Ydot = nozzle_mass_flow(
-        p0,
-        T0,
-        p_eff,
-        area_eff,
-        gamma,
-        gas_constant,
-        cp,
-        Y0,
-        p0_down=p0_down,
-        T0_down=T0_down,
-        Y0_down=Y0_down,
-    )
-    return mdot, Hdot, Ydot, area_eff
+    else:
+        p_eff = max(p_down - dp_loss, pressure_floor)
+    if p0_down is not None and p_down > pressure_floor:
+        p0_down_eff = p0_down * (p_eff / p_down)
+    else:
+        p0_down_eff = p0_down
+
+    mdot1, Hdot1, Ydot1 = _compute(p_eff, p0_down_eff)
+    if mdot0 == 0.0 or mdot1 == 0.0:
+        return mdot1, Hdot1, Ydot1, area_eff
+    if (mdot0 > 0.0) != (mdot1 > 0.0):
+        if mdot1 >= 0.0:
+            p_eff = p_down + dp_loss
+        else:
+            p_eff = max(p_down - dp_loss, pressure_floor)
+        if p0_down is not None and p_down > pressure_floor:
+            p0_down_eff = p0_down * (p_eff / p_down)
+        else:
+            p0_down_eff = p0_down
+        mdot2, Hdot2, Ydot2 = _compute(p_eff, p0_down_eff)
+        return mdot2, Hdot2, Ydot2, area_eff
+    return mdot1, Hdot1, Ydot1, area_eff
 
 
 def _ghost_state_phase1(
@@ -159,7 +188,21 @@ def ghost_state_from_nozzle(
         )
 
     target = mdot_mag
-    lo = 1e-6
+    mdot_min = abs(
+        mdot_from_stagnation(p0, T0, area_face, 1e-12, gamma, gas_constant)
+    )
+    if mdot_mag <= mdot_min:
+        rho0 = p0 / (gas_constant * T0)
+        a0 = math.sqrt(max(gamma * gas_constant * T0, 1e-12))
+        M = min(mdot_mag / max(rho0 * a0 * area_face, 1e-12), 0.999)
+        p_static, T_static = static_from_stagnation_and_mach(p0, T0, M, gamma, gas_constant)
+        u = math.copysign(M * speed_of_sound(gamma, gas_constant, T_static), mdot)
+        rho = p_static / (gas_constant * T_static)
+        prim = Primitive1D(rho=rho, u=u, p=p_static, T=T_static, Y=Y0)
+        cons = primitive_to_conserved(prim, gamma, gas_constant)
+        return np.array([cons.rho, cons.rhou, cons.rhoE, cons.rhoY], dtype=float)
+
+    lo = 0.0
     hi = min(0.999, max(1e-6, mdot_mag / max(mdot_choked, 1e-12)))
     for _ in range(60):
         mid = 0.5 * (lo + hi)
