@@ -80,7 +80,7 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - If tiny drift pushes \(Y\) slightly outside \([0,1]\), **clamp** to \([0,1]\) and recompute \(\rho Y = \rho\,Y\).
 - If drift exceeds \(1\text{e-}3\) in any cell, raise an error with diagnostics (min/max \(Y\), indices).
 - This clamp is a **numerical guardrail**, not physics.
-- Guard runs **after** density/pressure floors, and recomposes using the floored density to keep \(\rho Y\) consistent.
+- Guard runs **after** density/pressure floors (single post-guard pass), and recomposes using the floored density to keep \(\rho Y\) consistent.
 
 ### 2.6 Source Terms
 - **Friction (Darcy–Weisbach):**
@@ -103,7 +103,7 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - Defaults: `CFL = 0.5`.
 - `dt_max` configurable; `dt_min` optional safety lower bound.
 - Orchestrator recomputes \(\Delta t\) every step from the current 1D state.
-- CFL uses **physical cells only** (ghost cells excluded).
+- CFL uses **physical cells only** (ghost cells excluded) and does not mutate the input state.
 
 ### 2.8 Outlet Boundary (Phase 1)
 - Default outlet uses a copy/Neumann condition (legacy behavior).
@@ -211,7 +211,7 @@ Define:
 Ghost primitive state (upstream reservoir model):
 - Use stagnation totals \((p_0, T_0)\) on the **upstream** side and invert isentropic
   relations to obtain static \((p, T, u)\) for the ghost.
-- The inversion supports \( \dot{m} \to 0 \) by a small-M linear approximation and brackets Mach with \(M \in [0, 0.999]\).
+- The inversion supports \( \dot{m} \to 0 \) by a small-M linear approximation and brackets Mach with \(M \in [0, 0.999]\) using a monotone expansion.
 - Final inversion error is checked; inconsistent targets raise a diagnostic error.
 - \(T_g = T_{0,upstream}\)
 - \(\rho_g = p_g/(R T_g)\)
