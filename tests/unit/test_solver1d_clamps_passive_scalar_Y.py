@@ -52,7 +52,7 @@ def test_solver1d_passive_scalar_raises_on_large_drift() -> None:
         muscl_hancock_step(U, dx, dt, gamma, R)
 
 
-def test_solver1d_passive_scalar_uses_rho_not_floor() -> None:
+def test_solver1d_passive_scalar_uses_rho_safe() -> None:
     gamma = 1.4
     R = 287.0
     dx = 0.1
@@ -62,7 +62,7 @@ def test_solver1d_passive_scalar_uses_rho_not_floor() -> None:
     Y_init = 0.5
     rho_safe = max(rho, 1e-9)
     expected_Y = (rho * Y_init) / rho_safe
-    expected_rhoY = rho * expected_Y
+    expected_rhoY = rho_safe * expected_Y
 
     U = np.zeros((1, 4))
     U[0, 0] = rho
