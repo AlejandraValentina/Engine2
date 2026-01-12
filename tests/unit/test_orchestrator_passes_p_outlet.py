@@ -67,7 +67,16 @@ def test_orchestrator_passes_p_outlet(monkeypatch: pytest.MonkeyPatch) -> None:
         captured["p_outlet"] = float(p_outlet) if p_outlet is not None else None
         raise _Stop()
 
-    def fake_cfl_dt(U: np.ndarray, dx: float, gamma: float, gas_constant: float, cfl: float, dt_max: float) -> float:
+    def fake_cfl_dt(
+        U: np.ndarray,
+        dx: float,
+        gamma: float,
+        gas_constant: float,
+        cfl: float,
+        dt_max: float,
+        ghost_left: int = 0,
+        ghost_right: int = 0,
+    ) -> float:
         return dt_max
 
     monkeypatch.setattr(orchestrator_module, "boundary_flux_from_nozzle", fake_boundary_flux)

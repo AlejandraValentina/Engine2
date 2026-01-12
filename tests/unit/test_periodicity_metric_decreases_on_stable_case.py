@@ -47,7 +47,16 @@ def test_periodicity_metric_decreases_on_stable_case(monkeypatch: pytest.MonkeyP
     ) -> np.ndarray:
         return U
 
-    def fake_cfl_dt(U: np.ndarray, dx: float, gamma: float, gas_constant: float, cfl: float, dt_max: float) -> float:
+    def fake_cfl_dt(
+        U: np.ndarray,
+        dx: float,
+        gamma: float,
+        gas_constant: float,
+        cfl: float,
+        dt_max: float,
+        ghost_left: int = 0,
+        ghost_right: int = 0,
+    ) -> float:
         return dt_max
 
     monkeypatch.setattr(orchestrator_module, "boundary_flux_from_nozzle", fake_boundary_flux)

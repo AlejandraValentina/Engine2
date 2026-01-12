@@ -503,9 +503,24 @@ def muscl_hancock_step(
     return U_new
 
 
-def cfl_dt(U: np.ndarray, dx: float, gamma: float, gas_constant: float, cfl: float, dt_max: float) -> float:
+def cfl_dt(
+    U: np.ndarray,
+    dx: float,
+    gamma: float,
+    gas_constant: float,
+    cfl: float,
+    dt_max: float,
+    ghost_left: int = 0,
+    ghost_right: int = 0,
+) -> float:
     _guard_state(U, gamma, gas_constant, "cfl_dt input")
-    prim = conserved_to_primitive(U, gamma, gas_constant)
+    if ghost_left < 0 or ghost_right < 0:
+        raise ValueError("ghost_left/ghost_right must be non-negative")
+    end = U.shape[0] - ghost_right
+    if ghost_left >= end:
+        raise ValueError("ghost_left/ghost_right exclude all cells")
+    U_phys = U[ghost_left:end]
+    prim = conserved_to_primitive(U_phys, gamma, gas_constant)
     rho_safe = np.maximum(prim[:, 0], _DENSITY_FLOOR)
     p_safe = np.maximum(prim[:, 2], _PRESSURE_FLOOR)
     a = np.sqrt(gamma * p_safe / rho_safe)

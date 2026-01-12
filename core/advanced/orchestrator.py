@@ -202,7 +202,16 @@ class Orchestrator:
                     p_outlet = self.cfg.p_outlet if self.cfg.p_outlet is not None else p0
                 while t_elapsed < dt_theta:
                     U[0] = ghost
-                    dt_cfl = cfl_dt(U, dx, self.cfg.gamma, self.cfg.gas_constant, self.cfg.cfl, self.cfg.dt_max)
+                    dt_cfl = cfl_dt(
+                        U,
+                        dx,
+                        self.cfg.gamma,
+                        self.cfg.gas_constant,
+                        self.cfg.cfl,
+                        self.cfg.dt_max,
+                        ghost_left=1,
+                        ghost_right=0,
+                    )
                     dt_step = min(dt_cfl, dt_theta - t_elapsed)
                     U = muscl_hancock_step(
                         U,

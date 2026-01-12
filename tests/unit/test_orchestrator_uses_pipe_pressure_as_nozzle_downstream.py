@@ -89,7 +89,16 @@ def test_orchestrator_uses_pipe_pressure_as_nozzle_downstream(monkeypatch: pytes
     ) -> np.ndarray:
         return U
 
-    def fake_cfl_dt(U: np.ndarray, dx: float, gamma: float, gas_constant: float, cfl: float, dt_max: float) -> float:
+    def fake_cfl_dt(
+        U: np.ndarray,
+        dx: float,
+        gamma: float,
+        gas_constant: float,
+        cfl: float,
+        dt_max: float,
+        ghost_left: int = 0,
+        ghost_right: int = 0,
+    ) -> float:
         return dt_max
 
     monkeypatch.setattr(orchestrator_module, "conserved_to_primitive", fake_conserved_to_primitive)

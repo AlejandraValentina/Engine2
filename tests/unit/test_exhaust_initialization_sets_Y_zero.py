@@ -52,7 +52,16 @@ def test_exhaust_initialization_sets_Y_zero(monkeypatch: pytest.MonkeyPatch) -> 
         assert Y == pytest.approx(0.0, rel=0.0, abs=1e-12)
         raise _Stop()
 
-    def fake_cfl_dt(U: np.ndarray, dx: float, gamma: float, gas_constant: float, cfl: float, dt_max: float) -> float:
+    def fake_cfl_dt(
+        U: np.ndarray,
+        dx: float,
+        gamma: float,
+        gas_constant: float,
+        cfl: float,
+        dt_max: float,
+        ghost_left: int = 0,
+        ghost_right: int = 0,
+    ) -> float:
         return dt_max
 
     monkeypatch.setattr(orchestrator_module, "boundary_flux_from_nozzle", fake_boundary_flux)
