@@ -223,9 +223,13 @@ def ghost_state_from_nozzle(
         hi = min(hi * 2.0, 0.999)
         mdot_hi = abs(mdot_from_stagnation(p0, T0, area_face, hi, gamma, gas_constant))
     if mdot_hi < target:
-        raise ValueError(
-            f"Ghost inversion bracket failed: target={target:.3e} mdot_hi={mdot_hi:.3e}"
-        )
+        if target <= mdot_choked * 1.001:
+            hi = 0.999
+            mdot_hi = abs(mdot_from_stagnation(p0, T0, area_face, hi, gamma, gas_constant))
+        if mdot_hi < target:
+            raise ValueError(
+                f"Ghost inversion bracket failed: target={target:.3e} mdot_hi={mdot_hi:.3e}"
+            )
     for _ in range(60):
         mid = 0.5 * (lo + hi)
         mdot_mid = abs(mdot_from_stagnation(p0, T0, area_face, mid, gamma, gas_constant))
@@ -237,20 +241,15 @@ def ghost_state_from_nozzle(
     mdot_final = abs(mdot_from_stagnation(p0, T0, area_face, M, gamma, gas_constant))
     rel_err = abs(mdot_final - target) / max(target, 1e-12)
     if rel_err > 1e-3:
-        if mdot_hi < target:
-            M = 0.999
-            mdot_final = mdot_hi
-            rel_err = abs(mdot_final - target) / max(target, 1e-12)
         if rel_err > 1e-3 and target <= mdot_min:
             rho0 = p0 / (gas_constant * T0)
             u = mdot / max(rho0 * area_face, 1e-12)
             prim = Primitive1D(rho=rho0, u=u, p=p0, T=T0, Y=Y0)
             cons = primitive_to_conserved(prim, gamma, gas_constant)
             return np.array([cons.rho, cons.rhou, cons.rhoE, cons.rhoY], dtype=float)
-        if rel_err > 1e-3:
-            raise ValueError(
-                f"Ghost inversion did not converge: rel_err={rel_err:.3e} target={target:.3e}"
-            )
+        raise ValueError(
+            f"Ghost inversion did not converge: rel_err={rel_err:.3e} target={target:.3e}"
+        )
     p_static, T_static = static_from_stagnation_and_mach(p0, T0, M, gamma, gas_constant)
     a = speed_of_sound(gamma, gas_constant, T_static)
     u = math.copysign(M * a, mdot)
