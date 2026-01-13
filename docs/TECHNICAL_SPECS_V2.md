@@ -233,6 +233,7 @@ Then:
   modify downstream totals.
 - If face area is available, use \(u_{face} = \dot{m}/(\rho A_{face})\) to compute \(\Delta p\);
   otherwise fall back to a provided \(u_{down}\) approximation.
+- K-loss reduces \(|\dot{m}|\) only and **must not** flip the flow direction.
 
 **Indexing convention:** in the coupled 1D pipe, `U[0]` is the ghost cell and `U[1]` is the first **physical** cell. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
 
