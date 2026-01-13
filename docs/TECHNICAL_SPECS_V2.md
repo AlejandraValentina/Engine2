@@ -213,10 +213,9 @@ Ghost primitive state (upstream reservoir model):
   relations to obtain static \((p, T, u)\) for the ghost.
 - The inversion supports \( \dot{m} \to 0 \) by a small-M linear approximation and brackets Mach with \(M \in [0, 0.999]\) using a monotone expansion.
 - Final inversion error is checked; inconsistent targets raise a diagnostic error.
-- \(T_g = T_{0,upstream}\)
-- \(\rho_g = p_g/(R T_g)\)
-- \(u_g = \dot{m}/(\rho_g A_{face})\) (signed)
-- \(Y_g = Y_{0,upstream}\)
+- Phase 2 ghost uses the inverted static \((p_g, T_g, u_g)\); Phase 1 fallback uses
+  \(p_g = p_{0,upstream}\), \(T_g = T_{0,upstream}\), \(u_g = \dot{m}/(\rho_g A_{face})\).
+- \(\rho_g = p_g/(R T_g)\), \(Y_g = Y_{0,upstream}\).
 
 Then:
 - Convert ghost primitive → ghost conserved using the same closure as the interior.
@@ -229,7 +228,10 @@ Then:
   \(\Delta p = K \cdot 0.5 \rho u^2\).
 - Implemented as an adjustment to the downstream static pressure used for nozzle flow:
   - Forward: \(p_{down,eff} = p_{down} + \Delta p\)
-  - Reverse: \(p_{down,eff} = \max(p_{down} - \Delta p, p_{min})\)
+  - Reverse: \(p_{down,eff} = \max(p_{res} + \Delta p, p_{min})\)
+- If downstream totals \(p_{0,down}\) are provided, an approximation keeps
+  \(p_{0,down}/p_{down}\) constant by scaling \(p_{0,down,eff}\) with
+  \(p_{down,eff}/p_{down}\).
 
 **Indexing convention:** in the coupled 1D pipe, `U[0]` is the ghost cell and `U[1]` is the first **physical** cell. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
 
