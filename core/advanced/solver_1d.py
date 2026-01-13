@@ -248,7 +248,7 @@ def _apply_scalar_guard(U: np.ndarray, label: str) -> None:
             "Passive scalar out of bounds in "
             f"{label}: min={float(np.min(Y)):.3e} max={float(np.max(Y)):.3e} idx={bad_idx}"
         )
-    U[:, 3] = rho * Y_clipped
+    U[:, 3] = rho_safe * Y_clipped
 
 
 def _outlet_primitive(prim_i: np.ndarray, p_outlet: float, gamma: float) -> np.ndarray:
