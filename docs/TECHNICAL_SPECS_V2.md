@@ -229,9 +229,10 @@ Then:
 - Implemented as an adjustment to the downstream static pressure used for nozzle flow:
   - Forward: \(p_{down,eff} = p_{down} + \Delta p\)
   - Reverse: \(p_{down,eff} = \max(p_{res} + \Delta p, p_{min})\)
-- If downstream totals \(p_{0,down}\) are provided, an approximation keeps
-  \(p_{0,down}/p_{down}\) constant by scaling \(p_{0,down,eff}\) with
-  \(p_{down,eff}/p_{down}\).
+- Direction is still decided by \(p_0\) vs \(p_{0,down}\); K-loss does **not**
+  modify downstream totals.
+- If face area is available, use \(u_{face} = \dot{m}/(\rho A_{face})\) to compute \(\Delta p\);
+  otherwise fall back to a provided \(u_{down}\) approximation.
 
 **Indexing convention:** in the coupled 1D pipe, `U[0]` is the ghost cell and `U[1]` is the first **physical** cell. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
 
