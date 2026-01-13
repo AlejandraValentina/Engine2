@@ -33,6 +33,7 @@ def test_orchestrator_passes_p_outlet(monkeypatch: pytest.MonkeyPatch) -> None:
         loss_coeff: float = 0.0,
         rho_down: Optional[float] = None,
         u_down: Optional[float] = None,
+        area_pipe_m2: Optional[float] = None,
     ) -> tuple[float, float, float, float]:
         return 0.0, 0.0, 0.0, valve.area_eff(angle_deg)
 

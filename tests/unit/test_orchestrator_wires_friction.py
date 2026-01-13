@@ -31,6 +31,7 @@ def test_orchestrator_wires_friction(monkeypatch: pytest.MonkeyPatch) -> None:
         loss_coeff: float = 0.0,
         rho_down=None,
         u_down=None,
+        area_pipe_m2=None,
     ) -> tuple[float, float, float, float]:
         return 0.0, 0.0, 0.0, valve.area_eff(angle_deg)
 

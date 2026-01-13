@@ -51,6 +51,7 @@ def test_orchestrator_ghost_uses_upstream_totals_on_backflow(monkeypatch: pytest
         loss_coeff: float = 0.0,
         rho_down: Optional[float] = None,
         u_down: Optional[float] = None,
+        area_pipe_m2: Optional[float] = None,
     ) -> tuple[float, float, float, float]:
         return -0.1, -1.0, -0.01, valve.area_eff(angle_deg)
 

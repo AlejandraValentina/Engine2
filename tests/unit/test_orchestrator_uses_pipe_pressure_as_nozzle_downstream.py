@@ -47,6 +47,7 @@ def test_orchestrator_uses_pipe_pressure_as_nozzle_downstream(monkeypatch: pytes
         loss_coeff: float = 0.0,
         rho_down: Optional[float] = None,
         u_down: Optional[float] = None,
+        area_pipe_m2: Optional[float] = None,
     ) -> tuple[float, float, float, float]:
         call_count["boundary"] += 1
         if call_count["boundary"] >= 2:
