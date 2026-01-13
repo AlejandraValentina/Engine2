@@ -68,7 +68,8 @@ def _guard_state(U: np.ndarray, gamma: float, gas_constant: float, label: str) -
                 if _VELOCITY_FIX_COUNT > _VELOCITY_FIX_LIMIT:
                     raise ValueError(f"Velocity cap limit exceeded in {label}")
                 u = float(np.clip(u, -u_cap, u_cap))
-            Y_old = rhoY_old / max(rho_old, _DENSITY_FLOOR)
+            denom = max(abs(rho_old), _DENSITY_FLOOR)
+            Y_old = rhoY_old / denom
             Y_old = float(np.clip(Y_old, 0.0, 1.0))
             rho_fix = _DENSITY_FLOOR
             U[idx, 0] = rho_fix
