@@ -161,6 +161,7 @@ class Orchestrator:
                     loss_coeff=self.cfg.loss_coeff,
                     rho_down=rho_pipe,
                     u_down=u_pipe,
+                    area_pipe_m2=area_face,
                 )
 
                 if mdot >= 0.0:

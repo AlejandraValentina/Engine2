@@ -63,6 +63,7 @@ def boundary_flux_from_nozzle(
     loss_coeff: float = 0.0,
     rho_down: Optional[float] = None,
     u_down: Optional[float] = None,
+    area_pipe_m2: Optional[float] = None,
 ) -> Tuple[float, float, float, float]:
     """Compute boundary flux using the valve/nozzle contract (Phase 1/2)."""
     area_eff = valve.area_eff(angle_deg)
@@ -82,46 +83,30 @@ def boundary_flux_from_nozzle(
         T0_down=T0_down,
         Y0_down=Y0_down,
     )
-    if loss_coeff <= 0.0:
+    if loss_coeff <= 0.0 or mdot0 == 0.0:
         return mdot0, Hdot0, Ydot0, area_eff
 
-    if rho_down is None or u_down is None:
-        raise ValueError("loss_coeff requires rho_down and u_down")
-    dp_loss = 0.5 * loss_coeff * rho_down * u_down * u_down
+    if rho_down is None:
+        raise ValueError("loss_coeff requires rho_down")
+    if area_pipe_m2 is not None:
+        if area_pipe_m2 <= 0.0:
+            raise ValueError("area_pipe_m2 must be positive")
+        u_face = mdot0 / max(rho_down * area_pipe_m2, 1e-12)
+    else:
+        if u_down is None:
+            raise ValueError("loss_coeff requires u_down when area_pipe_m2 is not provided")
+        u_face = u_down
+    dp_loss = 0.5 * loss_coeff * rho_down * u_face * u_face
     if not math.isfinite(dp_loss) or dp_loss < 0.0:
         raise ValueError("Invalid local loss pressure drop")
 
     pressure_floor = 1e-6
-    def _scale_downstream_totals(
-        p0_down_val: Optional[float],
-        p_down_val: float,
-        p_eff_val: float,
-    ) -> Optional[float]:
-        if p0_down_val is None:
-            return None
-        if not math.isfinite(p0_down_val) or p0_down_val <= 0.0:
-            return p0_down_val
-        if not math.isfinite(p_down_val) or p_down_val <= 0.0:
-            return p0_down_val
-        ratio = p0_down_val / max(p_down_val, pressure_floor)
-        return max(p_eff_val * ratio, pressure_floor)
-
     if mdot0 >= 0.0:
         p_eff = max(p_down + dp_loss, pressure_floor)
-        p0_down_eff = _scale_downstream_totals(p0_down, p_down, p_eff)
-        mdot, Hdot, Ydot = nozzle_mass_flow(
-            p0,
-            T0,
-            p_eff,
-            area_eff,
-            gamma,
-            gas_constant,
-            cp,
-            Y0,
-            p0_down=p0_down_eff,
-            T0_down=T0_down,
-            Y0_down=Y0_down,
-        )
+        mdot_mag = mdot_mag_from_totals(p0, T0, p_eff, area_eff, gamma, gas_constant)
+        mdot = mdot_mag
+        Hdot = mdot * cp * T0
+        Ydot = mdot * Y0
     else:
         p0_rev = p0_down if p0_down is not None else p_down
         T0_rev = T0_down if T0_down is not None else T0
@@ -131,33 +116,6 @@ def boundary_flux_from_nozzle(
         mdot = -mdot_mag
         Hdot = mdot * cp * T0_rev
         Ydot = mdot * Y0_rev
-
-    if mdot0 != 0.0 and mdot != 0.0 and (mdot0 > 0.0) != (mdot > 0.0):
-        if mdot >= 0.0:
-            p_eff = max(p_down + dp_loss, pressure_floor)
-            p0_down_eff = _scale_downstream_totals(p0_down, p_down, p_eff)
-            mdot, Hdot, Ydot = nozzle_mass_flow(
-                p0,
-                T0,
-                p_eff,
-                area_eff,
-                gamma,
-                gas_constant,
-                cp,
-                Y0,
-                p0_down=p0_down_eff,
-                T0_down=T0_down,
-                Y0_down=Y0_down,
-            )
-        else:
-            p0_rev = p0_down if p0_down is not None else p_down
-            T0_rev = T0_down if T0_down is not None else T0
-            Y0_rev = Y0_down if Y0_down is not None else Y0
-            p_eff = max(p0 + dp_loss, pressure_floor)
-            mdot_mag = mdot_mag_from_totals(p0_rev, T0_rev, p_eff, area_eff, gamma, gas_constant)
-            mdot = -mdot_mag
-            Hdot = mdot * cp * T0_rev
-            Ydot = mdot * Y0_rev
 
     return mdot, Hdot, Ydot, area_eff
 
