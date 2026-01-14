@@ -49,6 +49,8 @@ class OrchestratorConfig:
     periodicity_tol: float = 0.01
     periodicity_required: int = 2
     combustion: CombustionConfig = field(default_factory=CombustionConfig)
+    coupling_relax_alpha: float = 1.0
+    coupling_relax_warmup_iters: int = 0
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -61,6 +63,39 @@ class OrchestratorConfig:
             raise ValueError("friction_model must be 'swamee-jain' or 'constant'")
         if self.friction_energy_mode not in ("wall_loss", "adiabatic"):
             raise ValueError("friction_energy_mode must be 'wall_loss' or 'adiabatic'")
+        if self.coupling_relax_alpha < 0.0:
+            raise ValueError("coupling_relax_alpha must be >= 0")
+        if self.coupling_relax_warmup_iters < 0:
+            raise ValueError("coupling_relax_warmup_iters must be >= 0")
+
+
+def _relax_downstream_totals(
+    prev: Optional[Tuple[float, float, float]],
+    current: Tuple[float, float, float],
+    alpha: float,
+    iter_index: int,
+    warmup_iters: int,
+    p_floor: float = 1e-6,
+    t_floor: float = 1e-6,
+) -> Tuple[Tuple[float, float, float], float]:
+    alpha_clamped = max(min(alpha, 1.0), 0.0)
+    if warmup_iters > 0:
+        t = min(iter_index + 1, warmup_iters) / float(warmup_iters)
+        alpha_eff = alpha_clamped + (1.0 - alpha_clamped) * t
+    else:
+        alpha_eff = alpha_clamped
+
+    if prev is None:
+        p_rel, t_rel, y_rel = current
+    else:
+        p_rel = (1.0 - alpha_eff) * prev[0] + alpha_eff * current[0]
+        t_rel = (1.0 - alpha_eff) * prev[1] + alpha_eff * current[1]
+        y_rel = (1.0 - alpha_eff) * prev[2] + alpha_eff * current[2]
+
+    p_rel = max(p_rel, p_floor)
+    t_rel = max(t_rel, t_floor)
+    y_rel = min(max(y_rel, 0.0), 1.0)
+    return (p_rel, t_rel, y_rel), alpha_eff
 
 
 class Orchestrator:
@@ -131,6 +166,7 @@ class Orchestrator:
             prev_p = None
             prev_V = None
             U_cycle_start = U.copy()
+            prev_down_totals: Optional[Tuple[float, float, float]] = None
             for step in range(int(720.0 / 1.0)):
                 angle_deg = step
                 theta = math.radians(angle_deg)
@@ -148,6 +184,14 @@ class Orchestrator:
                     p_pipe, T_pipe, u_pipe, self.cfg.gamma, self.cfg.gas_constant
                 )
                 Y_cyl = cyl.m_fresh / max(cyl.m_total, 1e-9)
+                relaxed_totals, _ = _relax_downstream_totals(
+                    prev_down_totals,
+                    (p0_pipe, T0_pipe, Y_pipe),
+                    self.cfg.coupling_relax_alpha,
+                    cycle,
+                    self.cfg.coupling_relax_warmup_iters,
+                )
+                prev_down_totals = relaxed_totals
                 mdot, Hdot, Ydot, _ = boundary_flux_from_nozzle(
                     cyl.p,
                     cyl.T,
@@ -158,9 +202,9 @@ class Orchestrator:
                     gamma=self.cfg.gamma,
                     gas_constant=self.cfg.gas_constant,
                     cp=self.cfg.cp,
-                    p0_down=p0_pipe,
-                    T0_down=T0_pipe,
-                    Y0_down=Y_pipe,
+                    p0_down=relaxed_totals[0],
+                    T0_down=relaxed_totals[1],
+                    Y0_down=relaxed_totals[2],
                     loss_coeff=self.cfg.loss_coeff,
                     rho_down=rho_pipe,
                     u_down=u_pipe,
