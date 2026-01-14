@@ -34,3 +34,30 @@ def test_heat_transfer_removes_energy_when_gas_hotter() -> None:
     cyl_ht.update(0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, A_wet=0.1)
     cyl_no.update(0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, A_wet=0.1)
     assert cyl_ht.T < cyl_no.T
+
+
+def test_heat_transfer_adds_energy_when_gas_cooler() -> None:
+    heat = HeatTransferConfig(enabled=True, model="constant_h", h_const=300.0, wall_temp_K=800.0)
+    cyl_ht = CylinderControlVolume(
+        m_total=0.001,
+        m_fresh=0.001,
+        T=400.0,
+        p=100000.0,
+        V=1e-4,
+        gamma=1.35,
+        gas_constant=287.0,
+        heat_transfer=heat,
+    )
+    cyl_no = CylinderControlVolume(
+        m_total=0.001,
+        m_fresh=0.001,
+        T=400.0,
+        p=100000.0,
+        V=1e-4,
+        gamma=1.35,
+        gas_constant=287.0,
+        heat_transfer=HeatTransferConfig(enabled=False),
+    )
+    cyl_ht.update(0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, A_wet=0.1)
+    cyl_no.update(0.01, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, A_wet=0.1)
+    assert cyl_ht.T > cyl_no.T
