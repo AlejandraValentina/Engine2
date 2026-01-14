@@ -373,6 +373,8 @@ class Camshaft:
     lobe_separation: float = 110.0  # degrees
     advance: float = 0.0  # degrees
     peak_rpm: float = 5500.0  # rpm where cam is tuned to breathe best
+    phase_deg_intake: float = 0.0  # degrees
+    phase_deg_exhaust: float = 0.0  # degrees
 
     def get_lift(self, angle_deg: float, intake: bool = True) -> float:
         """Approximate valve lift (mm) at a given crank angle using harmonic profile.
@@ -382,9 +384,11 @@ class Camshaft:
         - Exhaust center at (720 - (lobe_separation + advance)) degrees BTDC.
 
         Angles wrap over 0–720° and the lift shape is a cosine-squared arc.
+        Phase offsets shift the cam event by subtracting the phase before wrap.
         """
         duration = self.intake_duration if intake else self.exhaust_duration
         max_lift = self.intake_lift if intake else self.exhaust_lift
+        phase_deg = self.phase_deg_intake if intake else self.phase_deg_exhaust
 
         center_intake = self.lobe_separation - self.advance
         center_exhaust = 720.0 - (self.lobe_separation + self.advance)
@@ -393,7 +397,7 @@ class Camshaft:
         span = duration
         start = center - span / 2.0
         start_mod = start % 720.0
-        angle = angle_deg % 720.0
+        angle = (angle_deg - phase_deg) % 720.0
 
         if span >= 720.0:
             phase = 0.5
@@ -420,6 +424,8 @@ class Camshaft:
             "lobe_separation": self.lobe_separation,
             "advance": self.advance,
             "peak_rpm": self.peak_rpm,
+            "phase_deg_intake": self.phase_deg_intake,
+            "phase_deg_exhaust": self.phase_deg_exhaust,
         }
 
     @classmethod
@@ -432,6 +438,8 @@ class Camshaft:
             lobe_separation=data.get("lobe_separation", 110.0),
             advance=data.get("advance", 0.0),
             peak_rpm=data.get("peak_rpm", 5500.0),
+            phase_deg_intake=data.get("phase_deg_intake", 0.0),
+            phase_deg_exhaust=data.get("phase_deg_exhaust", 0.0),
         )
 
 

@@ -690,6 +690,18 @@ class MainWindow(QMainWindow):
         self._bind_spin(adv_spin, lambda val: self._update_value(cam, "advance", val), "advance")
         self.property_form.addRow("Advance (deg)", adv_spin)
 
+        phase_int = self._double_spin(cam.phase_deg_intake, -60.0, 60.0, 0.5)
+        self._bind_spin(
+            phase_int, lambda val: self._update_value(cam, "phase_deg_intake", val), "phase_deg_intake"
+        )
+        self.property_form.addRow("Intake Phase (deg)", phase_int)
+
+        phase_exh = self._double_spin(cam.phase_deg_exhaust, -60.0, 60.0, 0.5)
+        self._bind_spin(
+            phase_exh, lambda val: self._update_value(cam, "phase_deg_exhaust", val), "phase_deg_exhaust"
+        )
+        self.property_form.addRow("Exhaust Phase (deg)", phase_exh)
+
         peak_spin = self._double_spin(cam.peak_rpm, 1000.0, 20000.0, 50.0)
         peak_spin.setSuffix(" rpm")
         self._bind_spin(peak_spin, lambda val: self._update_value(cam, "peak_rpm", val), "peak_rpm")
