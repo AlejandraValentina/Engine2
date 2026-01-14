@@ -254,7 +254,7 @@ Then:
   otherwise fall back to a provided \(u_{down}\) approximation.
 - K-loss reduces \(|\dot{m}|\) only and **must not** flip the flow direction.
 
-**Indexing convention:** in the coupled 1D pipe, `U[0]` is the ghost cell and `U[1]` is the first **physical** cell. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
+**Indexing convention:** in the coupled 1D pipe, `U[0]` is the left ghost cell, `U[-1]` is the right ghost cell, and physical cells are `U[1:-1]`. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
 
 **Note:** Any clamping of \(u_g\) is a **numerical guardrail** and must be minimal and documented.
 
