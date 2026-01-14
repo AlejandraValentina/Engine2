@@ -8,9 +8,10 @@ from core.advanced.solver_1d import conserved_to_primitive, flux, muscl_hancock_
 
 
 def _first_order_rusanov(U: np.ndarray, dx: float, dt: float, gamma: float, gas_constant: float) -> np.ndarray:
-    N = U.shape[0]
+    U_phys = U[1:-1]
+    N = U_phys.shape[0]
     U_ext = np.zeros((N + 2, 4))
-    U_ext[1:-1] = U
+    U_ext[1:-1] = U_phys
     U_ext[0] = U[0]
     U_ext[-1] = U[-1]
 
@@ -29,7 +30,11 @@ def _first_order_rusanov(U: np.ndarray, dx: float, dt: float, gamma: float, gas_
     smax = np.maximum(np.abs(prim_L[:, 1]) + a_L, np.abs(prim_R[:, 1]) + a_R)
 
     F_star = 0.5 * (F_UL + F_UR) - 0.5 * smax[:, None] * (UR - UL)
-    return U - dt / dx * (F_star[1:] - F_star[:-1])
+    U_new = U.copy()
+    U_new[1:-1] = U_phys - dt / dx * (F_star[1:] - F_star[:-1])
+    U_new[0] = U[0]
+    U_new[-1] = U[-1]
+    return U_new
 
 
 def test_solver1d_muscl_predictor_uses_interface_fluxes() -> None:
@@ -46,11 +51,13 @@ def test_solver1d_muscl_predictor_uses_interface_fluxes() -> None:
     p0 = rho0 * R * T0
     E0 = R * T0 / (gamma - 1.0)
 
-    U = np.zeros((cells, 4))
-    U[:, 0] = rho0
-    U[:, 1] = rho0 * u0
-    U[:, 2] = rho0 * (E0 + 0.5 * u0 * u0)
-    U[:, 3] = rho0 * 0.2
+    U = np.zeros((cells + 2, 4))
+    U[1:-1, 0] = rho0
+    U[1:-1, 1] = rho0 * u0
+    U[1:-1, 2] = rho0 * (E0 + 0.5 * u0 * u0)
+    U[1:-1, 3] = rho0 * 0.2
+    U[0] = U[1]
+    U[-1] = U[-2]
 
     a0 = np.sqrt(gamma * R * T0)
     dt = 0.3 * dx / (abs(u0) + a0)
@@ -58,7 +65,7 @@ def test_solver1d_muscl_predictor_uses_interface_fluxes() -> None:
     U_first = _first_order_rusanov(U, dx, dt, gamma, R)
     U_muscl = muscl_hancock_step(U, dx, dt, gamma, R)
 
-    diff_first = np.linalg.norm(U_first[:, 0] - rho0)
-    diff_muscl = np.linalg.norm(U_muscl[:, 0] - rho0)
+    diff_first = np.linalg.norm(U_first[1:-1, 0] - rho0)
+    diff_muscl = np.linalg.norm(U_muscl[1:-1, 0] - rho0)
 
     assert diff_muscl <= diff_first * 0.98

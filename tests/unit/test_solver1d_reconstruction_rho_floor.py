@@ -20,13 +20,15 @@ def test_solver1d_reconstruction_rho_floor_stable() -> None:
     T = 300.0
     E = R * T / (gamma - 1.0)
 
-    U = np.zeros((cells, 4))
-    U[:, 0] = rho
-    U[:, 1] = rho * u
-    U[:, 2] = rho * (E + 0.5 * u * u)
-    U[:, 3] = np.maximum(rho, 1e-12) * 0.2
+    U = np.zeros((cells + 2, 4))
+    U[1:-1, 0] = rho
+    U[1:-1, 1] = rho * u
+    U[1:-1, 2] = rho * (E + 0.5 * u * u)
+    U[1:-1, 3] = np.maximum(rho, 1e-12) * 0.2
+    U[0] = U[1]
+    U[-1] = U[-2]
 
     U_new = muscl_hancock_step(U, dx, dt, gamma, R)
 
     assert np.isfinite(U_new).all()
-    assert (U_new[:, 0] > 0.0).all()
+    assert (U_new[1:-1, 0] > 0.0).all()

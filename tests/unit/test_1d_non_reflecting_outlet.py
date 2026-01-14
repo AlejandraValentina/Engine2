@@ -26,13 +26,15 @@ def test_non_reflecting_outlet_reduces_reflection() -> None:
     u0 = 0.0
     E0 = R * T0 / (gamma - 1.0)
 
-    U0 = np.zeros((cells, 4))
-    U0[:, 0] = rho0
-    U0[:, 1] = rho0 * u0
-    U0[:, 2] = rho0 * (E0 + 0.5 * u0 * u0)
-    U0[:, 3] = rho0 * 0.2
+    U0 = np.zeros((cells + 2, 4))
+    U0[1:-1, 0] = rho0
+    U0[1:-1, 1] = rho0 * u0
+    U0[1:-1, 2] = rho0 * (E0 + 0.5 * u0 * u0)
+    U0[1:-1, 3] = rho0 * 0.2
+    U0[0] = U0[1]
+    U0[-1] = U0[-2]
 
-    U0[2, 2] *= 1.2
+    U0[3, 2] *= 1.2
 
     a0 = np.sqrt(gamma * R * T0)
     dt = 0.4 * dx / a0
@@ -47,7 +49,7 @@ def test_non_reflecting_outlet_reduces_reflection() -> None:
             U = muscl_hancock_step(U, dx, dt, gamma, R, p_outlet=p_outlet)
             if step * dt < t_start:
                 continue
-            p_probe = _pressure_from_state(U, gamma)[-3]
+            p_probe = _pressure_from_state(U[1:-1], gamma)[-3]
             peak = max(peak, p_probe - p0)
             if step > int(0.7 * steps):
                 tail_pressures.append(p_probe)

@@ -19,11 +19,13 @@ def test_friction_energy_mode_switch() -> None:
     T = 300.0
     E = R * T / (gamma - 1.0)
 
-    U = np.zeros((cells, 4))
-    U[:, 0] = rho
-    U[:, 1] = rho * u
-    U[:, 2] = rho * (E + 0.5 * u * u)
-    U[:, 3] = rho * 0.5
+    U = np.zeros((cells + 2, 4))
+    U[1:-1, 0] = rho
+    U[1:-1, 1] = rho * u
+    U[1:-1, 2] = rho * (E + 0.5 * u * u)
+    U[1:-1, 3] = rho * 0.5
+    U[0] = U[1]
+    U[-1] = U[-2]
 
     U_adiabatic = muscl_hancock_step(
         U.copy(),
@@ -46,4 +48,4 @@ def test_friction_energy_mode_switch() -> None:
 
     assert np.isfinite(U_adiabatic).all()
     assert np.isfinite(U_wall).all()
-    assert U_wall[:, 2].mean() < U_adiabatic[:, 2].mean()
+    assert U_wall[1:-1, 2].mean() < U_adiabatic[1:-1, 2].mean()

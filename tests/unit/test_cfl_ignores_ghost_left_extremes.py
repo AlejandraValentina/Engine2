@@ -14,7 +14,7 @@ def test_cfl_ignores_ghost_left_extremes() -> None:
     cfl = 0.5
     dt_max = 1e-3
 
-    U = np.zeros((3, 4))
+    U = np.zeros((4, 4))
     # ghost cell (index 0)
     U[0, 0] = 1.0
     U[0, 1] = 1.0e6
@@ -30,10 +30,11 @@ def test_cfl_ignores_ghost_left_extremes() -> None:
         U[i, 1] = rho * u
         U[i, 2] = rho * (E + 0.5 * u * u)
         U[i, 3] = rho * 0.2
+    U[-1] = U[2]
 
-    dt0 = cfl_dt(U, dx, gamma, R, cfl, dt_max, ghost_left=1)
+    dt0 = cfl_dt(U, dx, gamma, R, cfl, dt_max, ghost_left=1, ghost_right=1)
     U[0, 1] = 2.0e6
     U[0, 2] = 2.0e6
-    dt1 = cfl_dt(U, dx, gamma, R, cfl, dt_max, ghost_left=1)
+    dt1 = cfl_dt(U, dx, gamma, R, cfl, dt_max, ghost_left=1, ghost_right=1)
 
     assert dt0 == pytest.approx(dt1, rel=1e-9, abs=1e-12)
