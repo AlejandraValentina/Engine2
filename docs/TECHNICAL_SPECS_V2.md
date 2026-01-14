@@ -297,9 +297,13 @@ Then:
   - \(Y_{mix}\) from mass-weighted scalar mixing.
   - \(p_{0,mix}\) as a mass-weighted average of incoming totals.
 - Outgoing legs use the mixed totals as upstream conditions.
+- Each leg can specify `K_loss` (default 0.0).
 - Per-leg loss coefficients apply as an added static drop \(p_{down,eff} = p_{down} + \Delta p\)
   with \(\Delta p = K \cdot 0.5 \rho u_{face}^2\).
 - Losses reduce \(|\dot{m}|\) only and never flip sign.
+- Losses never modify downstream stagnation totals (no scaling/inflation).
+- Optional geometry estimator `estimate_K_from_geometry(angle_deg, area_ratio, quality)` provides a seed only;
+  it is applied only when `use_geometry_K=true`.
 
 ### Numerical Stabilization (Optional): Under-relaxation
 - Optional under-relaxation can be applied to downstream totals \((p_{0,down}, T_{0,down}, Y_{0,down})\)

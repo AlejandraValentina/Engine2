@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List
 
 from core.engine_components import Engine, Pipe, SimulationSettings
+from core.advanced.junctions import JunctionLegConfig
 from core.junctions import Junction
 
 
@@ -71,6 +72,7 @@ class EngineProject:
     engine: Engine = field(default_factory=Engine)
     pipes: Dict[str, Pipe] = field(default_factory=dict)
     junctions: Dict[str, Junction] = field(default_factory=dict)
+    junction_legs: Dict[str, Dict[str, JunctionLegConfig]] = field(default_factory=dict)
     banks: Dict[str, List[CylinderNode]] = field(default_factory=dict)  # legacy
 
     def to_dict(self) -> Dict:
@@ -83,6 +85,10 @@ class EngineProject:
                     "volume": j.volume,
                     "pressure": getattr(j, "pressure", 101325.0),
                     "temperature": getattr(j, "temperature", 300.0),
+                    "legs": {
+                        leg_id: leg.to_dict()
+                        for leg_id, leg in self.junction_legs.get(jid, {}).items()
+                    },
                 }
                 for jid, j in self.junctions.items()
             },
@@ -104,11 +110,18 @@ class EngineProject:
 
         junctions_data = data.get("junctions", {})
         junctions: Dict[str, Junction] = {}
+        junction_legs: Dict[str, Dict[str, JunctionLegConfig]] = {}
         for jid, junc_dict in junctions_data.items():
             vol = junc_dict.get("volume", 0.001)
             p = junc_dict.get("pressure", 101325.0)
             T = junc_dict.get("temperature", 300.0)
             junctions[jid] = Junction(vol, p, T)
+            legs_data = junc_dict.get("legs", {})
+            if isinstance(legs_data, dict) and legs_data:
+                junction_legs[jid] = {
+                    leg_id: JunctionLegConfig.from_dict(leg_dict)
+                    for leg_id, leg_dict in legs_data.items()
+                }
 
         banks_data = data.get("banks", {})
         banks: Dict[str, List[CylinderNode]] = {
@@ -117,7 +130,14 @@ class EngineProject:
         }
 
         name = data.get("name") or engine_payload.get("model_name", "Untitled Engine")
-        return cls(name=name, engine=engine, pipes=pipes, junctions=junctions, banks=banks)
+        return cls(
+            name=name,
+            engine=engine,
+            pipes=pipes,
+            junctions=junctions,
+            junction_legs=junction_legs,
+            banks=banks,
+        )
 
 
 __all__ = [
