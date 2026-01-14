@@ -63,6 +63,7 @@ def test_orchestrator_wires_friction(monkeypatch: pytest.MonkeyPatch) -> None:
         roughness: float = 0.0,
         mu: float = 1.8e-5,
         friction_energy_mode: str = "wall_loss",
+        use_numba_1d: bool = False,
     ) -> np.ndarray:
         captured["friction_model"] = friction_model
         captured["roughness"] = roughness

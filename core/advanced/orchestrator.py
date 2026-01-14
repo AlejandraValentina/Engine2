@@ -51,6 +51,7 @@ class OrchestratorConfig:
     combustion: CombustionConfig = field(default_factory=CombustionConfig)
     coupling_relax_alpha: float = 1.0
     coupling_relax_warmup_iters: int = 0
+    use_numba_1d: bool = False
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -290,6 +291,7 @@ class Orchestrator:
                         friction_energy_mode=self.cfg.friction_energy_mode,
                         roughness=self.cfg.roughness_m,
                         mu=self.cfg.mu,
+                        use_numba_1d=self.cfg.use_numba_1d,
                     )
                     t_elapsed += dt_step
 

@@ -6,6 +6,18 @@ import numpy as np
 
 from core.advanced.limiters import minmod
 
+try:
+    from numba import njit
+    _HAS_NUMBA = True
+except Exception:  # pragma: no cover - optional dependency
+    _HAS_NUMBA = False
+
+    def njit(*_args, **_kwargs):
+        def wrapper(func):
+            return func
+
+        return wrapper
+
 logger = logging.getLogger(__name__)
 _PRESSURE_FIX_COUNT = 0
 _PRESSURE_FIX_LIMIT = 20
@@ -17,6 +29,7 @@ _VELOCITY_FIX_COUNT = 0
 _VELOCITY_FIX_LIMIT = 20
 _OUTLET_FALLBACK_COUNT = 0
 _OUTLET_FALLBACK_LIMIT = 10
+_NUMBA_BUFFERS: dict[int, dict[str, np.ndarray]] = {}
 
 def _u_max(gamma: float) -> float:
     return 200.0 * math.sqrt(max(gamma, 1e-9))
@@ -608,6 +621,303 @@ def _reconstruct_primitives_soa(
     return prim_L, prim_R
 
 
+def _get_numba_buffers(n_phys: int) -> dict[str, np.ndarray]:
+    buf = _NUMBA_BUFFERS.get(n_phys)
+    if buf is None:
+        buf = {
+            "prim": np.empty((n_phys, 4)),
+            "prim_ext": np.empty((n_phys + 2, 4)),
+            "slope": np.empty((n_phys, 4)),
+            "prim_L": np.empty((n_phys, 4)),
+            "prim_R": np.empty((n_phys, 4)),
+            "U_L": np.empty((n_phys, 4)),
+            "U_R": np.empty((n_phys, 4)),
+            "F_face": np.empty((n_phys + 1, 4)),
+            "U_half": np.empty((n_phys, 4)),
+            "prim_half": np.empty((n_phys, 4)),
+            "prim_half_ext": np.empty((n_phys + 2, 4)),
+            "slope_half": np.empty((n_phys, 4)),
+            "prim_half_L": np.empty((n_phys, 4)),
+            "prim_half_R": np.empty((n_phys, 4)),
+            "U_half_L": np.empty((n_phys, 4)),
+            "U_half_R": np.empty((n_phys, 4)),
+            "F_star": np.empty((n_phys + 1, 4)),
+            "U_out": np.empty((n_phys, 4)),
+        }
+        _NUMBA_BUFFERS[n_phys] = buf
+    return buf
+
+
+@njit(cache=True)
+def _minmod_numba(a: float, b: float) -> float:
+    if a * b <= 0.0:
+        return 0.0
+    if abs(a) < abs(b):
+        return a
+    return b
+
+
+@njit(cache=True)
+def _muscl_hancock_step_soa_numba_kernel(
+    U_in: np.ndarray,
+    ghost_left_prim: np.ndarray,
+    ghost_right_prim: np.ndarray,
+    ghost_left_U: np.ndarray,
+    ghost_right_U: np.ndarray,
+    dx: float,
+    dt: float,
+    gamma: float,
+    gas_constant: float,
+    friction_model: int,
+    friction_factor: float,
+    roughness: float,
+    diameter: float,
+    mu: float,
+    friction_energy_mode: int,
+    prim: np.ndarray,
+    prim_ext: np.ndarray,
+    slope: np.ndarray,
+    prim_L: np.ndarray,
+    prim_R: np.ndarray,
+    U_L: np.ndarray,
+    U_R: np.ndarray,
+    F_face: np.ndarray,
+    U_half: np.ndarray,
+    prim_half: np.ndarray,
+    prim_half_ext: np.ndarray,
+    slope_half: np.ndarray,
+    prim_half_L: np.ndarray,
+    prim_half_R: np.ndarray,
+    U_half_L: np.ndarray,
+    U_half_R: np.ndarray,
+    F_star: np.ndarray,
+    U_out: np.ndarray,
+) -> None:
+    n_phys = U_in.shape[0]
+
+    for i in range(n_phys):
+        rho = U_in[i, 0]
+        rho_safe = rho if rho > _DENSITY_FLOOR else _DENSITY_FLOOR
+        u = U_in[i, 1] / rho_safe
+        E = U_in[i, 2] / rho_safe
+        e_int = E - 0.5 * u * u
+        T = (gamma - 1.0) * e_int / gas_constant
+        if T < 1e-9:
+            T = 1e-9
+        p = rho_safe * gas_constant * T
+        Y = U_in[i, 3] / rho_safe
+        prim[i, 0] = rho_safe
+        prim[i, 1] = u
+        prim[i, 2] = p
+        prim[i, 3] = Y
+
+    prim_ext[0, :] = ghost_left_prim
+    prim_ext[1:-1, :] = prim
+    prim_ext[-1, :] = ghost_right_prim
+
+    for i in range(n_phys):
+        for j in range(4):
+            a = prim_ext[i + 1, j] - prim_ext[i, j]
+            b = prim_ext[i + 2, j] - prim_ext[i + 1, j]
+            slope[i, j] = _minmod_numba(a, b)
+
+    for i in range(n_phys):
+        for j in range(4):
+            prim_L[i, j] = prim[i, j] - 0.5 * slope[i, j]
+            prim_R[i, j] = prim[i, j] + 0.5 * slope[i, j]
+
+    for i in range(n_phys):
+        for arr_in, arr_out in (
+            (prim_L, U_L),
+            (prim_R, U_R),
+        ):
+            rho = arr_in[i, 0]
+            if rho <= 0.0:
+                rho = _DENSITY_FLOOR
+            u = arr_in[i, 1]
+            p = arr_in[i, 2]
+            if p <= 0.0:
+                p = _PRESSURE_FLOOR
+            Y = arr_in[i, 3]
+            T = p / (rho * gas_constant)
+            e_int = gas_constant * T / (gamma - 1.0)
+            E = e_int + 0.5 * u * u
+            arr_out[i, 0] = rho
+            arr_out[i, 1] = rho * u
+            arr_out[i, 2] = rho * E
+            arr_out[i, 3] = rho * Y
+
+    for i in range(n_phys + 1):
+        if i == 0:
+            UL = ghost_left_U
+            UR = U_L[0]
+        elif i == n_phys:
+            UL = U_R[-1]
+            UR = ghost_right_U
+        else:
+            UL = U_R[i - 1]
+            UR = U_L[i]
+
+        rhoL = UL[0]
+        rhoR = UR[0]
+        rhoL_safe = rhoL if rhoL > _DENSITY_FLOOR else _DENSITY_FLOOR
+        rhoR_safe = rhoR if rhoR > _DENSITY_FLOOR else _DENSITY_FLOOR
+        uL = UL[1] / rhoL_safe
+        uR = UR[1] / rhoR_safe
+        pL = (gamma - 1.0) * (UL[2] - 0.5 * rhoL_safe * uL * uL)
+        pR = (gamma - 1.0) * (UR[2] - 0.5 * rhoR_safe * uR * uR)
+        if pL < _PRESSURE_FLOOR:
+            pL = _PRESSURE_FLOOR
+        if pR < _PRESSURE_FLOOR:
+            pR = _PRESSURE_FLOOR
+        aL = math.sqrt(gamma * pL / rhoL_safe)
+        aR = math.sqrt(gamma * pR / rhoR_safe)
+        smax = max(abs(uL) + aL, abs(uR) + aR)
+
+        F0L = rhoL * uL
+        F1L = rhoL * uL * uL + pL
+        F2L = uL * (UL[2] + pL)
+        F3L = UL[3] * uL
+        F0R = rhoR * uR
+        F1R = rhoR * uR * uR + pR
+        F2R = uR * (UR[2] + pR)
+        F3R = UR[3] * uR
+
+        F_face[i, 0] = 0.5 * (F0L + F0R) - 0.5 * smax * (UR[0] - UL[0])
+        F_face[i, 1] = 0.5 * (F1L + F1R) - 0.5 * smax * (UR[1] - UL[1])
+        F_face[i, 2] = 0.5 * (F2L + F2R) - 0.5 * smax * (UR[2] - UL[2])
+        F_face[i, 3] = 0.5 * (F3L + F3R) - 0.5 * smax * (UR[3] - UL[3])
+
+    for i in range(n_phys):
+        U_half[i, 0] = U_in[i, 0] - 0.5 * dt / dx * (F_face[i + 1, 0] - F_face[i, 0])
+        U_half[i, 1] = U_in[i, 1] - 0.5 * dt / dx * (F_face[i + 1, 1] - F_face[i, 1])
+        U_half[i, 2] = U_in[i, 2] - 0.5 * dt / dx * (F_face[i + 1, 2] - F_face[i, 2])
+        U_half[i, 3] = U_in[i, 3] - 0.5 * dt / dx * (F_face[i + 1, 3] - F_face[i, 3])
+
+    for i in range(n_phys):
+        rho = U_half[i, 0]
+        rho_safe = rho if rho > _DENSITY_FLOOR else _DENSITY_FLOOR
+        u = U_half[i, 1] / rho_safe
+        E = U_half[i, 2] / rho_safe
+        e_int = E - 0.5 * u * u
+        T = (gamma - 1.0) * e_int / gas_constant
+        if T < 1e-9:
+            T = 1e-9
+        p = rho_safe * gas_constant * T
+        Y = U_half[i, 3] / rho_safe
+        prim_half[i, 0] = rho_safe
+        prim_half[i, 1] = u
+        prim_half[i, 2] = p
+        prim_half[i, 3] = Y
+
+    prim_half_ext[0, :] = ghost_left_prim
+    prim_half_ext[1:-1, :] = prim_half
+    prim_half_ext[-1, :] = ghost_right_prim
+
+    for i in range(n_phys):
+        for j in range(4):
+            a = prim_half_ext[i + 1, j] - prim_half_ext[i, j]
+            b = prim_half_ext[i + 2, j] - prim_half_ext[i + 1, j]
+            slope_half[i, j] = _minmod_numba(a, b)
+
+    for i in range(n_phys):
+        for j in range(4):
+            prim_half_L[i, j] = prim_half[i, j] - 0.5 * slope_half[i, j]
+            prim_half_R[i, j] = prim_half[i, j] + 0.5 * slope_half[i, j]
+
+    for i in range(n_phys):
+        for arr_in, arr_out in (
+            (prim_half_L, U_half_L),
+            (prim_half_R, U_half_R),
+        ):
+            rho = arr_in[i, 0]
+            if rho <= 0.0:
+                rho = _DENSITY_FLOOR
+            u = arr_in[i, 1]
+            p = arr_in[i, 2]
+            if p <= 0.0:
+                p = _PRESSURE_FLOOR
+            Y = arr_in[i, 3]
+            T = p / (rho * gas_constant)
+            e_int = gas_constant * T / (gamma - 1.0)
+            E = e_int + 0.5 * u * u
+            arr_out[i, 0] = rho
+            arr_out[i, 1] = rho * u
+            arr_out[i, 2] = rho * E
+            arr_out[i, 3] = rho * Y
+
+    for i in range(n_phys + 1):
+        if i == 0:
+            UL = ghost_left_U
+            UR = U_half_L[0]
+        elif i == n_phys:
+            UL = U_half_R[-1]
+            UR = ghost_right_U
+        else:
+            UL = U_half_R[i - 1]
+            UR = U_half_L[i]
+
+        rhoL = UL[0]
+        rhoR = UR[0]
+        rhoL_safe = rhoL if rhoL > _DENSITY_FLOOR else _DENSITY_FLOOR
+        rhoR_safe = rhoR if rhoR > _DENSITY_FLOOR else _DENSITY_FLOOR
+        uL = UL[1] / rhoL_safe
+        uR = UR[1] / rhoR_safe
+        pL = (gamma - 1.0) * (UL[2] - 0.5 * rhoL_safe * uL * uL)
+        pR = (gamma - 1.0) * (UR[2] - 0.5 * rhoR_safe * uR * uR)
+        if pL < _PRESSURE_FLOOR:
+            pL = _PRESSURE_FLOOR
+        if pR < _PRESSURE_FLOOR:
+            pR = _PRESSURE_FLOOR
+        aL = math.sqrt(gamma * pL / rhoL_safe)
+        aR = math.sqrt(gamma * pR / rhoR_safe)
+        smax = max(abs(uL) + aL, abs(uR) + aR)
+
+        F0L = rhoL * uL
+        F1L = rhoL * uL * uL + pL
+        F2L = uL * (UL[2] + pL)
+        F3L = UL[3] * uL
+        F0R = rhoR * uR
+        F1R = rhoR * uR * uR + pR
+        F2R = uR * (UR[2] + pR)
+        F3R = UR[3] * uR
+
+        F_star[i, 0] = 0.5 * (F0L + F0R) - 0.5 * smax * (UR[0] - UL[0])
+        F_star[i, 1] = 0.5 * (F1L + F1R) - 0.5 * smax * (UR[1] - UL[1])
+        F_star[i, 2] = 0.5 * (F2L + F2R) - 0.5 * smax * (UR[2] - UL[2])
+        F_star[i, 3] = 0.5 * (F3L + F3R) - 0.5 * smax * (UR[3] - UL[3])
+
+    for i in range(n_phys):
+        U_out[i, 0] = U_in[i, 0] - dt / dx * (F_star[i + 1, 0] - F_star[i, 0])
+        U_out[i, 1] = U_in[i, 1] - dt / dx * (F_star[i + 1, 1] - F_star[i, 1])
+        U_out[i, 2] = U_in[i, 2] - dt / dx * (F_star[i + 1, 2] - F_star[i, 2])
+        U_out[i, 3] = U_in[i, 3] - dt / dx * (F_star[i + 1, 3] - F_star[i, 3])
+
+    if friction_model != 2:
+        for i in range(n_phys):
+            rho = U_out[i, 0]
+            rho_safe = rho if rho > 1e-12 else 1e-12
+            u = U_out[i, 1] / rho_safe
+            if friction_model == 0:
+                f = friction_factor
+            else:
+                Re = rho_safe * abs(u) * diameter / mu
+                if Re < 1e-8:
+                    Re = 1e-8
+                rel_eps = roughness / diameter
+                f_lam = 64.0 / Re
+                term = rel_eps / 3.7 + 5.74 / (Re ** 0.9)
+                f_turb = 0.25 / (math.log10(term) ** 2)
+                if Re < 2300.0:
+                    f = f_lam
+                else:
+                    f = f_turb
+            S_mom = -(f / (2.0 * diameter)) * rho * u * abs(u)
+            U_out[i, 1] = U_out[i, 1] + dt * S_mom
+            if friction_energy_mode == 0:
+                U_out[i, 2] = U_out[i, 2] + dt * u * S_mom
+
+
 def _muscl_hancock_step_soa(
     U: np.ndarray,
     dx: float,
@@ -814,7 +1124,7 @@ def _muscl_hancock_step_soa(
     return U_new
 
 
-def muscl_hancock_step(
+def _muscl_hancock_step_soa_numba(
     U: np.ndarray,
     dx: float,
     dt: float,
@@ -831,6 +1141,161 @@ def muscl_hancock_step(
     mu: float = 1.8e-5,
     friction_energy_mode: str = "wall_loss",
 ) -> np.ndarray:
+    if not _HAS_NUMBA:
+        raise RuntimeError("Numba is not available")
+    mode = outlet_mode
+    if mode is None:
+        mode = "non_reflecting" if p_outlet is not None else "copy"
+    if mode != "copy" or p_outlet is not None:
+        return _muscl_hancock_step_soa(
+            U,
+            dx,
+            dt,
+            gamma,
+            gas_constant,
+            friction_factor=friction_factor,
+            diameter=diameter,
+            p_outlet=p_outlet,
+            outlet_mode=outlet_mode,
+            reflection_coeff=reflection_coeff,
+            impedance=impedance,
+            friction_model=friction_model,
+            roughness=roughness,
+            mu=mu,
+            friction_energy_mode=friction_energy_mode,
+        )
+    if friction_model is None:
+        friction_mode_code = 0 if friction_factor > 0.0 else 2
+    elif friction_model == "constant":
+        friction_mode_code = 0
+    elif friction_model == "swamee-jain":
+        friction_mode_code = 1
+    else:
+        raise ValueError(f"Unknown friction_model '{friction_model}'")
+    if friction_mode_code == 1:
+        if mu <= 0.0:
+            raise ValueError("mu must be positive for friction_model")
+        if diameter <= 0.0:
+            raise ValueError("diameter must be positive for friction_model")
+    if friction_energy_mode == "wall_loss":
+        friction_energy_code = 0
+    elif friction_energy_mode == "adiabatic":
+        friction_energy_code = 1
+    else:
+        raise ValueError(f"Unknown friction_energy_mode '{friction_energy_mode}'")
+
+    N = U.shape[0]
+    if N < 3:
+        raise ValueError("U must include left/right ghost cells and at least one physical cell")
+    n_phys = N - 2
+    _guard_state(U, gamma, gas_constant, "muscl_hancock_step input")
+
+    U_phys = U[1:-1]
+    prim_left_full = conserved_to_primitive(U[0:1], gamma, gas_constant)[0]
+    prim_left = np.array(
+        [
+            max(float(prim_left_full[0]), _DENSITY_FLOOR),
+            float(prim_left_full[1]),
+            max(float(prim_left_full[2]), _PRESSURE_FLOOR),
+            float(prim_left_full[4]),
+        ],
+        dtype=float,
+    )
+    prim_right_full = conserved_to_primitive(U[-1:], gamma, gas_constant)[0]
+    prim_right = np.array(
+        [
+            max(float(prim_right_full[0]), _DENSITY_FLOOR),
+            float(prim_right_full[1]),
+            max(float(prim_right_full[2]), _PRESSURE_FLOOR),
+            float(prim_right_full[4]),
+        ],
+        dtype=float,
+    )
+    ghost_left_U = _primitive_to_conserved_row(prim_left, gamma, gas_constant)
+    ghost_right_U = _primitive_to_conserved_row(prim_right, gamma, gas_constant)
+
+    buf = _get_numba_buffers(n_phys)
+    _muscl_hancock_step_soa_numba_kernel(
+        U_phys,
+        prim_left,
+        prim_right,
+        ghost_left_U,
+        ghost_right_U,
+        dx,
+        dt,
+        gamma,
+        gas_constant,
+        friction_mode_code,
+        friction_factor,
+        roughness,
+        diameter,
+        mu,
+        friction_energy_code,
+        buf["prim"],
+        buf["prim_ext"],
+        buf["slope"],
+        buf["prim_L"],
+        buf["prim_R"],
+        buf["U_L"],
+        buf["U_R"],
+        buf["F_face"],
+        buf["U_half"],
+        buf["prim_half"],
+        buf["prim_half_ext"],
+        buf["slope_half"],
+        buf["prim_half_L"],
+        buf["prim_half_R"],
+        buf["U_half_L"],
+        buf["U_half_R"],
+        buf["F_star"],
+        buf["U_out"],
+    )
+
+    U_new = U.copy()
+    U_new[1:-1] = buf["U_out"]
+    U_new[0] = U[0]
+    U_new[-1] = U_new[-2]
+    _guard_state(U_new, gamma, gas_constant, "muscl_hancock_step output")
+    _apply_scalar_guard(U_new, "muscl_hancock_step post-guard")
+    return U_new
+
+
+def muscl_hancock_step(
+    U: np.ndarray,
+    dx: float,
+    dt: float,
+    gamma: float,
+    gas_constant: float,
+    friction_factor: float = 0.0,
+    diameter: float = 1.0,
+    p_outlet: float | None = None,
+    outlet_mode: str | None = None,
+    reflection_coeff: float | None = None,
+    impedance: float | None = None,
+    friction_model: str | None = None,
+    roughness: float = 0.0,
+    mu: float = 1.8e-5,
+    friction_energy_mode: str = "wall_loss",
+    use_numba_1d: bool = False,
+) -> np.ndarray:
+    if use_numba_1d and _HAS_NUMBA:
+        return _muscl_hancock_step_soa_numba(
+            U,
+            dx,
+            dt,
+            gamma,
+            gas_constant,
+            friction_factor=friction_factor,
+            diameter=diameter,
+            p_outlet=p_outlet,
+            outlet_mode=outlet_mode,
+            reflection_coeff=reflection_coeff,
+            impedance=impedance,
+            friction_model=friction_model,
+            roughness=roughness,
+            mu=mu,
+            friction_energy_mode=friction_energy_mode,
+        )
     return _muscl_hancock_step_soa(
         U,
         dx,

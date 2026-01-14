@@ -46,6 +46,7 @@ def test_convergence_history_export_uses_physical_cells(monkeypatch: pytest.Monk
         roughness: float = 0.0,
         mu: float = 1.8e-5,
         friction_energy_mode: str = "wall_loss",
+        use_numba_1d: bool = False,
     ) -> np.ndarray:
         U_out = U.copy()
         U_out[0] += 5.0
