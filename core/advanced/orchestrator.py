@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
+from core.advanced.combustion import CombustionConfig, combustion_qdot
 from core.advanced.coupling import (
     ValveTiming,
     boundary_flux_from_nozzle,
@@ -47,6 +48,7 @@ class OrchestratorConfig:
     initial_Y: Optional[float] = None
     periodicity_tol: float = 0.01
     periodicity_required: int = 2
+    combustion: CombustionConfig = field(default_factory=CombustionConfig)
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -178,7 +180,13 @@ class Orchestrator:
                     mdot_out = 0.0
                     Hdot_out = 0.0
                     Ydot_out = 0.0
-                Qdot = 0.0
+                Qdot = combustion_qdot(
+                    angle_deg,
+                    rpm,
+                    cyl.m_fresh,
+                    cyl.m_total,
+                    self.cfg.combustion,
+                )
                 cyl.update(dt_theta, mdot_in, Hdot_in, Ydot_in, mdot_out, Hdot_out, Ydot_out, Qdot, dVdt)
 
                 if mdot >= 0.0:
