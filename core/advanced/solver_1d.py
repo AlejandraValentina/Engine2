@@ -377,6 +377,9 @@ def muscl_hancock_step(
     """Advance one step with MUSCL-Hancock + Rusanov."""
 
     N = U.shape[0]
+    if N < 3:
+        raise ValueError("U must include left/right ghost cells and at least one physical cell")
+    n_phys = N - 2
     _guard_state(U, gamma, gas_constant, "muscl_hancock_step input")
     mode = outlet_mode
     if mode is None:
@@ -384,18 +387,42 @@ def muscl_hancock_step(
     if p_outlet is None and mode != "copy":
         raise ValueError("p_outlet must be set when outlet_mode is not 'copy'")
 
-    prim_full = conserved_to_primitive(U, gamma, gas_constant)
+    U_phys = U[1:-1]
+    prim_full = conserved_to_primitive(U_phys, gamma, gas_constant)
     rho_rec = np.maximum(prim_full[:, 0], _DENSITY_FLOOR)
     prim = np.stack([rho_rec, prim_full[:, 1], prim_full[:, 2], prim_full[:, 4]], axis=1)
-    prim_ext = np.zeros((N + 2, 4))
-    prim_ext[1:-1] = prim
-    prim_ext[0] = prim[0]
+
+    prim_left_full = conserved_to_primitive(U[0:1], gamma, gas_constant)[0]
+    prim_left = np.array(
+        [
+            max(float(prim_left_full[0]), _DENSITY_FLOOR),
+            float(prim_left_full[1]),
+            max(float(prim_left_full[2]), _PRESSURE_FLOOR),
+            float(prim_left_full[4]),
+        ],
+        dtype=float,
+    )
+
     if mode == "copy":
-        prim_ext[-1] = prim[-1]
+        prim_right_full = conserved_to_primitive(U[-1:], gamma, gas_constant)[0]
+        prim_right = np.array(
+            [
+                max(float(prim_right_full[0]), _DENSITY_FLOOR),
+                float(prim_right_full[1]),
+                max(float(prim_right_full[2]), _PRESSURE_FLOOR),
+                float(prim_right_full[4]),
+            ],
+            dtype=float,
+        )
     else:
-        prim_ext[-1] = _outlet_primitive_bc(
+        prim_right = _outlet_primitive_bc(
             prim[-1], float(p_outlet), gamma, gas_constant, mode, reflection_coeff, impedance
         )
+
+    prim_ext = np.zeros((n_phys + 2, 4))
+    prim_ext[0] = prim_left
+    prim_ext[1:-1] = prim
+    prim_ext[-1] = prim_right
 
     dP_plus = prim_ext[2:] - prim_ext[1:-1]
     dP_minus = prim_ext[1:-1] - prim_ext[:-2]
@@ -406,43 +433,61 @@ def muscl_hancock_step(
 
     U_L = _primitive_to_conserved(prim_L, gamma, gas_constant, "muscl_hancock_step predictor L")
     U_R = _primitive_to_conserved(prim_R, gamma, gas_constant, "muscl_hancock_step predictor R")
-    UL_face = np.zeros((N + 1, 4))
-    UR_face = np.zeros((N + 1, 4))
+    U_ghost_left = _primitive_to_conserved_row(prim_left, gamma, gas_constant)
+    U_ghost_right = _primitive_to_conserved_row(prim_right, gamma, gas_constant)
+    UL_face = np.zeros((n_phys + 1, 4))
+    UR_face = np.zeros((n_phys + 1, 4))
+    UL_face[0] = U_ghost_left
+    UR_face[0] = U_L[0]
     UL_face[1:-1] = U_R[:-1]
     UR_face[1:-1] = U_L[1:]
-    UL_face[0] = U_L[0]
-    UR_face[0] = U_L[0]
-    if mode == "copy":
-        UL_face[-1] = U_R[-1]
-        UR_face[-1] = U_R[-1]
-    else:
-        prim_out = prim_ext[-1]
-        if np.allclose(prim_out, prim[-1]):
-            U_out = U_R[-1]
-        else:
-            U_out = _primitive_to_conserved_row(prim_out, gamma, gas_constant)
-        UL_face[-1] = U_R[-1]
-        UR_face[-1] = U_out
+    UL_face[-1] = U_R[-1]
+    UR_face[-1] = U_ghost_right
 
     F_face = _rusanov_flux(UL_face, UR_face, gamma, gas_constant)
-    U_half = U - 0.5 * dt / dx * (F_face[1:] - F_face[:-1])
+    U_half_phys = U_phys - 0.5 * dt / dx * (F_face[1:] - F_face[:-1])
+    U_half = U.copy()
+    U_half[1:-1] = U_half_phys
+    U_half[0] = U_ghost_left
+    U_half[-1] = U_ghost_right
     _guard_state(U_half, gamma, gas_constant, "muscl_hancock_step predictor")
+    U_half_phys = U_half[1:-1]
 
-    prim_half_full = conserved_to_primitive(U_half, gamma, gas_constant)
+    prim_half_full = conserved_to_primitive(U_half_phys, gamma, gas_constant)
     rho_half_rec = np.maximum(prim_half_full[:, 0], _DENSITY_FLOOR)
     prim_half = np.stack(
         [rho_half_rec, prim_half_full[:, 1], prim_half_full[:, 2], prim_half_full[:, 4]],
         axis=1,
     )
-    prim_half_ext = np.zeros((N + 2, 4))
-    prim_half_ext[1:-1] = prim_half
-    prim_half_ext[0] = prim_half[0]
+    prim_half_left_full = conserved_to_primitive(U_half[0:1], gamma, gas_constant)[0]
+    prim_half_left = np.array(
+        [
+            max(float(prim_half_left_full[0]), _DENSITY_FLOOR),
+            float(prim_half_left_full[1]),
+            max(float(prim_half_left_full[2]), _PRESSURE_FLOOR),
+            float(prim_half_left_full[4]),
+        ],
+        dtype=float,
+    )
     if mode == "copy":
-        prim_half_ext[-1] = prim_half[-1]
+        prim_half_right_full = conserved_to_primitive(U_half[-1:], gamma, gas_constant)[0]
+        prim_half_right = np.array(
+            [
+                max(float(prim_half_right_full[0]), _DENSITY_FLOOR),
+                float(prim_half_right_full[1]),
+                max(float(prim_half_right_full[2]), _PRESSURE_FLOOR),
+                float(prim_half_right_full[4]),
+            ],
+            dtype=float,
+        )
     else:
-        prim_half_ext[-1] = _outlet_primitive_bc(
+        prim_half_right = _outlet_primitive_bc(
             prim_half[-1], float(p_outlet), gamma, gas_constant, mode, reflection_coeff, impedance
         )
+    prim_half_ext = np.zeros((n_phys + 2, 4))
+    prim_half_ext[0] = prim_half_left
+    prim_half_ext[1:-1] = prim_half
+    prim_half_ext[-1] = prim_half_right
 
     dP_plus = prim_half_ext[2:] - prim_half_ext[1:-1]
     dP_minus = prim_half_ext[1:-1] - prim_half_ext[:-2]
@@ -454,26 +499,19 @@ def muscl_hancock_step(
     U_half_L = _primitive_to_conserved(prim_half_L, gamma, gas_constant, "muscl_hancock_step corrector L")
     U_half_R = _primitive_to_conserved(prim_half_R, gamma, gas_constant, "muscl_hancock_step corrector R")
 
-    UL_face = np.zeros((N + 1, 4))
-    UR_face = np.zeros((N + 1, 4))
+    U_ghost_left_half = _primitive_to_conserved_row(prim_half_left, gamma, gas_constant)
+    U_ghost_right_half = _primitive_to_conserved_row(prim_half_right, gamma, gas_constant)
+    UL_face = np.zeros((n_phys + 1, 4))
+    UR_face = np.zeros((n_phys + 1, 4))
+    UL_face[0] = U_ghost_left_half
+    UR_face[0] = U_half_L[0]
     UL_face[1:-1] = U_half_R[:-1]
     UR_face[1:-1] = U_half_L[1:]
-    UL_face[0] = U_half_L[0]
-    UR_face[0] = U_half_L[0]
-    if mode == "copy":
-        UL_face[-1] = U_half_R[-1]
-        UR_face[-1] = U_half_R[-1]
-    else:
-        prim_out_half = prim_half_ext[-1]
-        if np.allclose(prim_out_half, prim_half[-1]):
-            U_out_half = U_half_R[-1]
-        else:
-            U_out_half = _primitive_to_conserved_row(prim_out_half, gamma, gas_constant)
-        UL_face[-1] = U_half_R[-1]
-        UR_face[-1] = U_out_half
+    UL_face[-1] = U_half_R[-1]
+    UR_face[-1] = U_ghost_right_half
 
     F_star = _rusanov_flux(UL_face, UR_face, gamma, gas_constant)
-    U_new = U - dt / dx * (F_star[1:] - F_star[:-1])
+    U_new_phys = U_phys - dt / dx * (F_star[1:] - F_star[:-1])
 
     if friction_model is None:
         use_friction = friction_factor > 0.0
@@ -486,22 +524,43 @@ def muscl_hancock_step(
         elif friction_model == "swamee-jain":
             if mu <= 0.0:
                 raise ValueError("mu must be positive for friction_model")
-            rho = U_new[:, 0]
+            rho = U_new_phys[:, 0]
             rho_safe = np.maximum(rho, 1e-12)
-            u = U_new[:, 1] / rho_safe
+            u = U_new_phys[:, 1] / rho_safe
             Re = rho_safe * np.abs(u) * diameter / mu
             f = _friction_factor_swamee_jain(Re, roughness, diameter)
         else:
             raise ValueError(f"Unknown friction_model '{friction_model}'")
-        rho = U_new[:, 0]
+        rho = U_new_phys[:, 0]
         rho_safe = np.maximum(rho, 1e-12)
-        u = U_new[:, 1] / rho_safe
+        u = U_new_phys[:, 1] / rho_safe
         S_mom = -(f / (2.0 * diameter)) * rho * u * np.abs(u)
-        U_new[:, 1] += dt * S_mom
+        U_new_phys[:, 1] += dt * S_mom
         if friction_energy_mode == "wall_loss":
-            U_new[:, 2] += dt * u * S_mom
+            U_new_phys[:, 2] += dt * u * S_mom
         elif friction_energy_mode != "adiabatic":
             raise ValueError(f"Unknown friction_energy_mode '{friction_energy_mode}'")
+
+    U_new = U.copy()
+    U_new[1:-1] = U_new_phys
+    U_new[0] = U[0]
+    if mode == "copy":
+        U_new[-1] = U_new[-2]
+    else:
+        prim_new_full = conserved_to_primitive(U_new[1:-1], gamma, gas_constant)
+        prim_new_right = np.array(
+            [
+                max(float(prim_new_full[-1, 0]), _DENSITY_FLOOR),
+                float(prim_new_full[-1, 1]),
+                max(float(prim_new_full[-1, 2]), _PRESSURE_FLOOR),
+                float(prim_new_full[-1, 4]),
+            ],
+            dtype=float,
+        )
+        prim_new_right = _outlet_primitive_bc(
+            prim_new_right, float(p_outlet), gamma, gas_constant, mode, reflection_coeff, impedance
+        )
+        U_new[-1] = _primitive_to_conserved_row(prim_new_right, gamma, gas_constant)
 
     _guard_state(U_new, gamma, gas_constant, "muscl_hancock_step output")
     _apply_scalar_guard(U_new, "muscl_hancock_step post-guard")
@@ -516,7 +575,7 @@ def cfl_dt(
     cfl: float,
     dt_max: float,
     ghost_left: int = 1,
-    ghost_right: int = 0,
+    ghost_right: int = 1,
 ) -> float:
     if not np.isfinite(U).all():
         raise ValueError("Non-finite state in cfl_dt input")

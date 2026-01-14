@@ -94,12 +94,13 @@ class Orchestrator:
             Y_init = 0.0 if self.cfg.pipe_role == "exhaust" else 1.0
         if not (0.0 <= Y_init <= 1.0):
             raise ValueError("initial_Y must be within [0, 1]")
-        U = np.zeros((pipe_cells + 1, 4))
-        U[1:, 0] = rho0
-        U[1:, 1] = rho0 * u0
-        U[1:, 2] = rho0 * (E0 + 0.5 * u0 * u0)
-        U[1:, 3] = rho0 * Y_init
+        U = np.zeros((pipe_cells + 2, 4))
+        U[1:-1, 0] = rho0
+        U[1:-1, 1] = rho0 * u0
+        U[1:-1, 2] = rho0 * (E0 + 0.5 * u0 * u0)
+        U[1:-1, 3] = rho0 * Y_init
         U[0] = U[1]
+        U[-1] = U[-2]
 
         cyl = CylinderControlVolume(
             m_total=rho0 * clearance_m3,
@@ -214,6 +215,7 @@ class Orchestrator:
                     p_outlet = self.cfg.p_outlet if self.cfg.p_outlet is not None else p0
                 while t_elapsed < dt_theta:
                     U[0] = ghost
+                    U[-1] = U[-2]
                     dt_cfl = cfl_dt(
                         U,
                         dx,
@@ -222,7 +224,7 @@ class Orchestrator:
                         self.cfg.cfl,
                         self.cfg.dt_max,
                         ghost_left=1,
-                        ghost_right=0,
+                        ghost_right=1,
                     )
                     dt_step = min(dt_cfl, dt_theta - t_elapsed)
                     U = muscl_hancock_step(
@@ -254,8 +256,8 @@ class Orchestrator:
 
             trapped_history.append(cyl.m_fresh)
             work_history.append(indicated_work)
-            denom = max(np.linalg.norm(U_cycle_start[1:]), 1e-12)
-            periodicity_metric = float(np.linalg.norm(U[1:] - U_cycle_start[1:]) / denom)
+            denom = max(np.linalg.norm(U_cycle_start[1:-1]), 1e-12)
+            periodicity_metric = float(np.linalg.norm(U[1:-1] - U_cycle_start[1:-1]) / denom)
             periodicity_history.append(periodicity_metric)
             if periodicity_metric < self.cfg.periodicity_tol:
                 periodicity_count += 1
