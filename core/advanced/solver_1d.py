@@ -357,7 +357,7 @@ def _outlet_primitive_bc(
     return np.array([rho_out, u_out, p_out, Y_i], dtype=float)
 
 
-def muscl_hancock_step(
+def _muscl_hancock_step_aos(
     U: np.ndarray,
     dx: float,
     dt: float,
@@ -374,7 +374,7 @@ def muscl_hancock_step(
     mu: float = 1.8e-5,
     friction_energy_mode: str = "wall_loss",
 ) -> np.ndarray:
-    """Advance one step with MUSCL-Hancock + Rusanov."""
+    """Advance one step with MUSCL-Hancock + Rusanov (AoS reference)."""
 
     N = U.shape[0]
     if N < 3:
@@ -565,6 +565,289 @@ def muscl_hancock_step(
     _guard_state(U_new, gamma, gas_constant, "muscl_hancock_step output")
     _apply_scalar_guard(U_new, "muscl_hancock_step post-guard")
     return U_new
+
+
+def _reconstruct_primitives_soa(
+    prim_left: np.ndarray,
+    prim_right: np.ndarray,
+    rho: np.ndarray,
+    u: np.ndarray,
+    p: np.ndarray,
+    Y: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    rho_ext = np.empty(rho.size + 2)
+    u_ext = np.empty_like(rho_ext)
+    p_ext = np.empty_like(rho_ext)
+    Y_ext = np.empty_like(rho_ext)
+    rho_ext[0] = prim_left[0]
+    u_ext[0] = prim_left[1]
+    p_ext[0] = prim_left[2]
+    Y_ext[0] = prim_left[3]
+    rho_ext[1:-1] = rho
+    u_ext[1:-1] = u
+    p_ext[1:-1] = p
+    Y_ext[1:-1] = Y
+    rho_ext[-1] = prim_right[0]
+    u_ext[-1] = prim_right[1]
+    p_ext[-1] = prim_right[2]
+    Y_ext[-1] = prim_right[3]
+
+    slope_rho = minmod(rho_ext[1:-1] - rho_ext[:-2], rho_ext[2:] - rho_ext[1:-1])
+    slope_u = minmod(u_ext[1:-1] - u_ext[:-2], u_ext[2:] - u_ext[1:-1])
+    slope_p = minmod(p_ext[1:-1] - p_ext[:-2], p_ext[2:] - p_ext[1:-1])
+    slope_Y = minmod(Y_ext[1:-1] - Y_ext[:-2], Y_ext[2:] - Y_ext[1:-1])
+
+    prim_L = np.stack(
+        [rho - 0.5 * slope_rho, u - 0.5 * slope_u, p - 0.5 * slope_p, Y - 0.5 * slope_Y],
+        axis=1,
+    )
+    prim_R = np.stack(
+        [rho + 0.5 * slope_rho, u + 0.5 * slope_u, p + 0.5 * slope_p, Y + 0.5 * slope_Y],
+        axis=1,
+    )
+    return prim_L, prim_R
+
+
+def _muscl_hancock_step_soa(
+    U: np.ndarray,
+    dx: float,
+    dt: float,
+    gamma: float,
+    gas_constant: float,
+    friction_factor: float = 0.0,
+    diameter: float = 1.0,
+    p_outlet: float | None = None,
+    outlet_mode: str | None = None,
+    reflection_coeff: float | None = None,
+    impedance: float | None = None,
+    friction_model: str | None = None,
+    roughness: float = 0.0,
+    mu: float = 1.8e-5,
+    friction_energy_mode: str = "wall_loss",
+) -> np.ndarray:
+    """Advance one step with MUSCL-Hancock + Rusanov (SoA prep)."""
+    N = U.shape[0]
+    if N < 3:
+        raise ValueError("U must include left/right ghost cells and at least one physical cell")
+    n_phys = N - 2
+    _guard_state(U, gamma, gas_constant, "muscl_hancock_step input")
+    mode = outlet_mode
+    if mode is None:
+        mode = "non_reflecting" if p_outlet is not None else "copy"
+    if p_outlet is None and mode != "copy":
+        raise ValueError("p_outlet must be set when outlet_mode is not 'copy'")
+
+    U_phys = U[1:-1]
+    prim_full = conserved_to_primitive(U_phys, gamma, gas_constant)
+    rho = np.maximum(prim_full[:, 0], _DENSITY_FLOOR)
+    u = prim_full[:, 1]
+    p = prim_full[:, 2]
+    Y = prim_full[:, 4]
+
+    prim_left_full = conserved_to_primitive(U[0:1], gamma, gas_constant)[0]
+    prim_left = np.array(
+        [
+            max(float(prim_left_full[0]), _DENSITY_FLOOR),
+            float(prim_left_full[1]),
+            max(float(prim_left_full[2]), _PRESSURE_FLOOR),
+            float(prim_left_full[4]),
+        ],
+        dtype=float,
+    )
+    if mode == "copy":
+        prim_right_full = conserved_to_primitive(U[-1:], gamma, gas_constant)[0]
+        prim_right = np.array(
+            [
+                max(float(prim_right_full[0]), _DENSITY_FLOOR),
+                float(prim_right_full[1]),
+                max(float(prim_right_full[2]), _PRESSURE_FLOOR),
+                float(prim_right_full[4]),
+            ],
+            dtype=float,
+        )
+    else:
+        prim_right = _outlet_primitive_bc(
+            np.array([rho[-1], u[-1], p[-1], Y[-1]], dtype=float),
+            float(p_outlet),
+            gamma,
+            gas_constant,
+            mode,
+            reflection_coeff,
+            impedance,
+        )
+
+    prim_L, prim_R = _reconstruct_primitives_soa(prim_left, prim_right, rho, u, p, Y)
+
+    U_L = _primitive_to_conserved(prim_L, gamma, gas_constant, "muscl_hancock_step predictor L")
+    U_R = _primitive_to_conserved(prim_R, gamma, gas_constant, "muscl_hancock_step predictor R")
+    U_ghost_left = _primitive_to_conserved_row(prim_left, gamma, gas_constant)
+    U_ghost_right = _primitive_to_conserved_row(prim_right, gamma, gas_constant)
+
+    UL_face = np.zeros((n_phys + 1, 4))
+    UR_face = np.zeros((n_phys + 1, 4))
+    UL_face[0] = U_ghost_left
+    UR_face[0] = U_L[0]
+    UL_face[1:-1] = U_R[:-1]
+    UR_face[1:-1] = U_L[1:]
+    UL_face[-1] = U_R[-1]
+    UR_face[-1] = U_ghost_right
+
+    F_face = _rusanov_flux(UL_face, UR_face, gamma, gas_constant)
+    U_half_phys = U_phys - 0.5 * dt / dx * (F_face[1:] - F_face[:-1])
+    U_half = U.copy()
+    U_half[1:-1] = U_half_phys
+    U_half[0] = U_ghost_left
+    U_half[-1] = U_ghost_right
+    _guard_state(U_half, gamma, gas_constant, "muscl_hancock_step predictor")
+    U_half_phys = U_half[1:-1]
+
+    prim_half_full = conserved_to_primitive(U_half_phys, gamma, gas_constant)
+    rho_half = np.maximum(prim_half_full[:, 0], _DENSITY_FLOOR)
+    u_half = prim_half_full[:, 1]
+    p_half = prim_half_full[:, 2]
+    Y_half = prim_half_full[:, 4]
+
+    prim_half_left_full = conserved_to_primitive(U_half[0:1], gamma, gas_constant)[0]
+    prim_half_left = np.array(
+        [
+            max(float(prim_half_left_full[0]), _DENSITY_FLOOR),
+            float(prim_half_left_full[1]),
+            max(float(prim_half_left_full[2]), _PRESSURE_FLOOR),
+            float(prim_half_left_full[4]),
+        ],
+        dtype=float,
+    )
+    if mode == "copy":
+        prim_half_right_full = conserved_to_primitive(U_half[-1:], gamma, gas_constant)[0]
+        prim_half_right = np.array(
+            [
+                max(float(prim_half_right_full[0]), _DENSITY_FLOOR),
+                float(prim_half_right_full[1]),
+                max(float(prim_half_right_full[2]), _PRESSURE_FLOOR),
+                float(prim_half_right_full[4]),
+            ],
+            dtype=float,
+        )
+    else:
+        prim_half_right = _outlet_primitive_bc(
+            np.array([rho_half[-1], u_half[-1], p_half[-1], Y_half[-1]], dtype=float),
+            float(p_outlet),
+            gamma,
+            gas_constant,
+            mode,
+            reflection_coeff,
+            impedance,
+        )
+
+    prim_half_L, prim_half_R = _reconstruct_primitives_soa(
+        prim_half_left, prim_half_right, rho_half, u_half, p_half, Y_half
+    )
+
+    U_half_L = _primitive_to_conserved(prim_half_L, gamma, gas_constant, "muscl_hancock_step corrector L")
+    U_half_R = _primitive_to_conserved(prim_half_R, gamma, gas_constant, "muscl_hancock_step corrector R")
+    U_ghost_left_half = _primitive_to_conserved_row(prim_half_left, gamma, gas_constant)
+    U_ghost_right_half = _primitive_to_conserved_row(prim_half_right, gamma, gas_constant)
+
+    UL_face = np.zeros((n_phys + 1, 4))
+    UR_face = np.zeros((n_phys + 1, 4))
+    UL_face[0] = U_ghost_left_half
+    UR_face[0] = U_half_L[0]
+    UL_face[1:-1] = U_half_R[:-1]
+    UR_face[1:-1] = U_half_L[1:]
+    UL_face[-1] = U_half_R[-1]
+    UR_face[-1] = U_ghost_right_half
+
+    F_star = _rusanov_flux(UL_face, UR_face, gamma, gas_constant)
+    U_new_phys = U_phys - dt / dx * (F_star[1:] - F_star[:-1])
+
+    if friction_model is None:
+        use_friction = friction_factor > 0.0
+    else:
+        use_friction = True
+
+    if use_friction:
+        if friction_model is None:
+            f = friction_factor
+        elif friction_model == "swamee-jain":
+            if mu <= 0.0:
+                raise ValueError("mu must be positive for friction_model")
+            rho_f = U_new_phys[:, 0]
+            rho_safe = np.maximum(rho_f, 1e-12)
+            u_f = U_new_phys[:, 1] / rho_safe
+            Re = rho_safe * np.abs(u_f) * diameter / mu
+            f = _friction_factor_swamee_jain(Re, roughness, diameter)
+        else:
+            raise ValueError(f"Unknown friction_model '{friction_model}'")
+        rho_f = U_new_phys[:, 0]
+        rho_safe = np.maximum(rho_f, 1e-12)
+        u_f = U_new_phys[:, 1] / rho_safe
+        S_mom = -(f / (2.0 * diameter)) * rho_f * u_f * np.abs(u_f)
+        U_new_phys[:, 1] += dt * S_mom
+        if friction_energy_mode == "wall_loss":
+            U_new_phys[:, 2] += dt * u_f * S_mom
+        elif friction_energy_mode != "adiabatic":
+            raise ValueError(f"Unknown friction_energy_mode '{friction_energy_mode}'")
+
+    U_new = U.copy()
+    U_new[1:-1] = U_new_phys
+    U_new[0] = U[0]
+    if mode == "copy":
+        U_new[-1] = U_new[-2]
+    else:
+        prim_new_full = conserved_to_primitive(U_new[1:-1], gamma, gas_constant)
+        prim_new_right = np.array(
+            [
+                max(float(prim_new_full[-1, 0]), _DENSITY_FLOOR),
+                float(prim_new_full[-1, 1]),
+                max(float(prim_new_full[-1, 2]), _PRESSURE_FLOOR),
+                float(prim_new_full[-1, 4]),
+            ],
+            dtype=float,
+        )
+        prim_new_right = _outlet_primitive_bc(
+            prim_new_right, float(p_outlet), gamma, gas_constant, mode, reflection_coeff, impedance
+        )
+        U_new[-1] = _primitive_to_conserved_row(prim_new_right, gamma, gas_constant)
+
+    _guard_state(U_new, gamma, gas_constant, "muscl_hancock_step output")
+    _apply_scalar_guard(U_new, "muscl_hancock_step post-guard")
+    return U_new
+
+
+def muscl_hancock_step(
+    U: np.ndarray,
+    dx: float,
+    dt: float,
+    gamma: float,
+    gas_constant: float,
+    friction_factor: float = 0.0,
+    diameter: float = 1.0,
+    p_outlet: float | None = None,
+    outlet_mode: str | None = None,
+    reflection_coeff: float | None = None,
+    impedance: float | None = None,
+    friction_model: str | None = None,
+    roughness: float = 0.0,
+    mu: float = 1.8e-5,
+    friction_energy_mode: str = "wall_loss",
+) -> np.ndarray:
+    return _muscl_hancock_step_soa(
+        U,
+        dx,
+        dt,
+        gamma,
+        gas_constant,
+        friction_factor=friction_factor,
+        diameter=diameter,
+        p_outlet=p_outlet,
+        outlet_mode=outlet_mode,
+        reflection_coeff=reflection_coeff,
+        impedance=impedance,
+        friction_model=friction_model,
+        roughness=roughness,
+        mu=mu,
+        friction_energy_mode=friction_energy_mode,
+    )
 
 
 def cfl_dt(
