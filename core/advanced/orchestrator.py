@@ -153,13 +153,16 @@ class Orchestrator:
         work_history: List[float] = []
         trapped_history: List[float] = []
         periodicity_history: List[float] = []
+        convergence_history: List[dict] = []
 
         omega = rpm * 2.0 * math.pi / 60.0
         dt_theta = math.radians(1.0) / max(omega, 1e-9)
         cycle = 0
         last_trapped = None
         last_work = None
+        last_imep = None
         periodicity_count = 0
+        disp_m3 = math.pi * (bore_m * 0.5) ** 2 * stroke_m
 
         while cycle < self.cfg.max_cycles:
             indicated_work = 0.0
@@ -303,6 +306,23 @@ class Orchestrator:
             denom = max(np.linalg.norm(U_cycle_start[1:-1]), 1e-12)
             periodicity_metric = float(np.linalg.norm(U[1:-1] - U_cycle_start[1:-1]) / denom)
             periodicity_history.append(periodicity_metric)
+            imep = indicated_work / max(disp_m3, 1e-12)
+            if last_trapped is None:
+                err_trapped = 0.0
+            else:
+                err_trapped = abs(trapped_history[-1] - last_trapped) / max(abs(last_trapped), 1e-9)
+            if last_imep is None:
+                err_imep = 0.0
+            else:
+                err_imep = abs(imep - last_imep) / max(abs(last_imep), 1e-9)
+            convergence_history.append(
+                {
+                    "k": int(cycle),
+                    "err_trapped_mass": float(err_trapped),
+                    "err_imep": float(err_imep),
+                    "err_periodicity_1d": float(periodicity_metric),
+                }
+            )
             if periodicity_metric < self.cfg.periodicity_tol:
                 periodicity_count += 1
             else:
@@ -317,6 +337,7 @@ class Orchestrator:
                     break
             last_trapped = trapped_history[-1]
             last_work = work_history[-1]
+            last_imep = imep
             cycle += 1
 
         return {
@@ -326,4 +347,5 @@ class Orchestrator:
             "trapped_mass": trapped_history,
             "indicated_work": work_history,
             "periodicity_metric": periodicity_history,
+            "convergence_history": convergence_history,
         }

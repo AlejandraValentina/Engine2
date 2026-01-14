@@ -112,6 +112,7 @@ class MainWindow(QMainWindow):
         self.pro_dyno_plot = pg.PlotWidget()
         self.pro_power_curve = None
         self.pro_torque_curve = None
+        self.convergence_plot = pg.PlotWidget()
         self.optimizer_plot = pg.PlotWidget()
         self.optimizer_param_combo = QComboBox()
         self.optimizer_start_spin = QDoubleSpinBox()
@@ -315,6 +316,11 @@ class MainWindow(QMainWindow):
         self.pro_dyno_plot.setLabel("bottom", "RPM")
         self.pro_dyno_plot.setLabel("left", "Output")
         pro_dyno_layout.addWidget(self.pro_dyno_plot)
+        self.convergence_plot.showGrid(x=True, y=True, alpha=0.2)
+        self.convergence_plot.addLegend()
+        self.convergence_plot.setLabel("bottom", "Iteration")
+        self.convergence_plot.setLabel("left", "Relative Error")
+        pro_dyno_layout.addWidget(self.convergence_plot)
         pro_dyno_tab.setLayout(pro_dyno_layout)
 
         fabrication_tab = QWidget()
@@ -1607,6 +1613,8 @@ class MainWindow(QMainWindow):
         rpm_values = results.get("rpm", rpm_values)
         power_hp = results.get("mean_power_hp", [])
         torque_nm = results.get("mean_torque_nm", [])
+        convergence_history = results.get("convergence_history", [])
+        convergence_tol = results.get("convergence_tol")
 
         self.pro_dyno_plot.clear()
         self.pro_dyno_plot.addLegend(clear=True)
@@ -1620,6 +1628,30 @@ class MainWindow(QMainWindow):
         self.pro_dyno_plot.setLabel("left", "Power (HP) / Torque (Nm)")
         if rpm_values:
             self.pro_dyno_plot.setXRange(min(rpm_values), max(rpm_values), padding=0.05)
+
+        self.convergence_plot.clear()
+        self.convergence_plot.addLegend(clear=True)
+        if convergence_history:
+            ks = [entry.get("k", idx) for idx, entry in enumerate(convergence_history)]
+            err_mass = [entry.get("err_trapped_mass", 0.0) for entry in convergence_history]
+            err_imep = [entry.get("err_imep", 0.0) for entry in convergence_history]
+            err_period = [entry.get("err_periodicity_1d", 0.0) for entry in convergence_history]
+            self.convergence_plot.plot(
+                ks, err_mass, pen=pg.mkPen("c", width=2), name="Trapped Mass"
+            )
+            self.convergence_plot.plot(
+                ks, err_imep, pen=pg.mkPen("m", width=2), name="IMEP"
+            )
+            self.convergence_plot.plot(
+                ks, err_period, pen=pg.mkPen("y", width=2), name="1D Periodicity"
+            )
+            if convergence_tol is not None:
+                tol_line = pg.InfiniteLine(
+                    pos=float(convergence_tol),
+                    angle=0,
+                    pen=pg.mkPen(QColor(180, 180, 180), width=1, style=Qt.DashLine),
+                )
+                self.convergence_plot.addItem(tol_line)
 
     # -------------------------- Optimization -----------------------------
     def _parameter_mapping(self) -> dict[str, tuple[Any, str]]:

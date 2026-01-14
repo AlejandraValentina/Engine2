@@ -100,7 +100,11 @@ class ProDynoV2Runner:
             "ve_real": ve_real,
             "residual_frac": residual,
         }
-        state_out = {"last_result": result}
+        state_out = {
+            "last_result": result,
+            "convergence_history": result.get("convergence_history", []),
+            "convergence_tol": orchestrator.cfg.convergence_tol,
+        }
         return out, state_out
 
     def run_sweep(self, rpm_values: list[int]) -> dict[str, list[float]]:
@@ -120,4 +124,7 @@ class ProDynoV2Runner:
             results["ve_real"].append(float(result["ve_real"]))
             results["residual_frac"].append(float(result["residual_frac"]))
         self._last_state = warm_state
+        if warm_state:
+            results["convergence_history"] = warm_state.get("convergence_history", [])
+            results["convergence_tol"] = warm_state.get("convergence_tol")
         return results
