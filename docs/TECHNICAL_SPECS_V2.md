@@ -77,6 +77,7 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 **Implementation note (SoA prep):**
 - The solver uses structure-of-arrays buffers internally for Numba readiness.
 - Output behavior matches the reference array-of-structures path.
+- Optional JIT path: `use_numba_1d` enables a Numba kernel for copy-outlet steps.
 
 **Minmod definition (component-wise):**
 \[
@@ -187,6 +188,21 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
   \]
 - Defaults are zero (no behavior change).
 
+### 3.6 Cylinder Heat Transfer (Optional)
+- Wall heat transfer adds a sink term based on a simple wetted-area model:
+  \[
+  \dot{Q}_{ht} = h\,A_{wet}\,(T_{gas} - T_{wall})
+  \]
+- Net heat added to the gas is:
+  \[
+  \dot{Q}_{net} = \dot{Q}_{comb} - \dot{Q}_{ht}
+  \]
+- Models:
+  - `constant_h`: constant heat transfer coefficient `h_const`.
+  - `woschni_simplified`: \(h\) scales with pressure, temperature, and a velocity proxy from \(dV/dt\).
+- The wet area uses a piston-position approximation from bore and instantaneous volume.
+- Default is **disabled**; enabling may require higher `max_cycles` to converge.
+
 ## 4) Coupling Interface (Critical Contract)
 ### 4.1 Valve/Port Effective Area
 \[
@@ -274,6 +290,16 @@ Then:
 - If face area is available, use \(u_{face} = \dot{m}/(\rho A_{face})\) to compute \(\Delta p\);
   otherwise fall back to a provided \(u_{down}\) approximation.
 - K-loss reduces \(|\dot{m}|\) only and **must not** flip the flow direction.
+
+### 4.4 Junction Model v2 (Optional)
+- Junction mixing uses inflow mass-weighted totals:
+  - \(T_{0,mix}\) from mass-weighted stagnation enthalpy \(h_0 = c_p T_0\).
+  - \(Y_{mix}\) from mass-weighted scalar mixing.
+  - \(p_{0,mix}\) as a mass-weighted average of incoming totals.
+- Outgoing legs use the mixed totals as upstream conditions.
+- Per-leg loss coefficients apply as an added static drop \(p_{down,eff} = p_{down} + \Delta p\)
+  with \(\Delta p = K \cdot 0.5 \rho u_{face}^2\).
+- Losses reduce \(|\dot{m}|\) only and never flip sign.
 
 ### Numerical Stabilization (Optional): Under-relaxation
 - Optional under-relaxation can be applied to downstream totals \((p_{0,down}, T_{0,down}, Y_{0,down})\)
