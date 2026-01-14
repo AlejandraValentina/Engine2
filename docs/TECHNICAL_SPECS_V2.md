@@ -158,7 +158,7 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
   and \(Qdot = Q_{total}\,\frac{dx_b}{dt}\).
 - Default is **disabled**; enabling may require higher `max_cycles` for heavy overlap cases.
 
-### 3.3 Combustion Limited by Fresh Air
+### 3.4 Combustion Limited by Fresh Air
 - Define \(AFR_{stoich}\) (default 14.7 unless fuel overrides).
 - \(m_{fuel,burn} = \min(m_{fuel,inj}, m_{fresh}/AFR_{stoich})\)
 - \(m_{air,consumed} = m_{fuel,burn} \cdot AFR_{stoich}\)
