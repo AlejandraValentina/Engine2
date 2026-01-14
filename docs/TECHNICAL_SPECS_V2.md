@@ -139,6 +139,25 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - \(u_{int}\) is specific internal energy [J/kg].
 - \(h_{tot} = h + 0.5v^2\) at the port. Phase 1 can use \(v \approx 0\) so \(h_{tot} \approx c_p T_0\).
 
+### 3.3 v2.1 Composition-dependent Combustion (Optional)
+- Define fresh fraction \(Y_{fresh} = m_{fresh}/m_{total}\) and residual fraction
+  \(X_{res} = 1 - Y_{fresh}\) (clamped to a configured range).
+- Effective burn duration and efficiency:
+  \[
+  \text{dur}_{eff} = \text{dur}\,(1 + k_{dur} X_{res}),\quad
+  \eta_{eff} = \text{clamp}\left(\eta_0 (1 - k_{\eta} X_{res}),\,\eta_{min},\,1\right)
+  \]
+- Heat release per cycle (simple proxy):
+  \[
+  Q_{total} = (m_{air}/AFR)\,LHV\,\eta_{eff}
+  \]
+- Wiebe burn fraction (normalized):
+  \[
+  x_b = \frac{1 - \exp(-a \phi^{m+1})}{1 - \exp(-a)},\quad \phi = \frac{\theta-\theta_0}{\text{dur}_{eff}}
+  \]
+  and \(Qdot = Q_{total}\,\frac{dx_b}{dt}\).
+- Default is **disabled**; enabling may require higher `max_cycles` for heavy overlap cases.
+
 ### 3.3 Combustion Limited by Fresh Air
 - Define \(AFR_{stoich}\) (default 14.7 unless fuel overrides).
 - \(m_{fuel,burn} = \min(m_{fuel,inj}, m_{fresh}/AFR_{stoich})\)
