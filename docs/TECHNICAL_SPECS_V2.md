@@ -17,6 +17,14 @@
 - **Orchestrator**
   - Adaptive time loop, convergence detection, synchronization across 0D/1D.
 
+### 1.1 Convergence Monitor Output
+The orchestrator exports per-cycle convergence metrics as a JSON-serializable list:
+- `k`: cycle iteration index (0-based).
+- `err_trapped_mass`: relative change in trapped mass vs previous cycle.
+- `err_imep`: relative change in IMEP vs previous cycle.
+- `err_periodicity_1d`: L2 norm of 1D state change (physical cells only).
+The list is stored under the `convergence_history` key in the result payload.
+
 ## 2) 1D Gas Dynamics (Euler + Passive Scalar)
 ### 2.1 State Vector (Conserved)
 \[
@@ -65,6 +73,10 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - **Reconstruction variables:** **primitive** \((\rho, u, p, Y)\).
 - **Limiter:** Minmod by default; Superbee optional.
 - **Hancock predictor:** uses interface Rusanov flux divergence \(F_{i+1/2} - F_{i-1/2}\) at \(t^n\) to build \(U^{n+1/2}\) before the corrector.
+
+**Implementation note (SoA prep):**
+- The solver uses structure-of-arrays buffers internally for Numba readiness.
+- Output behavior matches the reference array-of-structures path.
 
 **Minmod definition (component-wise):**
 \[
@@ -165,6 +177,15 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - \(Q_{release} = m_{fuel,burn} \cdot LHV \cdot \eta_{comb}\)
 - Update \(m_{fresh} := m_{fresh} - m_{air,consumed}\)
 - Wiebe phasing shapes the release, but total energy is capped by \(m_{fuel,burn}\).
+
+### 3.5 Cam Phasing (VVT)
+- Each cam lobe can be phase-shifted independently:
+  - `phase_deg_intake`, `phase_deg_exhaust` (degrees).
+- The effective angle is shifted before wrap:
+  \[
+  \theta_{eff} = (\theta - \phi_{phase}) \bmod 720
+  \]
+- Defaults are zero (no behavior change).
 
 ## 4) Coupling Interface (Critical Contract)
 ### 4.1 Valve/Port Effective Area
