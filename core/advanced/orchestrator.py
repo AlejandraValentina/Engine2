@@ -13,7 +13,7 @@ from core.advanced.coupling import (
     ghost_state_from_nozzle,
     reset_ghost_counters,
 )
-from core.advanced.cylinder_cv import CylinderControlVolume, slider_crank_volume
+from core.advanced.cylinder_cv import CylinderControlVolume, HeatTransferConfig, slider_crank_volume
 from core.advanced.state import stagnation_from_static
 from core.advanced.solver_1d import cfl_dt, conserved_to_primitive, muscl_hancock_step
 
@@ -52,6 +52,7 @@ class OrchestratorConfig:
     coupling_relax_alpha: float = 1.0
     coupling_relax_warmup_iters: int = 0
     use_numba_1d: bool = False
+    heat_transfer: HeatTransferConfig = field(default_factory=HeatTransferConfig)
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -120,6 +121,7 @@ class Orchestrator:
         reset_ghost_counters()
         dx = pipe_length_m / pipe_cells
         area_face = math.pi * (pipe_diameter_m * 0.5) ** 2
+        piston_area = math.pi * (bore_m * 0.5) ** 2
         rho0 = 1.2
         u0 = 0.0
         p0 = 101325.0
@@ -147,6 +149,7 @@ class Orchestrator:
             V=clearance_m3,
             gamma=self.cfg.gamma,
             gas_constant=self.cfg.gas_constant,
+            heat_transfer=self.cfg.heat_transfer,
         )
 
         angle_history: List[float] = []
@@ -178,6 +181,8 @@ class Orchestrator:
                 V, dVdtheta = slider_crank_volume(theta, bore_m, stroke_m, conrod_m, clearance_m3)
                 cyl.V = V
                 dVdt = dVdtheta * omega
+                x_piston = max((V - clearance_m3) / max(piston_area, 1e-12), 0.0)
+                A_wet = math.pi * bore_m * x_piston + 2.0 * piston_area
 
                 prim_pipe = conserved_to_primitive(U[[1]], self.cfg.gamma, self.cfg.gas_constant)[0]
                 p_pipe = prim_pipe[2]
@@ -241,7 +246,18 @@ class Orchestrator:
                     cyl.m_total,
                     self.cfg.combustion,
                 )
-                cyl.update(dt_theta, mdot_in, Hdot_in, Ydot_in, mdot_out, Hdot_out, Ydot_out, Qdot, dVdt)
+                cyl.update(
+                    dt_theta,
+                    mdot_in,
+                    Hdot_in,
+                    Ydot_in,
+                    mdot_out,
+                    Hdot_out,
+                    Ydot_out,
+                    Qdot,
+                    dVdt,
+                    A_wet=A_wet,
+                )
 
                 if mdot >= 0.0:
                     ghost_p = cyl.p
