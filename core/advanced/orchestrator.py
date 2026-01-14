@@ -114,6 +114,7 @@ class Orchestrator:
         conrod_m: float,
         clearance_m3: float,
         valve: ValveTiming,
+        junction_totals: Optional[Tuple[float, float, float]] = None,
     ) -> Dict[str, List[float]]:
         reset_guard_counters()
         reset_ghost_counters()
@@ -187,6 +188,10 @@ class Orchestrator:
                 p0_pipe, T0_pipe = stagnation_from_static(
                     p_pipe, T_pipe, u_pipe, self.cfg.gamma, self.cfg.gas_constant
                 )
+                if junction_totals is not None:
+                    p0_pipe = float(max(junction_totals[0], 1e-6))
+                    T0_pipe = float(max(junction_totals[1], 1e-6))
+                    Y_pipe = float(min(max(junction_totals[2], 0.0), 1.0))
                 Y_cyl = cyl.m_fresh / max(cyl.m_total, 1e-9)
                 relaxed_totals, _ = _relax_downstream_totals(
                     prev_down_totals,
