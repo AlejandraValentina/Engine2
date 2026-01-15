@@ -33,6 +33,14 @@
 
 ## 9) Advanced Physics Core (v2)
 - [x] Pro Dyno v2 (advanced sweep runner) — Evidencia: `core/pro_dyno_v2.py`, `gui/main_window.py`, `tests/test_pro_dyno_v2.py`. Run: `python -m pytest -q tests/test_pro_dyno_v2.py`.
-- [ ] Coupled 0D–1D core (Phase 1 scaffolding) — Planned: `core/advanced/`, `docs/TECHNICAL_SPECS_V2.md`.
-- [ ] v2 unit tests (nozzle/CFL/passive scalar/roundtrip) — Planned: `tests/test_cfl_dt.py`, `tests/test_conserved_roundtrip.py`, `tests/test_passive_scalar_bounds.py`.
-- [ ] v2 integration tests (ram charging / blowdown) — Planned: `tests/integration/test_ram_charging.py`, `tests/integration/test_blowdown_wave_time.py`.
+- [ ] Coupled 0D-1D core (Phase 1 scaffolding) - Planned: `core/advanced/`, `docs/TECHNICAL_SPECS_V2.md`.
+- [ ] v2 unit tests (nozzle/CFL/passive scalar/roundtrip) - Planned: `tests/test_cfl_dt.py`, `tests/test_conserved_roundtrip.py`, `tests/test_passive_scalar_bounds.py`.
+- [ ] v2 integration tests (ram charging / blowdown) - Planned: `tests/integration/test_ram_charging.py`, `tests/integration/test_blowdown_wave_time.py`.
+- [x] 1D SoA + Numba kernel (opt-in) - Evidencia: `tests/unit/test_solver1d_numba_matches_python_step.py`, `tests/unit/test_solver1d_numba_respects_guardrails_no_warnings.py`, `tests/unit/test_solver1d_soa_matches_aos_step.py`. Run: `python -m pytest -q tests/unit/test_solver1d_numba_matches_python_step.py tests/unit/test_solver1d_numba_respects_guardrails_no_warnings.py tests/unit/test_solver1d_soa_matches_aos_step.py`.
+- [x] Junction mixing + per-leg losses (opt-in) - Evidencia: `core/advanced/junctions.py`, `tests/unit/test_junction_mixing.py`, `tests/unit/test_junction_leg_k_manual_reduces_mdot_no_flip.py`, `tests/unit/test_estimate_K_from_geometry_monotonic.py`. Run: `python -m pytest -q tests/unit/test_junction_mixing.py tests/unit/test_junction_leg_k_manual_reduces_mdot_no_flip.py tests/unit/test_estimate_K_from_geometry_monotonic.py`.
+- [x] Cylinder heat transfer (opt-in) - Evidencia: `core/advanced/cylinder_cv.py`, `tests/unit/test_cylinder_heat_transfer.py`. Run: `python -m pytest -q tests/unit/test_cylinder_heat_transfer.py`.
+- [x] Under-relaxation for coupling totals (opt-in) - Evidencia: `tests/unit/test_coupling_under_relaxation.py`. Run: `python -m pytest -q tests/unit/test_coupling_under_relaxation.py`.
+- [x] Convergence history export (advanced) - Evidencia: `tests/unit/test_convergence_history_export.py`. Run: `python -m pytest -q tests/unit/test_convergence_history_export.py`.
+- [ ] Throttle (optional, part-throttle boundary) - Planned: no reproducible evidence yet.
+- [ ] Pipe prefill (optional P/T initialization) - Planned: no reproducible evidence yet.
+- [ ] Valve-closed wall BC (optional) - Planned: no reproducible evidence yet.

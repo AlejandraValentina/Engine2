@@ -78,6 +78,8 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - The solver uses structure-of-arrays buffers internally for Numba readiness.
 - Output behavior matches the reference array-of-structures path.
 - Optional JIT path: `use_numba_1d` enables a Numba kernel for copy-outlet steps.
+- Parity expectation: `tests/unit/test_solver1d_numba_matches_python_step.py` and
+  `tests/unit/test_solver1d_numba_respects_guardrails_no_warnings.py`.
 
 **Minmod definition (component-wise):**
 \[
@@ -204,6 +206,13 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - Default is **disabled**; enabling may require higher `max_cycles` to converge.
 
 ## 4) Coupling Interface (Critical Contract)
+**Phase-2 contract summary (implemented):**
+- Direction uses stagnation totals \(p_0\) vs \(p_{0,down}\) with hysteresis when available; falls back to static if not.
+- K-loss is bidirectional, reduces \(|\dot{m}|\) only, never flips sign, and does **not** scale downstream totals.
+- Ghost inversion brackets Mach from \(M=0\), supports \(\dot{m}\rightarrow 0\), and post-checks the final error.
+- Outlet BC is enforced via a ghost-right interface state (non-reflecting / impedance), not by mutating interior cells.
+- Scalar guard runs post-guard and recomposes \(\rho Y\) using the floored density; negative-\(\rho\) floors preserve the scalar ratio.
+- CFL ignores ghost cells and has no side effects; Cd is applied exactly once in \(A_{eff}\).
 ### 4.1 Valve/Port Effective Area
 \[
 A_{eff} = C_d A_{valve}
@@ -303,6 +312,17 @@ Then:
   fed into the 0D coupling step.
 - Defaults are off (`coupling_relax_alpha = 1.0`, `coupling_relax_warmup_iters = 0`).
 
+### Optional Feature Flags (Implemented)
+- `use_numba_1d` (default `False`): enable Numba SoA kernel for the 1D step.
+- `combustion.enabled` (default `False`): v2.1 Wiebe-based combustion tied to \(Y_{fresh}\).
+- `heat_transfer.enabled` (default `False`): cylinder wall heat-transfer sink.
+- `outlet_mode` (default `"non_reflecting"`): `"copy"`, `"non_reflecting"`, or `"impedance"` (see §2.8).
+
+### Optional Flags (Planned/Not Wired in Current Build)
+- `throttle_enabled`, `throttle_position`, `throttle_area_exponent` (part-throttle boundary).
+- `pipe_init_p_Pa`, `pipe_init_T_K_intake`, `pipe_init_T_K_exhaust` (pipe prefill).
+- `valve_area_eps_m2` (reflective wall BC for nearly-closed valves).
+
 **Indexing convention:** in the coupled 1D pipe, `U[0]` is the left ghost cell, `U[-1]` is the right ghost cell, and physical cells are `U[1:-1]`. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
 
 **Note:** Any clamping of \(u_g\) is a **numerical guardrail** and must be minimal and documented.
@@ -325,6 +345,12 @@ Stop when **both** are satisfied:
 - Relative error of indicated work \(\oint p\,dV\) over 720° < **0.5%** between cycles.
 - Periodicity metric on the 1D state (L2 norm of \(U_{end}-U_{start}\) over physical cells)
   below `periodicity_tol` for `periodicity_required` consecutive cycles.
+
+**Convergence monitor output (per cycle):**
+- `k`: cycle index.
+- `err_trapped_mass`: relative change in trapped mass vs previous cycle.
+- `err_imep`: relative change in IMEP vs previous cycle.
+- `err_periodicity_1d`: L2 norm of \(U_{end}-U_{start}\) over physical cells, normalized by \(||U_{start}||\).
 
 ## 6) Outputs & Derived Results
 - **IVC definition:** IVC occurs when intake valve effective area \(A_{eff}\) crosses to zero on the closing edge (or at a fixed crank angle if specified in settings).

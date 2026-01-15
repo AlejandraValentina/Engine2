@@ -21,6 +21,8 @@ Esta guía resume cómo validar PyWaveDyn sin depender de la GUI, usando solo co
 
 ## Required checks (PR gate)
 - **Must pass:** `python -m pytest -q`
+- **RuntimeWarnings as errors:** `python -m pytest -q -W error::RuntimeWarning`
+- **Pro Dyno (RuntimeWarnings as errors):** `python -m pytest -q -W error::RuntimeWarning -k pro_dyno`
 - **Selfcheck:** `python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json`
 - **Optional/CI integration:** `python -m pytest -q -m integration`
 - **CLI smoke (metadata):**

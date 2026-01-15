@@ -1,7 +1,7 @@
 # PyWaveDyn Documentation
 
 ## Overview
-PyWaveDyn is a verification-focused 0D virtual dyno plus a 1D exhaust wave-scope (opt-in integration). This document describes the codebase and GUI workflows; “implemented” features are defined by reproducible commands/tests (see FEATURES.md and VALIDATION_GUIDE.md).
+PyWaveDyn is a verification-focused 0D virtual dyno plus a 1D exhaust wave-scope (opt-in integration). This document describes the codebase and GUI workflows; "implemented" features are defined by reproducible commands/tests (see FEATURES.md and VALIDATION_GUIDE.md). The advanced core spec lives in `TECHNICAL_SPECS_V2.md`.
 
 ## Module Reference
 
@@ -16,7 +16,16 @@ PyWaveDyn is a verification-focused 0D virtual dyno plus a 1D exhaust wave-scope
 - **Responsibilities:** Wrapper around the numerical core to advance a single pipe using boundary conditions sourced from valves or atmosphere.
 - **Key Classes:**
   - `PipeSolver` maintains mesh, conserved variables, CFL-based timestep selection, and ghost-cell boundaries.
-- **Physics:** Lax–Wendroff scheme, ghost-cell inlet reflection when valves close, ambient static-pressure outlet (P_amb imposed in the ghost cell), energy/density clamping for stability, CFL limiter, and boundary application before/after each step to preserve imposed conditions.
+- **Physics:** Lax-Wendroff scheme, ghost-cell inlet reflection when valves close, ambient static-pressure outlet (P_amb imposed in the ghost cell), energy/density clamping for stability, CFL limiter, and boundary application before/after each step to preserve imposed conditions.
+
+### `core/advanced/*`
+- **Responsibilities:** Coupled 0D↔1D solver path with phase-aware boundary fluxes, ghost inversion, and convergence tracking.
+- **Key Modules:**
+  - `orchestrator.py` (cycle loop, coupling, convergence monitor, optional flags like `use_numba_1d`).
+  - `solver_1d.py` (MUSCL–Hancock + Rusanov, outlet BCs, SoA/Numba path).
+  - `coupling.py`/`nozzle.py` (valve area, nozzle mass flow, ghost inversion).
+  - `cylinder_cv.py`/`combustion.py` (CV update and optional combustion/heat transfer).
+  - `junctions.py` (junction mixing + losses).
 
 ### `core/thermo.py`
 - **Responsibilities:** Zero-dimensional cycle simulation to estimate brake torque and power over a 720° crank cycle.

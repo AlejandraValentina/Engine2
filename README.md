@@ -81,11 +81,14 @@ The v2.0 Advanced Physics Core lives in `core/advanced/` and runs in parallel wi
 
 **Tests:**\n- Unit: `pytest -q`\n- Integration (opt-in): `pytest -q -m integration`
 
+**Spec & flags:** see `docs/TECHNICAL_SPECS_V2.md` for the coupling contract and optional flags
+(`use_numba_1d`, `combustion.enabled`, `heat_transfer.enabled`, `outlet_mode`, under-relaxation).
+
 ## Physics Overview
 - **Thermodynamics (0D):** Four-stroke phasing with Wiebe combustion (configurable a/m, burn duration, ignition advance), Woschni wall heat transfer, Chen–Flynn FMEP (A/B/C coefficients with user scaling), and Mach-index flow choking tied to valve geometry/port flow efficiency.
-- **Wave Dynamics (1D):** Euler equations with Lax–Wendroff integration, Darcy–Weisbach friction source, and ghost-cell boundaries for valves/outlets plus junction collectors for multi-cylinder exhausts. Current coupling is one-way: the 0D dyno provides cylinder pressure traces as inlet boundaries; there is no feedback from the 1D scope to the 0D solver.
+- **Wave Dynamics (1D):** Euler equations with Lax-Wendroff integration, Darcy-Weisbach friction source, and ghost-cell boundaries for valves/outlets plus junction collectors for multi-cylinder exhausts. Legacy coupling is one-way; the advanced core adds an opt-in coupled 0D↔1D path (see `docs/TECHNICAL_SPECS_V2.md`).
 - **Airflow & Environment:** Configurable intake temp/pressure, intercooler efficiency, throttle/port flow limits, and Mach tolerance to capture altitude and hardware effects.
-- **Coupling:** 0D dyno operates independently for torque/HP; 1D scope uses cylinder pressure history as a one-way boundary for visualization/acoustics.
+- **Coupling:** Legacy dyno operates independently for torque/HP; the advanced core provides a coupled path for 0D↔1D exchange (opt-in).
 
 ## Project Structure
 - **core/** – Physics and data models (`thermo.py` for 0D cycle, `simulator.py`/`junctions.py` for 1D wave network, `numerics.py` for jitted flux/solver kernels, `engine_components.py` for serialized engine schema).
