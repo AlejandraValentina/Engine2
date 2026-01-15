@@ -7,6 +7,8 @@ np = pytest.importorskip("numpy")
 from core.engine_components import Engine
 from core.thermo import CylinderSimulator
 
+pytestmark = pytest.mark.legacy
+
 
 @pytest.mark.integration
 @pytest.mark.parametrize("boost_bar", [0.7])

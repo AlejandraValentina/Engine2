@@ -5,6 +5,8 @@ np = pytest.importorskip("numpy")
 from core.engine_components import Engine
 from core.thermo import CylinderSimulator
 
+pytestmark = pytest.mark.legacy
+
 K20_CONFIG = {
     "block": {
         "bore": 86.0,
