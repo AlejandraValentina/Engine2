@@ -48,6 +48,126 @@ class JunctionLegConfig:
         )
 
 
+@dataclass
+class JunctionCapacitanceConfig:
+    enabled: bool = False
+    volume_m3: float = 0.0
+    p_min_Pa: float = 1000.0
+    T_min_K: float = 50.0
+    under_relax_alpha: float = 1.0
+
+    def to_dict(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "volume_m3": self.volume_m3,
+            "p_min_Pa": self.p_min_Pa,
+            "T_min_K": self.T_min_K,
+            "under_relax_alpha": self.under_relax_alpha,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "JunctionCapacitanceConfig":
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            volume_m3=float(data.get("volume_m3", 0.0)),
+            p_min_Pa=float(data.get("p_min_Pa", 1000.0)),
+            T_min_K=float(data.get("T_min_K", 50.0)),
+            under_relax_alpha=float(data.get("under_relax_alpha", 1.0)),
+        )
+
+
+class JunctionCapacitance:
+    """0D reservoir node for multi-leg junctions (optional)."""
+
+    def __init__(
+        self,
+        config: JunctionCapacitanceConfig,
+        gamma: float,
+        gas_constant: float,
+        cp: float,
+        p_init: float = 101325.0,
+        T_init: float = 300.0,
+        Y_init: float = 0.0,
+    ) -> None:
+        if config.enabled and config.volume_m3 <= 0.0:
+            raise ValueError("volume_m3 must be positive when junction capacitance is enabled")
+        self.config = config
+        self.gamma = gamma
+        self.gas_constant = gas_constant
+        self.cp = cp
+        self.volume_m3 = max(config.volume_m3, 1e-12)
+
+        Y_init_clamped = min(max(Y_init, 0.0), 1.0)
+        self.m_total = max(p_init * self.volume_m3 / (gas_constant * max(T_init, 1e-6)), 1e-9)
+        cv = self._cv()
+        self.E_total = self.m_total * cv * max(T_init, 1e-6)
+        self.mY = self.m_total * Y_init_clamped
+        self.p = p_init
+        self.T = T_init
+        self.Y = Y_init_clamped
+
+    def _cv(self) -> float:
+        cv = self.cp - self.gas_constant
+        if cv <= 0.0:
+            raise ValueError("Invalid cp/gas_constant for junction capacitance")
+        return cv
+
+    def totals(self) -> Tuple[float, float, float]:
+        return float(self.p), float(self.T), float(self.Y)
+
+    def update(
+        self,
+        dt: float,
+        inflows: Iterable[JunctionFlow],
+        outflows: Iterable[JunctionFlow],
+    ) -> Tuple[float, float, float]:
+        if not self.config.enabled:
+            return self.totals()
+
+        dm = 0.0
+        dE = 0.0
+        dMY = 0.0
+        for flow in inflows:
+            dm += flow.mdot
+            dE += flow.mdot * self.cp * flow.T0
+            dMY += flow.mdot * flow.Y0
+        for flow in outflows:
+            dm -= flow.mdot
+            dE -= flow.mdot * self.cp * flow.T0
+            dMY -= flow.mdot * flow.Y0
+
+        target_m = self.m_total + dm * dt
+        target_E = self.E_total + dE * dt
+        target_mY = self.mY + dMY * dt
+
+        alpha = min(max(self.config.under_relax_alpha, 0.0), 1.0)
+        self.m_total = self.m_total + alpha * (target_m - self.m_total)
+        self.E_total = self.E_total + alpha * (target_E - self.E_total)
+        self.mY = self.mY + alpha * (target_mY - self.mY)
+
+        self.m_total = max(self.m_total, 1e-9)
+        Y_new = self.mY / max(self.m_total, 1e-12)
+        Y_new = min(max(Y_new, 0.0), 1.0)
+        self.mY = self.m_total * Y_new
+        self.Y = Y_new
+
+        cv = self._cv()
+        T_new = self.E_total / max(self.m_total * cv, 1e-12)
+        if T_new < self.config.T_min_K:
+            T_new = self.config.T_min_K
+            self.E_total = self.m_total * cv * T_new
+        rho = self.m_total / self.volume_m3
+        p_new = rho * self.gas_constant * T_new
+        if p_new < self.config.p_min_Pa:
+            p_new = self.config.p_min_Pa
+            T_new = max(p_new * self.volume_m3 / (self.m_total * self.gas_constant), self.config.T_min_K)
+            self.E_total = self.m_total * cv * T_new
+
+        self.p = p_new
+        self.T = T_new
+        return self.totals()
+
+
 def estimate_K_from_geometry(angle_deg: float, area_ratio: float, quality: float = 0.5) -> float:
     """Estimate a junction loss seed from geometry (angle + area mismatch)."""
     angle = max(min(angle_deg, 180.0), 0.0)

@@ -11,7 +11,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List
 
 from core.engine_components import Engine, Pipe, SimulationSettings
-from core.advanced.junctions import JunctionLegConfig
+from core.advanced.junctions import JunctionCapacitanceConfig, JunctionLegConfig
 from core.junctions import Junction
 
 
@@ -73,6 +73,7 @@ class EngineProject:
     pipes: Dict[str, Pipe] = field(default_factory=dict)
     junctions: Dict[str, Junction] = field(default_factory=dict)
     junction_legs: Dict[str, Dict[str, JunctionLegConfig]] = field(default_factory=dict)
+    junction_capacitance: Dict[str, JunctionCapacitanceConfig] = field(default_factory=dict)
     banks: Dict[str, List[CylinderNode]] = field(default_factory=dict)  # legacy
 
     def to_dict(self) -> Dict:
@@ -89,6 +90,9 @@ class EngineProject:
                         leg_id: leg.to_dict()
                         for leg_id, leg in self.junction_legs.get(jid, {}).items()
                     },
+                    "capacitance": self.junction_capacitance.get(jid).to_dict()
+                    if jid in self.junction_capacitance
+                    else None,
                 }
                 for jid, j in self.junctions.items()
             },
@@ -111,6 +115,7 @@ class EngineProject:
         junctions_data = data.get("junctions", {})
         junctions: Dict[str, Junction] = {}
         junction_legs: Dict[str, Dict[str, JunctionLegConfig]] = {}
+        junction_capacitance: Dict[str, JunctionCapacitanceConfig] = {}
         for jid, junc_dict in junctions_data.items():
             vol = junc_dict.get("volume", 0.001)
             p = junc_dict.get("pressure", 101325.0)
@@ -122,6 +127,9 @@ class EngineProject:
                     leg_id: JunctionLegConfig.from_dict(leg_dict)
                     for leg_id, leg_dict in legs_data.items()
                 }
+            cap_dict = junc_dict.get("capacitance")
+            if isinstance(cap_dict, dict):
+                junction_capacitance[jid] = JunctionCapacitanceConfig.from_dict(cap_dict)
 
         banks_data = data.get("banks", {})
         banks: Dict[str, List[CylinderNode]] = {
@@ -136,6 +144,7 @@ class EngineProject:
             pipes=pipes,
             junctions=junctions,
             junction_legs=junction_legs,
+            junction_capacitance=junction_capacitance,
             banks=banks,
         )
 
