@@ -339,6 +339,17 @@ Then:
   - \(p_{0,mix}\) as a mass-weighted average of incoming totals.
 - Outgoing legs use the mixed totals as upstream conditions.
 
+**Junction capacitance (optional, off by default):**
+- Enables a 0D reservoir at the junction to smooth strong pulses while conserving mass, energy, and scalar.
+- State variables: \(m\), \(E\), and \(mY\) in a fixed volume \(V\) (reservoir \(v \approx 0\)).
+- Update per substep:
+  - \(dm = \sum \dot{m}_{in}\,dt - \sum \dot{m}_{out}\,dt\)
+  - \(d(mY) = \sum \dot{m}_{in} Y_{in}\,dt - \sum \dot{m}_{out} Y_{out}\,dt\)
+  - \(dE = \sum \dot{m}_{in} h_{0,in}\,dt - \sum \dot{m}_{out} h_{0,out}\,dt\)
+- Recover state from \(m, E, V\) via EOS; clamp \(p \ge p_{min}\), \(T \ge T_{min}\), and \(Y \in [0,1]\).
+- Optional under-relaxation \(\alpha \in [0,1]\) can be applied to the state update.
+- When disabled, the algebraic mixing above remains the default behavior.
+
 ### Numerical Stabilization (Optional): Under-relaxation
 - Optional under-relaxation can be applied to downstream totals \((p_{0,down}, T_{0,down}, Y_{0,down})\)
   fed into the 0D coupling step.
