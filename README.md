@@ -17,14 +17,13 @@ See: FEATURES.md and VALIDATION_GUIDE.md.
 - Fabrication UI/planner utilities (if present).
 
 ### Not implemented yet (per checklist)
-- Bidirectional 0D↔1D coupling affecting the 0D cycle.
 - Verified multi-cylinder polyphonic audio via CLI/tests.
 - Headless (no-GUI) parameter sweeps via CLI/tests.
 - Reproducible cut-list/BOM generation via CLI/tests.
 
 ## Key Features
 - **Virtual Dyno (0D)** – Otto-cycle solver with explicit combustion/loss models and verification tests to predict brake torque/HP across RPM.
-- **Wave Scope (1D)** – Pressure-wave visualization for exhaust networks (current scope: exhaust only; intake handled in 0D). Integration is opt-in and does not back-feed the 0D cycle.
+- **Wave Scope (1D)** - Pressure-wave visualization for exhaust networks (current scope: exhaust only; intake handled in 0D). Legacy scope is one-way; the advanced core provides an opt-in coupled 0D↔1D path (see `docs/TECHNICAL_SPECS_V2.md`).
 - **Acoustics (prototype)** – Audio utilities driven by simulated pressure traces; verification/CLI coverage may be incomplete (see FEATURES.md).
 - **Optimizer (prototype)** – GUI-first parameter sweeps; headless CLI sweeps are not yet part of the validated toolchain (see FEATURES.md).
 - **Fabrication (planned/prototype)** – Cut-list/BOM style outputs are not yet guaranteed reproducible by CLI/tests (see FEATURES.md).

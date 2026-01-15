@@ -5,6 +5,14 @@
 - **Product naming:** v1.0 remains **Quick Dyno**. v2.0 is the **Advanced Physics Core**.
 - **Backward compatibility:** presets JSON must remain compatible via defaults and tolerant parsing.
 
+### 0.1 Status & Evidence
+- Implementation status and evidence live in `FEATURES.md`.
+- Canonical validation commands live in `VALIDATION_GUIDE.md`.
+
+### 0.2 Phase Naming
+- **Phase 1:** baseline contract (static reservoir assumptions for totals when configured).
+- **Phase 2:** totals-aware coupling (stagnation-based direction, ghost inversion, K-loss rules).
+
 ## 1) Architecture
 **Modules and responsibilities (Phase 1):**
 - **CylinderControlVolume**
@@ -24,6 +32,29 @@ The orchestrator exports per-cycle convergence metrics as a JSON-serializable li
 - `err_imep`: relative change in IMEP vs previous cycle.
 - `err_periodicity_1d`: L2 norm of 1D state change (physical cells only).
 The list is stored under the `convergence_history` key in the result payload.
+
+### 1.2 Feature Flags / Options (Implemented)
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `outlet_mode` | `"non_reflecting"` | Outlet BC mode: `"copy"`, `"non_reflecting"`, `"impedance"`. |
+| `p_outlet` | `None` | Static outlet target used by non-reflecting/impedance BC. |
+| `outlet_reflection` | `None` | Reflection coefficient for impedance BC (if used). |
+| `outlet_impedance` | `None` | Acoustic impedance for impedance BC (if used). |
+| `enable_friction` | `False` | Enable 1D friction source terms. |
+| `friction_model` | `"swamee-jain"` | Friction correlation when enabled. |
+| `friction_energy_mode` | `"wall_loss"` | Energy handling mode (`wall_loss` or `adiabatic`). |
+| `roughness_m` | `0.0` | Pipe roughness for friction model. |
+| `mu` | `1.8e-5` | Dynamic viscosity used for Reynolds number. |
+| `use_numba_1d` | `False` | Enable the optional Numba SoA kernel. |
+| `loss_coeff` | `0.0` | Optional K-loss at the cylinder/pipe boundary. |
+| `pipe_role` | `"intake"` | Pipe scalar initialization (intake/exhaust). |
+| `initial_Y` | `None` | Override initial scalar (must be within [0,1]). |
+| `combustion.enabled` | `False` | Enable v2.1 composition-dependent combustion. |
+| `heat_transfer.enabled` | `False` | Enable cylinder heat-transfer sink. |
+| `coupling_relax_alpha` | `1.0` | Under-relaxation strength for downstream totals. |
+| `coupling_relax_warmup_iters` | `0` | Warmup ramp for under-relaxation. |
+| `phase_deg_intake` | `0.0` | Cam phasing offset for intake (degrees). |
+| `phase_deg_exhaust` | `0.0` | Cam phasing offset for exhaust (degrees). |
 
 ## 2) 1D Gas Dynamics (Euler + Passive Scalar)
 ### 2.1 State Vector (Conserved)
@@ -96,6 +127,7 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - If drift exceeds \(1\text{e-}3\) in any cell, raise an error with diagnostics (min/max \(Y\), indices).
 - This clamp is a **numerical guardrail**, not physics.
 - Guard runs **after** density/pressure floors (single post-guard pass), and recomposes using the floored density to keep \(\rho Y\) consistent.
+- When \(\rho\) is floored from a negative value, preserve the scalar ratio using \(|\rho|\) in the pre-floor ratio.
 
 ### 2.6 Source Terms
 - **Friction (Darcy–Weisbach):**
@@ -317,11 +349,6 @@ Then:
 - `combustion.enabled` (default `False`): v2.1 Wiebe-based combustion tied to \(Y_{fresh}\).
 - `heat_transfer.enabled` (default `False`): cylinder wall heat-transfer sink.
 - `outlet_mode` (default `"non_reflecting"`): `"copy"`, `"non_reflecting"`, or `"impedance"` (see §2.8).
-
-### Optional Flags (Planned/Not Wired in Current Build)
-- `throttle_enabled`, `throttle_position`, `throttle_area_exponent` (part-throttle boundary).
-- `pipe_init_p_Pa`, `pipe_init_T_K_intake`, `pipe_init_T_K_exhaust` (pipe prefill).
-- `valve_area_eps_m2` (reflective wall BC for nearly-closed valves).
 
 **Indexing convention:** in the coupled 1D pipe, `U[0]` is the left ghost cell, `U[-1]` is the right ghost cell, and physical cells are `U[1:-1]`. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
 
