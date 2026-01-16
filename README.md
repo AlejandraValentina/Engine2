@@ -86,6 +86,12 @@ The v2.0 Advanced Physics Core lives in `core/advanced/` and runs in parallel wi
 **Full-feature demo preset:** `presets/v2_full_features_demo.json`
 Run a short advanced case with optional flags wired in:
 ```bash
+python examples/run_v2_full_features_demo.py
+```
+This writes `examples/out_v2_demo.json` with convergence history and summary metrics.
+
+Manual wiring (if you prefer a notebook or custom runner):
+```bash
 python - <<'PY'
 import json
 import math
