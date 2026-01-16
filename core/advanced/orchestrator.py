@@ -56,6 +56,7 @@ class OrchestratorConfig:
     use_numba_1d: bool = False
     heat_transfer: HeatTransferConfig = field(default_factory=HeatTransferConfig)
     throttle: Throttle = field(default_factory=Throttle)
+    pipe_prefill: "PipePrefillConfig" = field(default_factory=lambda: PipePrefillConfig())
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -79,6 +80,66 @@ class OrchestratorConfig:
                 raise ValueError("throttle.area_exponent must be positive when enabled")
             if self.throttle.cd <= 0.0:
                 raise ValueError("throttle.cd must be positive when enabled")
+        if self.pipe_prefill.enabled:
+            _validate_prefill_state(self.pipe_prefill.intake, "pipe_prefill.intake")
+            _validate_prefill_state(self.pipe_prefill.exhaust, "pipe_prefill.exhaust")
+
+
+@dataclass
+class PipePrefillState:
+    p_Pa: float = 101325.0
+    T_K: float = 300.0
+    Y: float = 1.0
+
+
+@dataclass
+class PipePrefillConfig:
+    enabled: bool = False
+    intake: PipePrefillState = field(default_factory=PipePrefillState)
+    exhaust: PipePrefillState = field(
+        default_factory=lambda: PipePrefillState(p_Pa=101325.0, T_K=700.0, Y=0.0)
+    )
+
+
+def _validate_prefill_state(state: PipePrefillState, label: str) -> None:
+    if state.p_Pa <= 0.0:
+        raise ValueError(f"{label}.p_Pa must be positive")
+    if state.T_K <= 0.0:
+        raise ValueError(f"{label}.T_K must be positive")
+    if not (0.0 <= state.Y <= 1.0):
+        raise ValueError(f"{label}.Y must be within [0, 1]")
+
+
+def _init_pipe_state(
+    cfg: OrchestratorConfig, pipe_cells: int
+) -> tuple[np.ndarray, float, float, float, float]:
+    if cfg.pipe_prefill.enabled:
+        state = cfg.pipe_prefill.intake if cfg.pipe_role == "intake" else cfg.pipe_prefill.exhaust
+        p0 = float(state.p_Pa)
+        T0 = float(state.T_K)
+        Y_init = float(state.Y)
+        rho0 = p0 / (cfg.gas_constant * max(T0, 1e-9))
+    else:
+        rho0 = 1.2
+        p0 = 101325.0
+        T0 = p0 / (rho0 * cfg.gas_constant)
+        if cfg.initial_Y is not None:
+            Y_init = cfg.initial_Y
+        else:
+            Y_init = 0.0 if cfg.pipe_role == "exhaust" else 1.0
+    if cfg.initial_Y is not None:
+        Y_init = cfg.initial_Y
+    if not (0.0 <= Y_init <= 1.0):
+        raise ValueError("initial_Y must be within [0, 1]")
+    E0 = cfg.gas_constant * T0 / (cfg.gamma - 1.0)
+    U = np.zeros((pipe_cells + 2, 4))
+    U[1:-1, 0] = rho0
+    U[1:-1, 1] = 0.0
+    U[1:-1, 2] = rho0 * E0
+    U[1:-1, 3] = rho0 * Y_init
+    U[0] = U[1]
+    U[-1] = U[-2]
+    return U, rho0, p0, T0, Y_init
 
 
 def _throttle_is_active(throttle: Throttle) -> bool:
@@ -147,24 +208,7 @@ class Orchestrator:
         dx = pipe_length_m / pipe_cells
         area_face = math.pi * (pipe_diameter_m * 0.5) ** 2
         piston_area = math.pi * (bore_m * 0.5) ** 2
-        rho0 = 1.2
-        u0 = 0.0
-        p0 = 101325.0
-        T0 = p0 / (rho0 * self.cfg.gas_constant)
-        E0 = self.cfg.gas_constant * T0 / (self.cfg.gamma - 1.0)
-        if self.cfg.initial_Y is not None:
-            Y_init = self.cfg.initial_Y
-        else:
-            Y_init = 0.0 if self.cfg.pipe_role == "exhaust" else 1.0
-        if not (0.0 <= Y_init <= 1.0):
-            raise ValueError("initial_Y must be within [0, 1]")
-        U = np.zeros((pipe_cells + 2, 4))
-        U[1:-1, 0] = rho0
-        U[1:-1, 1] = rho0 * u0
-        U[1:-1, 2] = rho0 * (E0 + 0.5 * u0 * u0)
-        U[1:-1, 3] = rho0 * Y_init
-        U[0] = U[1]
-        U[-1] = U[-2]
+        U, rho0, p0, T0, Y_init = _init_pipe_state(self.cfg, pipe_cells)
 
         cyl = CylinderControlVolume(
             m_total=rho0 * clearance_m3,
