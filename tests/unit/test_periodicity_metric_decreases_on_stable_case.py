@@ -20,6 +20,7 @@ def test_periodicity_metric_decreases_on_stable_case(monkeypatch: pytest.MonkeyP
         gamma: float,
         gas_constant: float,
         cp: float,
+        cp_model: str = "constant",
         p0_down=None,
         T0_down=None,
         Y0_down=None,

@@ -20,6 +20,7 @@ def test_convergence_history_export_uses_physical_cells(monkeypatch: pytest.Monk
         gamma: float,
         gas_constant: float,
         cp: float,
+        cp_model: str = "constant",
         p0_down=None,
         T0_down=None,
         Y0_down=None,

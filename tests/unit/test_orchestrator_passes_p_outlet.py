@@ -27,6 +27,7 @@ def test_orchestrator_passes_p_outlet(monkeypatch: pytest.MonkeyPatch) -> None:
         gamma: float,
         gas_constant: float,
         cp: float,
+        cp_model: str = "constant",
         p0_down=None,
         T0_down=None,
         Y0_down=None,
@@ -46,6 +47,7 @@ def test_orchestrator_passes_p_outlet(monkeypatch: pytest.MonkeyPatch) -> None:
         gamma: float,
         gas_constant: float,
         phase: str = "phase2",
+        cp_model: str = "constant",
     ) -> np.ndarray:
         return np.array([1.2, 0.0, 1.0, 0.2])
 

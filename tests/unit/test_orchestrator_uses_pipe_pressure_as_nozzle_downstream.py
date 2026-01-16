@@ -41,6 +41,7 @@ def test_orchestrator_uses_pipe_pressure_as_nozzle_downstream(monkeypatch: pytes
         gamma: float,
         gas_constant: float,
         cp: float,
+        cp_model: str = "constant",
         p0_down: Optional[float] = None,
         T0_down: Optional[float] = None,
         Y0_down: Optional[float] = None,
@@ -64,6 +65,7 @@ def test_orchestrator_uses_pipe_pressure_as_nozzle_downstream(monkeypatch: pytes
         gamma: float,
         gas_constant: float,
         phase: str = "phase2",
+        cp_model: str = "constant",
     ) -> np.ndarray:
         ghost = np.zeros(4)
         ghost[0] = ghost_marker

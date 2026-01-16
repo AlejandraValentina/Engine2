@@ -23,6 +23,7 @@ def test_exhaust_initialization_sets_Y_zero(monkeypatch: pytest.MonkeyPatch) -> 
         gamma: float,
         gas_constant: float,
         cp: float,
+        cp_model: str = "constant",
         p0_down=None,
         T0_down=None,
         Y0_down=None,

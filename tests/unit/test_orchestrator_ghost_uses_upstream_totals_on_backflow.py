@@ -45,6 +45,7 @@ def test_orchestrator_ghost_uses_upstream_totals_on_backflow(monkeypatch: pytest
         gamma: float,
         gas_constant: float,
         cp: float,
+        cp_model: str = "constant",
         p0_down=None,
         T0_down=None,
         Y0_down=None,
@@ -64,6 +65,7 @@ def test_orchestrator_ghost_uses_upstream_totals_on_backflow(monkeypatch: pytest
         gamma: float,
         gas_constant: float,
         phase: str = "phase2",
+        cp_model: str = "constant",
     ) -> np.ndarray:
         captured["p0"] = p0
         captured["T0"] = T0
