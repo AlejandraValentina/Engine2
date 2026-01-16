@@ -14,7 +14,7 @@ from core.advanced.coupling import (
     reset_ghost_counters,
 )
 from core.advanced.cylinder_cv import CylinderControlVolume, HeatTransferConfig, slider_crank_volume
-from core.advanced.state import stagnation_from_static
+from core.advanced.state import Primitive1D, primitive_to_conserved, stagnation_from_static
 from core.advanced.solver_1d import cfl_dt, conserved_to_primitive, muscl_hancock_step
 from core.advanced.nozzle import nozzle_mass_flow
 from core.engine_components import Throttle
@@ -57,6 +57,7 @@ class OrchestratorConfig:
     heat_transfer: HeatTransferConfig = field(default_factory=HeatTransferConfig)
     throttle: Throttle = field(default_factory=Throttle)
     pipe_prefill: "PipePrefillConfig" = field(default_factory=lambda: PipePrefillConfig())
+    valve_closed_wall_bc: "ValveClosedWallBCConfig" = field(default_factory=lambda: ValveClosedWallBCConfig())
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -83,6 +84,8 @@ class OrchestratorConfig:
         if self.pipe_prefill.enabled:
             _validate_prefill_state(self.pipe_prefill.intake, "pipe_prefill.intake")
             _validate_prefill_state(self.pipe_prefill.exhaust, "pipe_prefill.exhaust")
+        if self.valve_closed_wall_bc.enabled and self.valve_closed_wall_bc.area_eps_m2 <= 0.0:
+            raise ValueError("valve_closed_wall_bc.area_eps_m2 must be positive when enabled")
 
 
 @dataclass
@@ -99,6 +102,12 @@ class PipePrefillConfig:
     exhaust: PipePrefillState = field(
         default_factory=lambda: PipePrefillState(p_Pa=101325.0, T_K=700.0, Y=0.0)
     )
+
+
+@dataclass
+class ValveClosedWallBCConfig:
+    enabled: bool = False
+    area_eps_m2: float = 1e-7
 
 
 def _validate_prefill_state(state: PipePrefillState, label: str) -> None:
@@ -140,6 +149,78 @@ def _init_pipe_state(
     U[0] = U[1]
     U[-1] = U[-2]
     return U, rho0, p0, T0, Y_init
+
+
+def _reflective_wall_ghost(
+    prim_pipe: np.ndarray, gamma: float, gas_constant: float
+) -> np.ndarray:
+    prim = Primitive1D(
+        rho=float(prim_pipe[0]),
+        u=-float(prim_pipe[1]),
+        p=float(prim_pipe[2]),
+        T=float(prim_pipe[3]),
+        Y=float(prim_pipe[4]),
+    )
+    cons = primitive_to_conserved(prim, gamma, gas_constant)
+    return np.array([cons.rho, cons.rhou, cons.rhoE, cons.rhoY], dtype=float)
+
+
+def _compute_valve_boundary(
+    cfg: OrchestratorConfig,
+    valve: ValveTiming,
+    angle_deg: float,
+    cyl: CylinderControlVolume,
+    prim_pipe: np.ndarray,
+    p0_pipe: float,
+    T0_pipe: float,
+    Y_pipe: float,
+    area_face: float,
+    rho_pipe: float,
+    u_pipe: float,
+) -> tuple[float, float, float, np.ndarray]:
+    area_eff = valve.area_eff(angle_deg)
+    if cfg.valve_closed_wall_bc.enabled and area_eff < cfg.valve_closed_wall_bc.area_eps_m2:
+        ghost = _reflective_wall_ghost(prim_pipe, cfg.gamma, cfg.gas_constant)
+        return 0.0, 0.0, 0.0, ghost
+
+    Y_cyl = cyl.m_fresh / max(cyl.m_total, 1e-9)
+    mdot, Hdot, Ydot, _ = boundary_flux_from_nozzle(
+        cyl.p,
+        cyl.T,
+        Y_cyl,
+        prim_pipe[2],
+        valve=valve,
+        angle_deg=angle_deg,
+        gamma=cfg.gamma,
+        gas_constant=cfg.gas_constant,
+        cp=cfg.cp,
+        p0_down=p0_pipe,
+        T0_down=T0_pipe,
+        Y0_down=Y_pipe,
+        loss_coeff=cfg.loss_coeff,
+        rho_down=rho_pipe,
+        u_down=u_pipe,
+        area_pipe_m2=area_face,
+    )
+    if mdot >= 0.0:
+        ghost_p = cyl.p
+        ghost_T = cyl.T
+        ghost_Y = Y_cyl
+    else:
+        ghost_p = p0_pipe
+        ghost_T = T0_pipe
+        ghost_Y = Y_pipe
+    ghost = ghost_state_from_nozzle(
+        ghost_p,
+        ghost_T,
+        ghost_Y,
+        mdot,
+        max(area_face, 1e-9),
+        cfg.gamma,
+        cfg.gas_constant,
+        phase=cfg.coupling_phase,
+    )
+    return mdot, Hdot, Ydot, ghost
 
 
 def _throttle_is_active(throttle: Throttle) -> bool:
@@ -266,7 +347,6 @@ class Orchestrator:
                     p0_pipe = float(max(junction_totals[0], 1e-6))
                     T0_pipe = float(max(junction_totals[1], 1e-6))
                     Y_pipe = float(min(max(junction_totals[2], 0.0), 1.0))
-                Y_cyl = cyl.m_fresh / max(cyl.m_total, 1e-9)
                 relaxed_totals, _ = _relax_downstream_totals(
                     prev_down_totals,
                     (p0_pipe, T0_pipe, Y_pipe),
@@ -275,23 +355,18 @@ class Orchestrator:
                     self.cfg.coupling_relax_warmup_iters,
                 )
                 prev_down_totals = relaxed_totals
-                mdot, Hdot, Ydot, _ = boundary_flux_from_nozzle(
-                    cyl.p,
-                    cyl.T,
-                    Y_cyl,
-                    p_pipe,
-                    valve=valve,
-                    angle_deg=angle_deg,
-                    gamma=self.cfg.gamma,
-                    gas_constant=self.cfg.gas_constant,
-                    cp=self.cfg.cp,
-                    p0_down=relaxed_totals[0],
-                    T0_down=relaxed_totals[1],
-                    Y0_down=relaxed_totals[2],
-                    loss_coeff=self.cfg.loss_coeff,
-                    rho_down=rho_pipe,
-                    u_down=u_pipe,
-                    area_pipe_m2=area_face,
+                mdot, Hdot, Ydot, ghost = _compute_valve_boundary(
+                    self.cfg,
+                    valve,
+                    angle_deg,
+                    cyl,
+                    prim_pipe,
+                    relaxed_totals[0],
+                    relaxed_totals[1],
+                    relaxed_totals[2],
+                    area_face,
+                    rho_pipe,
+                    u_pipe,
                 )
 
                 if mdot >= 0.0:
@@ -328,24 +403,6 @@ class Orchestrator:
                     A_wet=A_wet,
                 )
 
-                if mdot >= 0.0:
-                    ghost_p = cyl.p
-                    ghost_T = cyl.T
-                    ghost_Y = Y_cyl
-                else:
-                    ghost_p = p0_pipe
-                    ghost_T = T0_pipe
-                    ghost_Y = Y_pipe
-                ghost = ghost_state_from_nozzle(
-                    ghost_p,
-                    ghost_T,
-                    ghost_Y,
-                    mdot,
-                    max(area_face, 1e-9),
-                    self.cfg.gamma,
-                    self.cfg.gas_constant,
-                    phase=self.cfg.coupling_phase,
-                )
                 throttle_active = self.cfg.pipe_role == "intake" and _throttle_is_active(self.cfg.throttle)
                 throttle_ghost = None
                 if throttle_active:
