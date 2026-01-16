@@ -369,6 +369,21 @@ Example JSON (enable junction capacitance):
 }
 ```
 
+### 4.5 Throttle (Optional)
+- Enables an intake throttle (butterfly) as a nozzle boundary between ambient and the intake pipe.
+- Parameters (defaults preserve current behavior):
+  - `throttle.enabled` (default `False`)
+  - `throttle.position` in \([0,1]\) (default `1.0`, WOT)
+  - `throttle.body_diam_m` (required when enabled)
+  - `throttle.cd` (default `1.0`)
+  - `throttle.area_exponent` (default `2.0`)
+  - Optional ambient totals: `throttle.p0_amb_Pa`, `throttle.T0_amb_K`, `throttle.Y0_amb`
+- Effective area:
+  - \(A_{max} = \pi D^2/4\)
+  - \(A_{eff} = C_d A_{max} \cdot \mathrm{clamp}(pos,0,1)^{n}\)
+- Boundary behavior follows the Phase-2 nozzle contract (direction by stagnation totals + hysteresis).
+- Enables part-throttle pumping losses without altering core coupling contracts.
+
 ### Numerical Stabilization (Optional): Under-relaxation
 - Optional under-relaxation can be applied to downstream totals \((p_{0,down}, T_{0,down}, Y_{0,down})\)
   fed into the 0D coupling step.
@@ -379,6 +394,7 @@ Example JSON (enable junction capacitance):
 - `combustion.enabled` (default `False`): v2.1 Wiebe-based combustion tied to \(Y_{fresh}\).
 - `heat_transfer.enabled` (default `False`): cylinder wall heat-transfer sink.
 - `outlet_mode` (default `"non_reflecting"`): `"copy"`, `"non_reflecting"`, or `"impedance"` (see §2.8).
+- `throttle.enabled` (default `False`): optional intake throttle boundary.
 
 **Indexing convention:** in the coupled 1D pipe, `U[0]` is the left ghost cell, `U[-1]` is the right ghost cell, and physical cells are `U[1:-1]`. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
 
