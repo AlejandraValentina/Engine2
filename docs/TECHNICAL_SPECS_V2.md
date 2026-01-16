@@ -384,6 +384,19 @@ Example JSON (enable junction capacitance):
 - Boundary behavior follows the Phase-2 nozzle contract (direction by stagnation totals + hysteresis).
 - Enables part-throttle pumping losses without altering core coupling contracts.
 
+Example JSON:
+```json
+{
+  "throttle": {
+    "enabled": true,
+    "position": 0.35,
+    "body_diam_m": 0.06,
+    "area_exponent": 2.0,
+    "cd": 1.0
+  }
+}
+```
+
 ### Numerical Stabilization (Optional): Under-relaxation
 - Optional under-relaxation can be applied to downstream totals \((p_{0,down}, T_{0,down}, Y_{0,down})\)
   fed into the 0D coupling step.
