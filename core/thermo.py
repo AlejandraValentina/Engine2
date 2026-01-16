@@ -255,6 +255,13 @@ class CylinderSimulator:
         throttle_capacity = 500.0 if throttle_capacity is None else throttle_capacity
         head_supply_cfm = max(head_supply_cfm, 0.0)
         throttle_capacity = max(throttle_capacity, 0.0)
+        throttle_cfg = getattr(self.engine, "throttle", None)
+        if throttle_cfg is not None and getattr(throttle_cfg, "enabled", False):
+            pos = float(getattr(throttle_cfg, "position", 1.0))
+            exp = float(getattr(throttle_cfg, "area_exponent", 2.0))
+            pos = min(max(pos, 0.0), 1.0)
+            exp = max(exp, 0.0)
+            throttle_capacity *= pos ** exp
         supply_cfm = min(head_supply_cfm, throttle_capacity)
         eps = 1e-9
         flow_cap_factor = float(np.clip(supply_cfm / max(required_cfm, eps), 0.0, 1.0))

@@ -516,6 +516,43 @@ class IntakeSystem:
 
 
 @dataclass
+class Throttle:
+    enabled: bool = False
+    position: float = 1.0
+    body_diam_m: float = 0.0
+    cd: float = 1.0
+    area_exponent: float = 2.0
+    p0_amb_Pa: float | None = None
+    T0_amb_K: float | None = None
+    Y0_amb: float | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "position": self.position,
+            "body_diam_m": self.body_diam_m,
+            "cd": self.cd,
+            "area_exponent": self.area_exponent,
+            "p0_amb_Pa": self.p0_amb_Pa,
+            "T0_amb_K": self.T0_amb_K,
+            "Y0_amb": self.Y0_amb,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Throttle":
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            position=float(data.get("position", 1.0)),
+            body_diam_m=float(data.get("body_diam_m", 0.0)),
+            cd=float(data.get("cd", 1.0)),
+            area_exponent=float(data.get("area_exponent", 2.0)),
+            p0_amb_Pa=data.get("p0_amb_Pa"),
+            T0_amb_K=data.get("T0_amb_K"),
+            Y0_amb=data.get("Y0_amb"),
+        )
+
+
+@dataclass
 class ExhaustSystem:
     header_primary_length: float = 400.0  # millimeters
     header_primary_diameter: float = 38.0  # millimeters
@@ -568,6 +605,7 @@ class Engine:
     camshaft: Camshaft = field(default_factory=Camshaft)
     intake: IntakeSystem = field(default_factory=IntakeSystem)
     exhaust: ExhaustSystem = field(default_factory=ExhaustSystem)
+    throttle: Throttle = field(default_factory=Throttle)
     supercharger: Supercharger = field(default_factory=Supercharger)
     simulation_settings: SimulationSettings = field(default_factory=SimulationSettings)
     friction: Friction = field(default_factory=Friction)
@@ -583,6 +621,7 @@ class Engine:
             "camshaft": self.camshaft.to_dict(),
             "intake": self.intake.to_dict(),
             "exhaust": self.exhaust.to_dict(),
+            "throttle": self.throttle.to_dict(),
             "supercharger": self.supercharger.to_dict(),
             "simulation_settings": self.simulation_settings.to_dict(),
             "friction": self.friction.to_dict(),
@@ -602,6 +641,7 @@ class Engine:
             camshaft=Camshaft.from_dict(cam_data),
             intake=IntakeSystem.from_dict(migrated.get("intake", {})),
             exhaust=ExhaustSystem.from_dict(migrated.get("exhaust", {})),
+            throttle=Throttle.from_dict(migrated.get("throttle", {})),
             supercharger=Supercharger.from_dict(migrated.get("supercharger", {})),
             simulation_settings=SimulationSettings.from_dict(migrated.get("simulation_settings", {})),
             friction=Friction.from_dict(migrated.get("friction", {})),
@@ -636,6 +676,16 @@ class Engine:
             _fail("intake.throttle_flow_cfm", "Throttle flow CFM must be non-negative")
         if getattr(self.intake, "runner_length", 1.0) <= 0.0 or getattr(self.intake, "runner_diameter", 1.0) <= 0.0:
             _fail("intake.geometry", "Intake runner geometry must be positive")
+        throttle = getattr(self, "throttle", None)
+        if throttle is not None and getattr(throttle, "enabled", False):
+            if not (0.0 <= float(throttle.position) <= 1.0):
+                _fail("throttle.position", "Throttle position must be within [0, 1]")
+            if float(throttle.body_diam_m) <= 0.0:
+                _fail("throttle.body_diam_m", "Throttle body diameter must be positive when enabled")
+            if float(throttle.cd) <= 0.0:
+                _fail("throttle.cd", "Throttle Cd must be positive")
+            if float(throttle.area_exponent) <= 0.0:
+                _fail("throttle.area_exponent", "Throttle area exponent must be positive")
         if getattr(self.combustion, "thermal_efficiency", 0.5) <= 0.0:
             _fail("combustion.thermal_efficiency", "Combustion thermal efficiency must be positive")
         if getattr(self.fuel, "energy_density", 0.0) <= 0.0:
@@ -705,6 +755,7 @@ __all__ = [
     "Camshaft",
     "IntakeSystem",
     "ExhaustSystem",
+    "Throttle",
     "Supercharger",
     "SimulationSettings",
     "Friction",

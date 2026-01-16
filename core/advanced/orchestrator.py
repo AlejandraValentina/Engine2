@@ -16,6 +16,8 @@ from core.advanced.coupling import (
 from core.advanced.cylinder_cv import CylinderControlVolume, HeatTransferConfig, slider_crank_volume
 from core.advanced.state import stagnation_from_static
 from core.advanced.solver_1d import cfl_dt, conserved_to_primitive, muscl_hancock_step
+from core.advanced.nozzle import nozzle_mass_flow
+from core.engine_components import Throttle
 
 try:
     from core.advanced.solver_1d import reset_guard_counters
@@ -53,6 +55,7 @@ class OrchestratorConfig:
     coupling_relax_warmup_iters: int = 0
     use_numba_1d: bool = False
     heat_transfer: HeatTransferConfig = field(default_factory=HeatTransferConfig)
+    throttle: Throttle = field(default_factory=Throttle)
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -69,6 +72,28 @@ class OrchestratorConfig:
             raise ValueError("coupling_relax_alpha must be >= 0")
         if self.coupling_relax_warmup_iters < 0:
             raise ValueError("coupling_relax_warmup_iters must be >= 0")
+        if self.throttle.enabled:
+            if self.throttle.body_diam_m <= 0.0:
+                raise ValueError("throttle.body_diam_m must be positive when enabled")
+            if self.throttle.area_exponent <= 0.0:
+                raise ValueError("throttle.area_exponent must be positive when enabled")
+            if self.throttle.cd <= 0.0:
+                raise ValueError("throttle.cd must be positive when enabled")
+
+
+def _throttle_is_active(throttle: Throttle) -> bool:
+    if not throttle.enabled:
+        return False
+    pos = min(max(throttle.position, 0.0), 1.0)
+    return pos < 1.0
+
+
+def _throttle_area_eff(throttle: Throttle) -> float:
+    if throttle.body_diam_m <= 0.0:
+        raise ValueError("throttle.body_diam_m must be positive when enabled")
+    pos = min(max(throttle.position, 0.0), 1.0)
+    area_max = math.pi * (throttle.body_diam_m * 0.5) ** 2
+    return throttle.cd * area_max * (pos ** throttle.area_exponent)
 
 
 def _relax_downstream_totals(
@@ -277,14 +302,75 @@ class Orchestrator:
                     self.cfg.gas_constant,
                     phase=self.cfg.coupling_phase,
                 )
+                throttle_active = self.cfg.pipe_role == "intake" and _throttle_is_active(self.cfg.throttle)
+                throttle_ghost = None
+                if throttle_active:
+                    area_eff_throttle = _throttle_area_eff(self.cfg.throttle)
+                    prim_out = conserved_to_primitive(U[[-2]], self.cfg.gamma, self.cfg.gas_constant)[0]
+                    p_pipe_out = prim_out[2]
+                    T_pipe_out = prim_out[3]
+                    Y_pipe_out = prim_out[4]
+                    u_pipe_out = prim_out[1]
+                    p0_pipe_out, T0_pipe_out = stagnation_from_static(
+                        p_pipe_out, T_pipe_out, u_pipe_out, self.cfg.gamma, self.cfg.gas_constant
+                    )
+                    p0_amb = self.cfg.throttle.p0_amb_Pa if self.cfg.throttle.p0_amb_Pa is not None else p0
+                    T0_amb = self.cfg.throttle.T0_amb_K if self.cfg.throttle.T0_amb_K is not None else T0
+                    Y0_amb = self.cfg.throttle.Y0_amb if self.cfg.throttle.Y0_amb is not None else 1.0
+                    Y0_amb = min(max(float(Y0_amb), 0.0), 1.0)
+
+                    if area_eff_throttle <= 0.0:
+                        throttle_ghost = U[-2].copy()
+                        throttle_ghost[1] = -throttle_ghost[1]
+                    else:
+                        mdot_throttle, _, _ = nozzle_mass_flow(
+                            p0_amb,
+                            T0_amb,
+                            p_pipe_out,
+                            area_eff_throttle,
+                            self.cfg.gamma,
+                            self.cfg.gas_constant,
+                            self.cfg.cp,
+                            Y0_amb,
+                            p0_down=p0_pipe_out,
+                            T0_down=T0_pipe_out,
+                            Y0_down=Y_pipe_out,
+                        )
+                        if mdot_throttle >= 0.0:
+                            thr_p = p0_amb
+                            thr_T = T0_amb
+                            thr_Y = Y0_amb
+                        else:
+                            thr_p = p0_pipe_out
+                            thr_T = T0_pipe_out
+                            thr_Y = Y_pipe_out
+                        throttle_ghost = ghost_state_from_nozzle(
+                            thr_p,
+                            thr_T,
+                            thr_Y,
+                            mdot_throttle,
+                            max(area_face, 1e-9),
+                            self.cfg.gamma,
+                            self.cfg.gas_constant,
+                            phase=self.cfg.coupling_phase,
+                        )
+
                 t_elapsed = 0.0
-                if self.cfg.outlet_mode == "copy":
+                if throttle_active:
                     p_outlet = None
+                    outlet_mode = "copy"
+                elif self.cfg.outlet_mode == "copy":
+                    p_outlet = None
+                    outlet_mode = self.cfg.outlet_mode
                 else:
                     p_outlet = self.cfg.p_outlet if self.cfg.p_outlet is not None else p0
+                    outlet_mode = self.cfg.outlet_mode
                 while t_elapsed < dt_theta:
                     U[0] = ghost
-                    U[-1] = U[-2]
+                    if throttle_active and throttle_ghost is not None:
+                        U[-1] = throttle_ghost
+                    else:
+                        U[-1] = U[-2]
                     dt_cfl = cfl_dt(
                         U,
                         dx,
@@ -305,7 +391,7 @@ class Orchestrator:
                         friction_factor=0.0,
                         diameter=pipe_diameter_m,
                         p_outlet=p_outlet,
-                        outlet_mode=self.cfg.outlet_mode,
+                        outlet_mode=outlet_mode,
                         reflection_coeff=self.cfg.outlet_reflection,
                         impedance=self.cfg.outlet_impedance,
                         friction_model=self.cfg.friction_model if self.cfg.enable_friction else None,
