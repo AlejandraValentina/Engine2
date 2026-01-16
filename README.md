@@ -83,6 +83,73 @@ The v2.0 Advanced Physics Core lives in `core/advanced/` and runs in parallel wi
 **Spec & flags:** see `docs/TECHNICAL_SPECS_V2.md` for the coupling contract and optional flags
 (`use_numba_1d`, `combustion.enabled`, `heat_transfer.enabled`, `outlet_mode`, under-relaxation).
 
+**Full-feature demo preset:** `presets/v2_full_features_demo.json`
+Run a short advanced case with optional flags wired in:
+```bash
+python - <<'PY'
+import json
+import math
+
+from core.engine_components import Engine
+from core.advanced.coupling import ValveTiming
+from core.advanced.orchestrator import (
+    Orchestrator,
+    OrchestratorConfig,
+    PipePrefillConfig,
+    PipePrefillState,
+    ValveClosedWallBCConfig,
+)
+
+cfg = json.load(open("presets/v2_full_features_demo.json", "r", encoding="utf-8"))
+engine = Engine.from_dict(cfg)
+
+prefill = cfg["pipe_prefill"]
+pipe_prefill = PipePrefillConfig(
+    enabled=True,
+    intake=PipePrefillState(**prefill["intake"]),
+    exhaust=PipePrefillState(**prefill["exhaust"]),
+)
+wall_bc = ValveClosedWallBCConfig(**cfg["valve_closed_wall_bc"])
+
+orc = Orchestrator(
+    OrchestratorConfig(
+        cp_model=engine.simulation_settings.cp_model,
+        throttle=engine.throttle,
+        pipe_prefill=pipe_prefill,
+        valve_closed_wall_bc=wall_bc,
+    )
+)
+
+seat_mm = engine.head.exhaust_valve_seat_diameter_mm or engine.head.exhaust_valve_diameter
+valve = ValveTiming(
+    open_start_deg=360.0,
+    open_end_deg=540.0,
+    max_lift_m=engine.camshaft.exhaust_lift * 1e-3,
+    seat_diameter_m=seat_mm * 1e-3,
+    cd=0.9,
+)
+
+bore_m = engine.block.bore * 1e-3
+stroke_m = engine.block.stroke * 1e-3
+conrod_m = engine.block.conrod_length * 1e-3
+area = math.pi * (bore_m * 0.5) ** 2
+clearance_m3 = area * stroke_m / max(engine.head.compression_ratio - 1.0, 1e-6)
+
+result = orc.run(
+    rpm=3000.0,
+    pipe_cells=30,
+    pipe_length_m=0.6,
+    pipe_diameter_m=0.04,
+    bore_m=bore_m,
+    stroke_m=stroke_m,
+    conrod_m=conrod_m,
+    clearance_m3=clearance_m3,
+    valve=valve,
+)
+print("indicated_work", result["indicated_work"][-1])
+PY
+```
+
 ## Physics Overview
 - **Thermodynamics (0D):** Four-stroke phasing with Wiebe combustion (configurable a/m, burn duration, ignition advance), Woschni wall heat transfer, Chen–Flynn FMEP (A/B/C coefficients with user scaling), and Mach-index flow choking tied to valve geometry/port flow efficiency.
 - **Wave Dynamics (1D):** Euler equations with Lax-Wendroff integration, Darcy-Weisbach friction source, and ghost-cell boundaries for valves/outlets plus junction collectors for multi-cylinder exhausts. Legacy coupling is one-way; the advanced core adds an opt-in coupled 0D↔1D path (see `docs/TECHNICAL_SPECS_V2.md`).

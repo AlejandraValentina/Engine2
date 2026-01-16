@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "model_name": "K20 v2 Full Features Demo",
+  "block": {
+    "bore": 86.0,
+    "stroke": 86.0,
+    "conrod_length": 139.0,
+    "num_cylinders": 4,
+    "config": "L",
+    "bank_angle": 0.0,
+    "firing_order": [1, 3, 4, 2],
+    "redline_rpm": 8500.0
+  },
+  "head": {
+    "compression_ratio": 11.5,
+    "intake_valves": 2,
+    "exhaust_valves": 2,
+    "intake_valve_diameter": 35.0,
+    "exhaust_valve_diameter": 30.0,
+    "port_flow_efficiency": 0.78,
+    "mach_tolerance": 0.80,
+    "combustion_chamber_vol": 47.6,
+    "gasket_thickness_mm": 0.7,
+    "gasket_bore_mm": 87.0,
+    "deck_clearance_mm": 0.0,
+    "piston_dome_cc": 0.0
+  },
+  "camshaft": {
+    "intake_lift": 12.0,
+    "exhaust_lift": 11.0,
+    "intake_duration": 250.0,
+    "exhaust_duration": 250.0,
+    "lobe_separation": 107.0,
+    "advance": 0.0,
+    "peak_rpm": 7800.0
+  },
+  "intake": {
+    "runner_length": 200.0,
+    "runner_diameter": 45.0,
+    "plenum_volume": 3.0,
+    "throttle_body_dia": 64.0,
+    "throttle_cfm": 850.0,
+    "flow_loss_coefficient": 0.0
+  },
+  "exhaust": {
+    "header_primary_length": 450.0,
+    "header_primary_diameter": 42.0,
+    "collector_length": 200.0
+  },
+  "supercharger": {
+    "type": "NA",
+    "boost_pressure_bar": 0.0,
+    "intercooler_efficiency": 0.7
+  },
+  "combustion": {
+    "thermal_efficiency": 0.52,
+    "burn_duration": 45.0,
+    "ignition_advance": 30.0,
+    "afr": 13.1,
+    "wiebe_a": 5.0,
+    "wiebe_m": 2.0,
+    "chamber_type": "Custom"
+  },
+  "friction": {
+    "bottom_end_type": "Performance",
+    "water_pump": true,
+    "alternator": true,
+    "power_steering": false,
+    "mechanical_fan": false,
+    "friction_base_kpa": 35.0,
+    "friction_linear_factor": 0.02,
+    "friction_quadratic_factor": 1.8e-6,
+    "global_scaling_factor": 1.0
+  },
+  "simulation_settings": {
+    "ignition_timing_btdc": 30.0,
+    "heat_loss_factor": 1.0,
+    "pipe_friction_factor": 1.0,
+    "tuning_sensitivity": 1.0,
+    "air_temperature_c": 25.0,
+    "air_pressure_bar": 1.013,
+    "exhaust_backpressure_factor": 1.05,
+    "cp_model": "nasa7"
+  },
+  "fuel": {
+    "type_name": "Pump Gas",
+    "octane_rating": 93.0,
+    "energy_density": 44000000.0,
+    "stoich_afr": 14.7
+  },
+  "throttle": {
+    "enabled": true,
+    "position": 0.6,
+    "body_diam_m": 0.060,
+    "area_exponent": 2.0,
+    "cd": 1.0
+  },
+  "pipe_prefill": {
+    "enabled": true,
+    "intake": { "p_Pa": 101325.0, "T_K": 305.0, "Y": 1.0 },
+    "exhaust": { "p_Pa": 101325.0, "T_K": 700.0, "Y": 0.0 }
+  },
+  "valve_closed_wall_bc": {
+    "enabled": true,
+    "area_eps_m2": 1e-7
+  },
+  "junctions": {
+    "exh_4_to_1": {
+      "volume": 0.0009,
+      "pressure": 101325.0,
+      "temperature": 700.0,
+      "legs": {
+        "cyl1": { "k_loss": 0.0 },
+        "cyl2": { "k_loss": 0.0 },
+        "cyl3": { "k_loss": 0.0 },
+        "cyl4": { "k_loss": 0.0 },
+        "collector": { "k_loss": 0.0 }
+      },
+      "capacitance": {
+        "enabled": true,
+        "volume_m3": 0.0009,
+        "p_min_Pa": 2000.0,
+        "T_min_K": 200.0,
+        "under_relax_alpha": 0.6
+      }
+    }
+  }
+}
