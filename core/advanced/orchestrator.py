@@ -31,6 +31,7 @@ class OrchestratorConfig:
     gamma: float = 1.35
     gas_constant: float = 287.0
     cp: Optional[float] = None
+    cp_model: str = "constant"
     cfl: float = 0.5
     dt_max: float = 5e-5
     max_cycles: int = 5
@@ -74,6 +75,8 @@ class OrchestratorConfig:
             raise ValueError("coupling_relax_alpha must be >= 0")
         if self.coupling_relax_warmup_iters < 0:
             raise ValueError("coupling_relax_warmup_iters must be >= 0")
+        if self.cp_model not in ("constant", "nasa7"):
+            raise ValueError("cp_model must be 'constant' or 'nasa7'")
         if self.throttle.enabled:
             if self.throttle.body_diam_m <= 0.0:
                 raise ValueError("throttle.body_diam_m must be positive when enabled")
@@ -194,6 +197,7 @@ def _compute_valve_boundary(
         gamma=cfg.gamma,
         gas_constant=cfg.gas_constant,
         cp=cfg.cp,
+        cp_model=cfg.cp_model,
         p0_down=p0_pipe,
         T0_down=T0_pipe,
         Y0_down=Y_pipe,
@@ -219,6 +223,7 @@ def _compute_valve_boundary(
         cfg.gamma,
         cfg.gas_constant,
         phase=cfg.coupling_phase,
+        cp_model=cfg.cp_model,
     )
     return mdot, Hdot, Ydot, ghost
 
@@ -341,7 +346,13 @@ class Orchestrator:
                 u_pipe = prim_pipe[1]
                 rho_pipe = prim_pipe[0]
                 p0_pipe, T0_pipe = stagnation_from_static(
-                    p_pipe, T_pipe, u_pipe, self.cfg.gamma, self.cfg.gas_constant
+                    p_pipe,
+                    T_pipe,
+                    u_pipe,
+                    self.cfg.gamma,
+                    self.cfg.gas_constant,
+                    cp_model=self.cfg.cp_model,
+                    Y_fresh=Y_pipe,
                 )
                 if junction_totals is not None:
                     p0_pipe = float(max(junction_totals[0], 1e-6))
@@ -413,7 +424,13 @@ class Orchestrator:
                     Y_pipe_out = prim_out[4]
                     u_pipe_out = prim_out[1]
                     p0_pipe_out, T0_pipe_out = stagnation_from_static(
-                        p_pipe_out, T_pipe_out, u_pipe_out, self.cfg.gamma, self.cfg.gas_constant
+                        p_pipe_out,
+                        T_pipe_out,
+                        u_pipe_out,
+                        self.cfg.gamma,
+                        self.cfg.gas_constant,
+                        cp_model=self.cfg.cp_model,
+                        Y_fresh=Y_pipe_out,
                     )
                     p0_amb = self.cfg.throttle.p0_amb_Pa if self.cfg.throttle.p0_amb_Pa is not None else p0
                     T0_amb = self.cfg.throttle.T0_amb_K if self.cfg.throttle.T0_amb_K is not None else T0
@@ -436,6 +453,7 @@ class Orchestrator:
                             p0_down=p0_pipe_out,
                             T0_down=T0_pipe_out,
                             Y0_down=Y_pipe_out,
+                            cp_model=self.cfg.cp_model,
                         )
                         if mdot_throttle >= 0.0:
                             thr_p = p0_amb
@@ -454,6 +472,7 @@ class Orchestrator:
                             self.cfg.gamma,
                             self.cfg.gas_constant,
                             phase=self.cfg.coupling_phase,
+                            cp_model=self.cfg.cp_model,
                         )
 
                 t_elapsed = 0.0

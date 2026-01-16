@@ -15,6 +15,7 @@ from core.advanced.state import (
     speed_of_sound,
     static_from_stagnation_and_mach,
 )
+from core.thermo import thermally_perfect_cp, thermally_perfect_gamma
 
 
 @dataclass
@@ -57,6 +58,7 @@ def boundary_flux_from_nozzle(
     gamma: float,
     gas_constant: float,
     cp: float,
+    cp_model: str = "constant",
     p0_down: Optional[float] = None,
     T0_down: Optional[float] = None,
     Y0_down: Optional[float] = None,
@@ -82,6 +84,7 @@ def boundary_flux_from_nozzle(
         p0_down=p0_down,
         T0_down=T0_down,
         Y0_down=Y0_down,
+        cp_model=cp_model,
     )
     if loss_coeff <= 0.0 or mdot0 == 0.0:
         return mdot0, Hdot0, Ydot0, area_eff
@@ -101,20 +104,33 @@ def boundary_flux_from_nozzle(
         raise ValueError("Invalid local loss pressure drop")
 
     pressure_floor = 1e-6
+    if cp_model == "nasa7":
+        gamma_up = thermally_perfect_gamma(T0, Y0, gas_constant)
+        cp_up = thermally_perfect_cp(T0, Y0, gas_constant)
+    else:
+        gamma_up = gamma
+        cp_up = cp
+
     if mdot0 >= 0.0:
         p_eff = max(p_down + dp_loss, pressure_floor)
-        mdot_mag = mdot_mag_from_totals(p0, T0, p_eff, area_eff, gamma, gas_constant)
+        mdot_mag = mdot_mag_from_totals(p0, T0, p_eff, area_eff, gamma_up, gas_constant)
         mdot = mdot_mag
-        Hdot = mdot * cp * T0
+        Hdot = mdot * cp_up * T0
         Ydot = mdot * Y0
     else:
         p0_rev = p0_down if p0_down is not None else p_down
         T0_rev = T0_down if T0_down is not None else T0
         Y0_rev = Y0_down if Y0_down is not None else Y0
         p_eff = max(p0 + dp_loss, pressure_floor)
-        mdot_mag = mdot_mag_from_totals(p0_rev, T0_rev, p_eff, area_eff, gamma, gas_constant)
+        if cp_model == "nasa7":
+            gamma_rev = thermally_perfect_gamma(T0_rev, Y0_rev, gas_constant)
+            cp_rev = thermally_perfect_cp(T0_rev, Y0_rev, gas_constant)
+        else:
+            gamma_rev = gamma
+            cp_rev = cp
+        mdot_mag = mdot_mag_from_totals(p0_rev, T0_rev, p_eff, area_eff, gamma_rev, gas_constant)
         mdot = -mdot_mag
-        Hdot = mdot * cp * T0_rev
+        Hdot = mdot * cp_rev * T0_rev
         Ydot = mdot * Y0_rev
 
     return mdot, Hdot, Ydot, area_eff
@@ -162,6 +178,7 @@ def ghost_state_from_nozzle(
     gamma: float,
     gas_constant: float,
     phase: str = "phase2",
+    cp_model: str = "constant",
 ) -> np.ndarray:
     """Build a ghost state from upstream stagnation totals (Phase 2)."""
     if phase == "phase1":
@@ -179,7 +196,9 @@ def ghost_state_from_nozzle(
 
     mdot_mag = abs(mdot)
     mdot_choked = abs(
-        mdot_from_stagnation(p0, T0, area_face, 1.0, gamma, gas_constant)
+        mdot_from_stagnation(
+            p0, T0, area_face, 1.0, gamma, gas_constant, cp_model=cp_model, Y_fresh=Y0
+        )
     )
     if mdot_mag > 1.001 * mdot_choked:
         raise ValueError(
@@ -195,14 +214,21 @@ def ghost_state_from_nozzle(
         cons = primitive_to_conserved(prim, gamma, gas_constant)
         return np.array([cons.rho, cons.rhou, cons.rhoE, cons.rhoY], dtype=float)
     mdot_min = abs(
-        mdot_from_stagnation(p0, T0, area_face, 1e-12, gamma, gas_constant)
+        mdot_from_stagnation(
+            p0, T0, area_face, 1e-12, gamma, gas_constant, cp_model=cp_model, Y_fresh=Y0
+        )
     )
     if mdot_mag <= mdot_min:
         rho0 = p0 / (gas_constant * T0)
-        a0 = math.sqrt(max(gamma * gas_constant * T0, 1e-12))
+        a0 = speed_of_sound(gamma, gas_constant, T0, cp_model=cp_model, Y_fresh=Y0)
         M = min(mdot_mag / max(rho0 * a0 * area_face, 1e-12), 0.999)
-        p_static, T_static = static_from_stagnation_and_mach(p0, T0, M, gamma, gas_constant)
-        u = math.copysign(M * speed_of_sound(gamma, gas_constant, T_static), mdot)
+        p_static, T_static = static_from_stagnation_and_mach(
+            p0, T0, M, gamma, gas_constant, cp_model=cp_model, Y_fresh=Y0
+        )
+        u = math.copysign(
+            M * speed_of_sound(gamma, gas_constant, T_static, cp_model=cp_model, Y_fresh=Y0),
+            mdot,
+        )
         rho = p_static / (gas_constant * T_static)
         prim = Primitive1D(rho=rho, u=u, p=p_static, T=T_static, Y=Y0)
         cons = primitive_to_conserved(prim, gamma, gas_constant)
@@ -210,27 +236,47 @@ def ghost_state_from_nozzle(
 
     lo = 0.0
     hi = 1e-6
-    mdot_hi = abs(mdot_from_stagnation(p0, T0, area_face, hi, gamma, gas_constant))
+    mdot_hi = abs(
+        mdot_from_stagnation(
+            p0, T0, area_face, hi, gamma, gas_constant, cp_model=cp_model, Y_fresh=Y0
+        )
+    )
     while mdot_hi < target and hi < 0.999:
         hi = min(hi * 2.0, 0.999)
-        mdot_hi = abs(mdot_from_stagnation(p0, T0, area_face, hi, gamma, gas_constant))
+        mdot_hi = abs(
+            mdot_from_stagnation(
+                p0, T0, area_face, hi, gamma, gas_constant, cp_model=cp_model, Y_fresh=Y0
+            )
+        )
     if mdot_hi < target:
         if target <= mdot_choked * 1.001:
             hi = 0.999
-            mdot_hi = abs(mdot_from_stagnation(p0, T0, area_face, hi, gamma, gas_constant))
+            mdot_hi = abs(
+                mdot_from_stagnation(
+                    p0, T0, area_face, hi, gamma, gas_constant, cp_model=cp_model, Y_fresh=Y0
+                )
+            )
         if mdot_hi < target:
             raise ValueError(
                 f"Ghost inversion bracket failed: target={target:.3e} mdot_hi={mdot_hi:.3e}"
             )
     for _ in range(60):
         mid = 0.5 * (lo + hi)
-        mdot_mid = abs(mdot_from_stagnation(p0, T0, area_face, mid, gamma, gas_constant))
+        mdot_mid = abs(
+            mdot_from_stagnation(
+                p0, T0, area_face, mid, gamma, gas_constant, cp_model=cp_model, Y_fresh=Y0
+            )
+        )
         if mdot_mid < target:
             lo = mid
         else:
             hi = mid
     M = 0.5 * (lo + hi)
-    mdot_final = abs(mdot_from_stagnation(p0, T0, area_face, M, gamma, gas_constant))
+    mdot_final = abs(
+        mdot_from_stagnation(
+            p0, T0, area_face, M, gamma, gas_constant, cp_model=cp_model, Y_fresh=Y0
+        )
+    )
     rel_err = abs(mdot_final - target) / max(target, 1e-12)
     if rel_err > 1e-3:
         if rel_err > 1e-3 and target <= mdot_min:
@@ -242,8 +288,10 @@ def ghost_state_from_nozzle(
         raise ValueError(
             f"Ghost inversion did not converge: rel_err={rel_err:.3e} target={target:.3e}"
         )
-    p_static, T_static = static_from_stagnation_and_mach(p0, T0, M, gamma, gas_constant)
-    a = speed_of_sound(gamma, gas_constant, T_static)
+    p_static, T_static = static_from_stagnation_and_mach(
+        p0, T0, M, gamma, gas_constant, cp_model=cp_model, Y_fresh=Y0
+    )
+    a = speed_of_sound(gamma, gas_constant, T_static, cp_model=cp_model, Y_fresh=Y0)
     u = math.copysign(M * a, mdot)
     rho = p_static / (gas_constant * T_static)
     prim = Primitive1D(rho=rho, u=u, p=p_static, T=T_static, Y=Y0)

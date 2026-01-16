@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 from typing import Tuple
 
+from core.thermo import thermally_perfect_cp, thermally_perfect_gamma
+
 _DP_HYST_PA = 100.0
 
 
@@ -56,6 +58,7 @@ def nozzle_mass_flow(
     p0_down: float | None = None,
     T0_down: float | None = None,
     Y0_down: float | None = None,
+    cp_model: str = "constant",
 ) -> Tuple[float, float, float]:
     """Return (mdot, Hdot, Ydot) with positive flow from upstream -> downstream."""
 
@@ -67,19 +70,31 @@ def nozzle_mass_flow(
         raise ValueError("Invalid nozzle inputs (p0, T0 must be positive)")
 
     forward = _direction_from_totals(p0, p0_down, p_down)
+    if cp_model == "nasa7":
+        gamma_up = thermally_perfect_gamma(T0, Y0, gas_constant)
+        cp_up = thermally_perfect_cp(T0, Y0, gas_constant)
+    else:
+        gamma_up = gamma
+        cp_up = cp
 
     if forward:
-        mdot_mag = mdot_mag_from_totals(p0, T0, p_down, area_eff, gamma, gas_constant)
+        mdot_mag = mdot_mag_from_totals(p0, T0, p_down, area_eff, gamma_up, gas_constant)
         mdot = mdot_mag
-        Hdot = mdot * cp * T0
+        Hdot = mdot * cp_up * T0
         Ydot = mdot * Y0
     else:
         p0_rev = p0_down if p0_down is not None else p_down
         T0_rev = T0_down if T0_down is not None else T0
         Y0_rev = Y0_down if Y0_down is not None else Y0
-        mdot_mag = mdot_mag_from_totals(p0_rev, T0_rev, p0, area_eff, gamma, gas_constant)
+        if cp_model == "nasa7":
+            gamma_rev = thermally_perfect_gamma(T0_rev, Y0_rev, gas_constant)
+            cp_rev = thermally_perfect_cp(T0_rev, Y0_rev, gas_constant)
+        else:
+            gamma_rev = gamma
+            cp_rev = cp
+        mdot_mag = mdot_mag_from_totals(p0_rev, T0_rev, p0, area_eff, gamma_rev, gas_constant)
         mdot = -mdot_mag
-        Hdot = mdot * cp * T0_rev
+        Hdot = mdot * cp_rev * T0_rev
         Ydot = mdot * Y0_rev
 
     return float(mdot), float(Hdot), float(Ydot)

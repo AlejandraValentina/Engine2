@@ -3,7 +3,8 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import Dict
+from dataclasses import dataclass
+from typing import Dict, Tuple
 
 import numpy as np
 
@@ -11,6 +12,115 @@ from core.engine_components import Engine
 from core.units import bar_to_pa, cc_to_m3, mm_to_m
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class _Nasa7Coeffs:
+    t_mid: float
+    low: Tuple[float, float, float, float, float, float, float]
+    high: Tuple[float, float, float, float, float, float, float]
+
+
+_NASA7_SPECIES = {
+    "air": _Nasa7Coeffs(
+        t_mid=1000.0,
+        low=(3.5, 1.0e-4, 0.0, 0.0, 0.0, 0.0, 0.0),
+        high=(3.2, 2.0e-4, 0.0, 0.0, 0.0, 0.0, 0.0),
+    ),
+    "burned": _Nasa7Coeffs(
+        t_mid=1000.0,
+        low=(3.9, 1.5e-4, 0.0, 0.0, 0.0, 0.0, 0.0),
+        high=(3.6, 2.5e-4, 0.0, 0.0, 0.0, 0.0, 0.0),
+    ),
+}
+
+
+def _nasa7_coeffs(species: str, T: float) -> Tuple[float, float, float, float, float, float, float]:
+    data = _NASA7_SPECIES[species]
+    return data.low if T <= data.t_mid else data.high
+
+
+def _nasa7_cp_R(species: str, T: float) -> float:
+    a1, a2, a3, a4, a5, _a6, _a7 = _nasa7_coeffs(species, T)
+    return a1 + a2 * T + a3 * T ** 2 + a4 * T ** 3 + a5 * T ** 4
+
+
+def _nasa7_h_RT(species: str, T: float) -> float:
+    a1, a2, a3, a4, a5, a6, _a7 = _nasa7_coeffs(species, T)
+    return (
+        a1
+        + a2 * T / 2.0
+        + a3 * T ** 2 / 3.0
+        + a4 * T ** 3 / 4.0
+        + a5 * T ** 4 / 5.0
+        + a6 / T
+    )
+
+
+def _nasa7_cp(species: str, T: float, gas_constant: float) -> float:
+    return _nasa7_cp_R(species, T) * gas_constant
+
+
+def _nasa7_h(species: str, T: float, gas_constant: float) -> float:
+    return _nasa7_h_RT(species, T) * gas_constant * T
+
+
+def thermally_perfect_cp(T: float, Y_fresh: float, gas_constant: float) -> float:
+    Y = min(max(Y_fresh, 0.0), 1.0)
+    cp_air = _nasa7_cp("air", T, gas_constant)
+    cp_burned = _nasa7_cp("burned", T, gas_constant)
+    return Y * cp_air + (1.0 - Y) * cp_burned
+
+
+def thermally_perfect_h(T: float, Y_fresh: float, gas_constant: float) -> float:
+    Y = min(max(Y_fresh, 0.0), 1.0)
+    h_air = _nasa7_h("air", T, gas_constant)
+    h_burned = _nasa7_h("burned", T, gas_constant)
+    return Y * h_air + (1.0 - Y) * h_burned
+
+
+def thermally_perfect_e(T: float, Y_fresh: float, gas_constant: float) -> float:
+    h = thermally_perfect_h(T, Y_fresh, gas_constant)
+    return h - gas_constant * T
+
+
+def thermally_perfect_gamma(T: float, Y_fresh: float, gas_constant: float) -> float:
+    cp = thermally_perfect_cp(T, Y_fresh, gas_constant)
+    cv = cp - gas_constant
+    if cv <= 0.0:
+        raise ValueError("Invalid cv for thermally perfect gas")
+    return cp / cv
+
+
+def thermally_perfect_T_from_e(
+    e_target: float,
+    Y_fresh: float,
+    gas_constant: float,
+    T_guess: float | None = None,
+    T_min: float = 200.0,
+    T_max: float = 3500.0,
+    max_iters: int = 6,
+    tol: float = 1e-6,
+    return_iterations: bool = False,
+) -> float | Tuple[float, int]:
+    if not math.isfinite(e_target):
+        raise ValueError("e_target must be finite")
+    T = T_guess if T_guess is not None else 300.0
+    T = min(max(T, T_min), T_max)
+    iters = 0
+    for iters in range(1, max_iters + 1):
+        e = thermally_perfect_e(T, Y_fresh, gas_constant)
+        f = e - e_target
+        if abs(f) <= tol * max(1.0, abs(e_target)):
+            break
+        cv = thermally_perfect_cp(T, Y_fresh, gas_constant) - gas_constant
+        if cv <= 0.0:
+            break
+        T = T - f / cv
+        T = min(max(T, T_min), T_max)
+    if return_iterations:
+        return T, iters
+    return T
 
 
 def piston_geometry(angle_array_deg: np.ndarray, bore: float, stroke: float, conrod: float):
@@ -126,8 +236,12 @@ class CylinderSimulator:
         tuning_sensitivity = getattr(settings, "tuning_sensitivity", 1.0)
         ambient_temp_k = (getattr(settings, "air_temperature_c", 25.0) + 273.15)
         gas_constant = getattr(settings, "gas_constant_R", 287.0)
+        cp_model = getattr(settings, "cp_model", "constant")
         gamma_air = getattr(settings, "gamma_air", 1.4)
         gamma_exh = getattr(settings, "gamma_exhaust", 1.35)
+        if cp_model == "nasa7":
+            gamma_air = thermally_perfect_gamma(ambient_temp_k, 1.0, gas_constant)
+            gamma_exh = thermally_perfect_gamma(ambient_temp_k, 0.0, gas_constant)
         # Absolute ambient pressure (Pa)
         ambient_pressure_pa = bar_to_pa(getattr(settings, "air_pressure_bar", 1.013))
 
@@ -327,7 +441,11 @@ class CylinderSimulator:
             )
             Q_loss = h_c * area_wall * max(T_gas - getattr(settings, "wall_temperature_k", 450.0), 0.0) * dt
 
-            gamma_curr = gamma_air if angle_arr[idx] < 360.0 else gamma_exh
+            if cp_model == "nasa7":
+                Y_fresh = 1.0 if angle_arr[idx] < 360.0 else 0.0
+                gamma_curr = thermally_perfect_gamma(T_gas, Y_fresh, gas_constant)
+            else:
+                gamma_curr = gamma_air if angle_arr[idx] < 360.0 else gamma_exh
             dQ_net = eta_combustion * dQ_chem[idx] - Q_loss
             p_with_heat = p_current + (gamma_curr - 1.0) * dQ_net / max(V_curr, 1e-9)
             pressure[idx] = p_with_heat

@@ -236,6 +236,7 @@ class SimulationSettings:
     gamma_air: float = 1.40
     gamma_exhaust: float = 1.35
     gas_constant_R: float = 287.0  # J/(kg*K)
+    cp_model: str = "constant"
     artificial_diffusion: float = 0.0  # dimensionless scaling for numerical smoothing
     clamp_rho_min: float = 0.1  # kg/m^3
     clamp_p_min: float = 1e-6  # Pa
@@ -261,6 +262,7 @@ class SimulationSettings:
             "gamma_air": self.gamma_air,
             "gamma_exhaust": self.gamma_exhaust,
             "gas_constant_R": self.gas_constant_R,
+            "cp_model": self.cp_model,
             "artificial_diffusion": self.artificial_diffusion,
             "clamp_rho_min": self.clamp_rho_min,
             "clamp_p_min": self.clamp_p_min,
@@ -288,6 +290,7 @@ class SimulationSettings:
             gamma_air=data.get("gamma_air", 1.40),
             gamma_exhaust=data.get("gamma_exhaust", 1.35),
             gas_constant_R=data.get("gas_constant_R", 287.0),
+            cp_model=data.get("cp_model", "constant"),
             artificial_diffusion=data.get("artificial_diffusion", 0.0),
             clamp_rho_min=data.get("clamp_rho_min", 0.1),
             clamp_p_min=data.get("clamp_p_min", 1e-6),
@@ -703,6 +706,9 @@ class Engine:
                 "simulation_settings.exhaust_valve_area_model",
                 "Exhaust valve area model must be 'curtain' or 'fixed'",
             )
+        cp_model = getattr(self.simulation_settings, "cp_model", "constant")
+        if cp_model not in {"constant", "nasa7"}:
+            _fail("simulation_settings.cp_model", "cp_model must be 'constant' or 'nasa7'")
 
         return [msg for _path, msg in sorted(issues, key=lambda item: item[0])]
 
