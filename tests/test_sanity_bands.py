@@ -11,7 +11,7 @@ try:  # Prefer relative import to avoid clashes with site-level `tests` packages
 except ImportError:  # Fallback for environments that resolve absolute first
     from tests._assertions import assert_sanity_bounds
 
-pytestmark = pytest.mark.legacy
+pytestmark = [pytest.mark.legacy, pytest.mark.slow]
 
 
 @pytest.mark.integration

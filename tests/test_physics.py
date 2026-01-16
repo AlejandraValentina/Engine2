@@ -7,7 +7,7 @@ np = pytest.importorskip("numpy")
 from core.engine_components import Engine
 from core.thermo import CylinderSimulator
 
-pytestmark = [pytest.mark.integration, pytest.mark.legacy]
+pytestmark = [pytest.mark.integration, pytest.mark.legacy, pytest.mark.slow]
 
 
 def run_cycle_hp(engine: Engine, rpm: float) -> float:

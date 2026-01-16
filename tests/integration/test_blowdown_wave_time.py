@@ -8,6 +8,7 @@ from core.advanced.solver_1d import muscl_hancock_step
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 def test_blowdown_wave_time() -> None:
     gamma = 1.4
     R = 287.0

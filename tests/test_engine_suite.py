@@ -5,7 +5,7 @@ np = pytest.importorskip("numpy")
 from core.engine_components import Engine
 from core.thermo import CylinderSimulator
 
-pytestmark = pytest.mark.legacy
+pytestmark = [pytest.mark.legacy, pytest.mark.slow]
 
 ENGINE_CASES = [
     (

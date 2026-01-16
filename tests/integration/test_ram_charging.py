@@ -5,7 +5,7 @@ np = pytest.importorskip("numpy")
 from core.advanced.coupling import ValveTiming
 from core.advanced.orchestrator import Orchestrator, OrchestratorConfig
 
-pytestmark = pytest.mark.legacy
+pytestmark = [pytest.mark.legacy, pytest.mark.slow]
 
 
 @pytest.mark.integration

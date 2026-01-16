@@ -7,6 +7,8 @@ import pytest
 from core.engine_components import Engine
 from core.pro_dyno_v2 import ProDynoV2Runner
 
+pytestmark = pytest.mark.slow
+
 
 def test_pro_dyno_v2_no_warnings() -> None:
     engine = Engine()

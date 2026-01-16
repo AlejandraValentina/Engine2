@@ -40,6 +40,7 @@ def _build_solver(engine: Engine) -> Engine1DSolver:
 
 
 @pytest.mark.integration
+@pytest.mark.slow
 def test_0d_to_1d_scope_signal() -> None:
     engine = Engine.load_from_file("presets/legacy/custom_twin_230cc.json")
     engine.simulation_settings.enable_0d_to_1d_exhaust_coupling = True
