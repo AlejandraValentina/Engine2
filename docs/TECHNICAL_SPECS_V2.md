@@ -350,6 +350,25 @@ Then:
 - Optional under-relaxation \(\alpha \in [0,1]\) can be applied to the state update.
 - When disabled, the algebraic mixing above remains the default behavior.
 
+Example JSON (enable junction capacitance):
+```json
+{
+  "junctions": [
+    {
+      "name": "exh_4_to_1",
+      "legs": ["cyl1", "cyl2", "cyl3", "cyl4", "collector"],
+      "capacitance": {
+        "enabled": true,
+        "volume_m3": 0.0009,
+        "p_min_Pa": 2000.0,
+        "T_min_K": 200.0,
+        "under_relax_alpha": 0.6
+      }
+    }
+  ]
+}
+```
+
 ### Numerical Stabilization (Optional): Under-relaxation
 - Optional under-relaxation can be applied to downstream totals \((p_{0,down}, T_{0,down}, Y_{0,down})\)
   fed into the 0D coupling step.
