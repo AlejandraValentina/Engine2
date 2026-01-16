@@ -428,6 +428,20 @@ Example JSON:
 }
 ```
 
+### 4.8 Thermally Perfect Gas (Optional)
+- Enable NASA7-based \(c_p(T)\), \(h(T)\), \(e(T)\), and \(\gamma(T)\).
+- Mixture uses \(Y_{fresh}\) as a blend between fresh air and a burned-gas proxy.
+- \(e(T)\) inversion uses Newton-Raphson with clamped temperature bounds.
+
+Example JSON:
+```json
+{
+  "simulation_settings": {
+    "cp_model": "nasa7"
+  }
+}
+```
+
 ### Numerical Stabilization (Optional): Under-relaxation
 - Optional under-relaxation can be applied to downstream totals \((p_{0,down}, T_{0,down}, Y_{0,down})\)
   fed into the 0D coupling step.
@@ -441,6 +455,7 @@ Example JSON:
 - `throttle.enabled` (default `False`): optional intake throttle boundary.
 - `pipe_prefill.enabled` (default `False`): optional initial pipe state override.
 - `valve_closed_wall_bc.enabled` (default `False`): reflective wall when valve area is near zero.
+- `cp_model` (default `"constant"`): `"constant"` or `"nasa7"` thermally perfect gas.
 
 **Indexing convention:** in the coupled 1D pipe, `U[0]` is the left ghost cell, `U[-1]` is the right ghost cell, and physical cells are `U[1:-1]`. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
 
