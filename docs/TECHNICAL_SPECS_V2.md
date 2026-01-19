@@ -56,6 +56,49 @@ The list is stored under the `convergence_history` key in the result payload.
 | `phase_deg_intake` | `0.0` | Cam phasing offset for intake (degrees). |
 | `phase_deg_exhaust` | `0.0` | Cam phasing offset for exhaust (degrees). |
 
+### 1.3 Transient RPM Sweep (Optional)
+An opt-in sweep mode can approximate a dyno ramp by stepping RPM and running a short
+settle window per point. This does **not** solve each point to full periodic steady
+state; it advances the coupled 0D/1D state with warm-starts to minimize extra cycles.
+
+**Sweep config (defaults off):**
+```yaml
+sweep:
+  enabled: false
+  rpm_start: 3000
+  rpm_end: 9000
+  rpm_step: 250
+  ramp_mode: "step"          # "step" or "linear_time"
+  seconds_per_step: 0.2      # only for linear_time
+  cycles_per_step: 3         # short settle per RPM point
+  carry_state: true          # reuse last converged state
+  record_every_step: true
+  abort_on_fail: false
+```
+
+**Behavior notes:**
+- Initialization happens once at `rpm_start` (pipe prefill remains opt-in).
+- Each RPM point runs exactly `cycles_per_step` cycles; no full steady convergence.
+- `carry_state=true` warm-starts the cylinder + pipe states between RPM points.
+- Each sweep step records `rpm`, `imep`, `torque`, `power`, `trapped_mass`, `ve` (if available),
+  `periodicity_error`, and a `step_index`/`cycle_index` (plus `time_s` in `linear_time` mode).
+- Failures are recorded with `status="failed"` and a `reason` string; execution continues
+  unless `abort_on_fail=true`.
+
+**Minimal JSON example:**
+```json
+{
+  "sweep": {
+    "enabled": true,
+    "rpm_start": 3000,
+    "rpm_end": 6000,
+    "rpm_step": 500,
+    "cycles_per_step": 3,
+    "carry_state": true
+  }
+}
+```
+
 ## 2) 1D Gas Dynamics (Euler + Passive Scalar)
 ### 2.1 State Vector (Conserved)
 \[
