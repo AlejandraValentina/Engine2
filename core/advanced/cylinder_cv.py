@@ -80,6 +80,9 @@ class CylinderControlVolume:
         self.T = max(e_tot / (self.m_total * self.gas_constant / (self.gamma - 1.0)), 1e-6)
         self.p = self.m_total * self.gas_constant * self.T / max(self.V, 1e-12)
 
+    def fresh_air_mass(self) -> float:
+        return self.m_fresh
+
     def apply_combustion(self, dt: float, m_fuel_inj: float, wiebe_fraction: float) -> float:
         m_fuel_burn = min(m_fuel_inj * wiebe_fraction, self.m_fresh / max(self.afr_stoich, 1e-9))
         m_air_consumed = m_fuel_burn * self.afr_stoich

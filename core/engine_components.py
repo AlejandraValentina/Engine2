@@ -223,6 +223,49 @@ class Fuel:
 
 
 @dataclass
+class FuelConfig:
+    enabled: bool = False
+    mode: str = "lambda"
+    lambda_target: float = 1.0
+    afr_target: float = 14.7
+    afr_stoich: float = 14.7
+    lhv_j_per_kg: float = 4.3e7
+    eta_comb: float = 0.98
+    bsfc_units: str = "g_per_kwh"
+    clamp_lambda_min: float = 0.6
+    clamp_lambda_max: float = 2.0
+
+    def to_dict(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "mode": self.mode,
+            "lambda_target": self.lambda_target,
+            "afr_target": self.afr_target,
+            "afr_stoich": self.afr_stoich,
+            "lhv_j_per_kg": self.lhv_j_per_kg,
+            "eta_comb": self.eta_comb,
+            "bsfc_units": self.bsfc_units,
+            "clamp_lambda_min": self.clamp_lambda_min,
+            "clamp_lambda_max": self.clamp_lambda_max,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "FuelConfig":
+        return cls(
+            enabled=data.get("enabled", False),
+            mode=data.get("mode", "lambda"),
+            lambda_target=data.get("lambda_target", 1.0),
+            afr_target=data.get("afr_target", 14.7),
+            afr_stoich=data.get("afr_stoich", 14.7),
+            lhv_j_per_kg=data.get("lhv_j_per_kg", 4.3e7),
+            eta_comb=data.get("eta_comb", 0.98),
+            bsfc_units=data.get("bsfc_units", "g_per_kwh"),
+            clamp_lambda_min=data.get("clamp_lambda_min", 0.6),
+            clamp_lambda_max=data.get("clamp_lambda_max", 2.0),
+        )
+
+
+@dataclass
 class SimulationSettings:
     """Simulation-level tunables such as ignition timing."""
 
@@ -249,6 +292,7 @@ class SimulationSettings:
     exhaust_valve_cd: float = 0.85
     exhaust_valve_area_model: str = "curtain"
     trace_metadata: bool = True
+    fuel: FuelConfig = field(default_factory=FuelConfig)
 
     def to_dict(self) -> dict:
         return {
@@ -275,6 +319,7 @@ class SimulationSettings:
             "exhaust_valve_cd": self.exhaust_valve_cd,
             "exhaust_valve_area_model": self.exhaust_valve_area_model,
             "trace_metadata": self.trace_metadata,
+            "fuel": self.fuel.to_dict(),
         }
 
     @classmethod
@@ -303,6 +348,7 @@ class SimulationSettings:
             exhaust_valve_cd=data.get("exhaust_valve_cd", 0.85),
             exhaust_valve_area_model=data.get("exhaust_valve_area_model", "curtain"),
             trace_metadata=data.get("trace_metadata", True),
+            fuel=FuelConfig.from_dict(data.get("fuel", {})),
         )
 
 
@@ -693,6 +739,25 @@ class Engine:
             _fail("combustion.thermal_efficiency", "Combustion thermal efficiency must be positive")
         if getattr(self.fuel, "energy_density", 0.0) <= 0.0:
             _fail("fuel.energy_density", "Fuel energy density must be positive")
+        fuel_cfg = getattr(self.simulation_settings, "fuel", None)
+        if fuel_cfg is not None and getattr(fuel_cfg, "enabled", False):
+            if getattr(fuel_cfg, "mode", "lambda") not in {"lambda", "afr"}:
+                _fail("simulation_settings.fuel.mode", "Fuel mode must be 'lambda' or 'afr'")
+            if getattr(fuel_cfg, "afr_stoich", 0.0) <= 0.0:
+                _fail("simulation_settings.fuel.afr_stoich", "Fuel AFR stoich must be positive")
+            if getattr(fuel_cfg, "lhv_j_per_kg", 0.0) <= 0.0:
+                _fail("simulation_settings.fuel.lhv_j_per_kg", "Fuel LHV must be positive")
+            if getattr(fuel_cfg, "eta_comb", 0.0) <= 0.0:
+                _fail("simulation_settings.fuel.eta_comb", "Fuel eta_comb must be positive")
+            if getattr(fuel_cfg, "clamp_lambda_min", 0.0) <= 0.0:
+                _fail("simulation_settings.fuel.clamp_lambda_min", "Fuel clamp_lambda_min must be positive")
+            clamp_max = getattr(fuel_cfg, "clamp_lambda_max", 0.0)
+            if clamp_max <= 0.0:
+                _fail("simulation_settings.fuel.clamp_lambda_max", "Fuel clamp_lambda_max must be positive")
+            if clamp_max < getattr(fuel_cfg, "clamp_lambda_min", 0.0):
+                _fail("simulation_settings.fuel.clamp_lambda_max", "Fuel clamp_lambda_max must be >= clamp_lambda_min")
+            if getattr(fuel_cfg, "bsfc_units", "g_per_kwh") != "g_per_kwh":
+                _fail("simulation_settings.fuel.bsfc_units", "Fuel bsfc_units must be 'g_per_kwh'")
         exhaust_cd = getattr(self.simulation_settings, "exhaust_valve_cd", None)
         if exhaust_cd is None:
             exhaust_cd = getattr(self.head, "exhaust_valve_cd", 0.85)
@@ -766,6 +831,7 @@ __all__ = [
     "SimulationSettings",
     "Friction",
     "Fuel",
+    "FuelConfig",
     "Combustion",
     "Engine",
 ]

@@ -17,7 +17,7 @@ from core.advanced.cylinder_cv import CylinderControlVolume, HeatTransferConfig,
 from core.advanced.state import Primitive1D, primitive_to_conserved, stagnation_from_static
 from core.advanced.solver_1d import cfl_dt, conserved_to_primitive, muscl_hancock_step
 from core.advanced.nozzle import nozzle_mass_flow
-from core.engine_components import Throttle
+from core.engine_components import FuelConfig, Throttle
 
 try:
     from core.advanced.solver_1d import reset_guard_counters
@@ -74,6 +74,7 @@ class OrchestratorConfig:
     pipe_prefill: "PipePrefillConfig" = field(default_factory=lambda: PipePrefillConfig())
     valve_closed_wall_bc: "ValveClosedWallBCConfig" = field(default_factory=lambda: ValveClosedWallBCConfig())
     sweep: SweepConfig = field(default_factory=SweepConfig)
+    fuel: FuelConfig = field(default_factory=FuelConfig)
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -113,6 +114,23 @@ class OrchestratorConfig:
                 raise ValueError("sweep.cycles_per_step must be >= 1")
             if self.sweep.ramp_mode == "linear_time" and self.sweep.seconds_per_step <= 0.0:
                 raise ValueError("sweep.seconds_per_step must be positive for linear_time")
+        if self.fuel.enabled:
+            if self.fuel.mode not in ("lambda", "afr"):
+                raise ValueError("fuel.mode must be 'lambda' or 'afr'")
+            if self.fuel.afr_stoich <= 0.0:
+                raise ValueError("fuel.afr_stoich must be positive")
+            if self.fuel.lhv_j_per_kg <= 0.0:
+                raise ValueError("fuel.lhv_j_per_kg must be positive")
+            if self.fuel.eta_comb <= 0.0:
+                raise ValueError("fuel.eta_comb must be positive")
+            if self.fuel.clamp_lambda_min <= 0.0:
+                raise ValueError("fuel.clamp_lambda_min must be positive")
+            if self.fuel.clamp_lambda_max <= 0.0:
+                raise ValueError("fuel.clamp_lambda_max must be positive")
+            if self.fuel.clamp_lambda_max < self.fuel.clamp_lambda_min:
+                raise ValueError("fuel.clamp_lambda_max must be >= clamp_lambda_min")
+            if self.fuel.bsfc_units != "g_per_kwh":
+                raise ValueError("fuel.bsfc_units must be 'g_per_kwh'")
 
 
 @dataclass
@@ -259,6 +277,55 @@ def _state_is_finite(U: np.ndarray, cyl: CylinderControlVolume) -> bool:
             cyl.V,
         )
     )
+
+
+def _fuel_afr_lambda(cfg: FuelConfig) -> tuple[float, float]:
+    if cfg.mode == "lambda":
+        lambda_raw = cfg.lambda_target
+    else:
+        lambda_raw = cfg.afr_target / max(cfg.afr_stoich, 1e-12)
+    lambda_used = min(max(lambda_raw, cfg.clamp_lambda_min), cfg.clamp_lambda_max)
+    afr_used = cfg.afr_stoich * lambda_used
+    return afr_used, lambda_used
+
+
+def _bsfc_g_per_kwh(fuel_flow_kg_s: float, brake_power_w: float, eps: float = 1e-12) -> Optional[float]:
+    if brake_power_w <= eps:
+        return None
+    return (fuel_flow_kg_s * 1e3 * 3600.0) / (brake_power_w / 1000.0)
+
+
+def _compute_fuel_metrics(
+    m_air_fresh_per_cycle_kg: float,
+    rpm: float,
+    indicated_work: float,
+    cfg: FuelConfig,
+    brake_power_w: Optional[float] = None,
+) -> dict:
+    afr_used, lambda_used = _fuel_afr_lambda(cfg)
+    m_fuel_per_cycle_kg = m_air_fresh_per_cycle_kg / max(afr_used, 1e-12)
+    cycles_per_second = rpm / 120.0
+    fuel_flow_kg_s = m_fuel_per_cycle_kg * cycles_per_second
+    fuel_power_w = fuel_flow_kg_s * cfg.lhv_j_per_kg * cfg.eta_comb
+    indicated_power_w = indicated_work * cycles_per_second
+    brake_power_w = indicated_power_w if brake_power_w is None else brake_power_w
+    bsfc = _bsfc_g_per_kwh(fuel_flow_kg_s, brake_power_w)
+    eta_bte = brake_power_w / fuel_power_w if fuel_power_w > 0.0 else None
+    eta_ite = indicated_power_w / fuel_power_w if fuel_power_w > 0.0 else None
+    return {
+        "m_air_fresh_per_cycle_kg": float(m_air_fresh_per_cycle_kg),
+        "lambda_used": float(lambda_used),
+        "afr_used": float(afr_used),
+        "m_fuel_per_cycle_kg": float(m_fuel_per_cycle_kg),
+        "fuel_flow_kg_s": float(fuel_flow_kg_s),
+        "fuel_power_w": float(fuel_power_w),
+        "brake_power_w": float(brake_power_w),
+        "indicated_power_w": float(indicated_power_w),
+        "bsfc_g_per_kwh": float(bsfc) if bsfc is not None else None,
+        "eta_bte": float(eta_bte) if eta_bte is not None else None,
+        "eta_ite": float(eta_ite) if eta_ite is not None else None,
+        "bsfc_units": cfg.bsfc_units,
+    }
 
 
 def _reflective_wall_ghost(
@@ -483,6 +550,8 @@ class Orchestrator:
             "periodicity_metric": [],
             "convergence_history": [],
         }
+        if self.cfg.fuel.enabled:
+            combined["fuel_metrics"] = []
         sweep_results: List[dict] = []
         cycle_offset = 0
         for step_index, rpm in enumerate(rpm_values):
@@ -560,6 +629,10 @@ class Orchestrator:
                 else None,
                 "status": "ok",
             }
+            if self.cfg.fuel.enabled:
+                fuel_tail = step_result.get("fuel_metrics", [])
+                if fuel_tail:
+                    step_summary.update(fuel_tail[-1])
             if sweep_cfg.record_every_step or step_index == len(rpm_values) - 1:
                 sweep_results.append(step_summary)
 
@@ -606,6 +679,7 @@ class Orchestrator:
         trapped_history: List[float] = []
         periodicity_history: List[float] = []
         convergence_history: List[dict] = []
+        fuel_metrics_history: List[dict] = []
 
         omega = rpm * 2.0 * math.pi / 60.0
         dt_theta = math.radians(1.0) / max(omega, 1e-9)
@@ -829,6 +903,16 @@ class Orchestrator:
             periodicity_metric = float(np.linalg.norm(U[1:-1] - U_cycle_start[1:-1]) / denom)
             periodicity_history.append(periodicity_metric)
             imep = indicated_work / max(disp_m3, 1e-12)
+            if self.cfg.fuel.enabled:
+                m_air_fresh = cyl.fresh_air_mass()
+                fuel_metrics_history.append(
+                    _compute_fuel_metrics(
+                        m_air_fresh,
+                        rpm,
+                        indicated_work,
+                        self.cfg.fuel,
+                    )
+                )
             if last_trapped is None:
                 err_trapped = 0.0
             else:
@@ -880,4 +964,6 @@ class Orchestrator:
             "periodicity_metric": periodicity_history,
             "convergence_history": convergence_history,
         }
+        if self.cfg.fuel.enabled:
+            result["fuel_metrics"] = fuel_metrics_history
         return state, result, cycles_run
