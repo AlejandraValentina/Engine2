@@ -27,6 +27,20 @@ except ImportError:  # pragma: no cover - compat for older solver_1d
 
 
 @dataclass
+class SweepConfig:
+    enabled: bool = False
+    rpm_start: float = 3000.0
+    rpm_end: float = 9000.0
+    rpm_step: float = 250.0
+    ramp_mode: str = "step"
+    seconds_per_step: float = 0.2
+    cycles_per_step: int = 3
+    carry_state: bool = True
+    record_every_step: bool = True
+    abort_on_fail: bool = False
+
+
+@dataclass
 class OrchestratorConfig:
     gamma: float = 1.35
     gas_constant: float = 287.0
@@ -59,6 +73,7 @@ class OrchestratorConfig:
     throttle: Throttle = field(default_factory=Throttle)
     pipe_prefill: "PipePrefillConfig" = field(default_factory=lambda: PipePrefillConfig())
     valve_closed_wall_bc: "ValveClosedWallBCConfig" = field(default_factory=lambda: ValveClosedWallBCConfig())
+    sweep: SweepConfig = field(default_factory=SweepConfig)
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -89,6 +104,15 @@ class OrchestratorConfig:
             _validate_prefill_state(self.pipe_prefill.exhaust, "pipe_prefill.exhaust")
         if self.valve_closed_wall_bc.enabled and self.valve_closed_wall_bc.area_eps_m2 <= 0.0:
             raise ValueError("valve_closed_wall_bc.area_eps_m2 must be positive when enabled")
+        if self.sweep.enabled:
+            if self.sweep.ramp_mode not in ("step", "linear_time"):
+                raise ValueError("sweep.ramp_mode must be 'step' or 'linear_time'")
+            if self.sweep.rpm_step <= 0.0:
+                raise ValueError("sweep.rpm_step must be positive")
+            if self.sweep.cycles_per_step < 1:
+                raise ValueError("sweep.cycles_per_step must be >= 1")
+            if self.sweep.ramp_mode == "linear_time" and self.sweep.seconds_per_step <= 0.0:
+                raise ValueError("sweep.seconds_per_step must be positive for linear_time")
 
 
 @dataclass
@@ -111,6 +135,16 @@ class PipePrefillConfig:
 class ValveClosedWallBCConfig:
     enabled: bool = False
     area_eps_m2: float = 1e-7
+
+
+@dataclass
+class _OrchestratorState:
+    U: np.ndarray
+    cyl: CylinderControlVolume
+    rho0: float
+    p0: float
+    T0: float
+    Y_init: float
 
 
 def _validate_prefill_state(state: PipePrefillState, label: str) -> None:
@@ -152,6 +186,79 @@ def _init_pipe_state(
     U[0] = U[1]
     U[-1] = U[-2]
     return U, rho0, p0, T0, Y_init
+
+
+def _build_initial_state(cfg: OrchestratorConfig, pipe_cells: int, clearance_m3: float) -> _OrchestratorState:
+    U, rho0, p0, T0, Y_init = _init_pipe_state(cfg, pipe_cells)
+    cyl = CylinderControlVolume(
+        m_total=rho0 * clearance_m3,
+        m_fresh=rho0 * clearance_m3,
+        T=T0,
+        p=p0,
+        V=clearance_m3,
+        gamma=cfg.gamma,
+        gas_constant=cfg.gas_constant,
+        heat_transfer=cfg.heat_transfer,
+    )
+    return _OrchestratorState(U=U, cyl=cyl, rho0=rho0, p0=p0, T0=T0, Y_init=Y_init)
+
+
+def _clone_state(state: _OrchestratorState, cfg: OrchestratorConfig) -> _OrchestratorState:
+    cyl = CylinderControlVolume(
+        m_total=state.cyl.m_total,
+        m_fresh=state.cyl.m_fresh,
+        T=state.cyl.T,
+        p=state.cyl.p,
+        V=state.cyl.V,
+        gamma=cfg.gamma,
+        gas_constant=cfg.gas_constant,
+        heat_transfer=state.cyl.heat_transfer,
+    )
+    return _OrchestratorState(
+        U=state.U.copy(),
+        cyl=cyl,
+        rho0=state.rho0,
+        p0=state.p0,
+        T0=state.T0,
+        Y_init=state.Y_init,
+    )
+
+
+def _build_rpm_grid(cfg: SweepConfig) -> List[float]:
+    rpm_start = float(cfg.rpm_start)
+    rpm_end = float(cfg.rpm_end)
+    step = float(cfg.rpm_step)
+    if step <= 0.0:
+        raise ValueError("sweep.rpm_step must be positive")
+    direction = 1.0 if rpm_end >= rpm_start else -1.0
+    step *= direction
+    values: List[float] = []
+    rpm = rpm_start
+    while True:
+        values.append(rpm)
+        if (direction > 0.0 and rpm >= rpm_end) or (direction < 0.0 and rpm <= rpm_end):
+            break
+        rpm_next = rpm + step
+        if (direction > 0.0 and rpm_next > rpm_end) or (direction < 0.0 and rpm_next < rpm_end):
+            rpm = rpm_end
+        else:
+            rpm = rpm_next
+    return values
+
+
+def _state_is_finite(U: np.ndarray, cyl: CylinderControlVolume) -> bool:
+    if not np.isfinite(U).all():
+        return False
+    return all(
+        math.isfinite(val)
+        for val in (
+            cyl.m_total,
+            cyl.m_fresh,
+            cyl.T,
+            cyl.p,
+            cyl.V,
+        )
+    )
 
 
 def _reflective_wall_ghost(
@@ -291,21 +398,206 @@ class Orchestrator:
     ) -> Dict[str, List[float]]:
         reset_guard_counters()
         reset_ghost_counters()
+        if self.cfg.sweep.enabled:
+            return self._run_sweep(
+                pipe_cells,
+                pipe_length_m,
+                pipe_diameter_m,
+                bore_m,
+                stroke_m,
+                conrod_m,
+                clearance_m3,
+                valve,
+                junction_totals,
+            )
+        return self._run_steady(
+            rpm,
+            pipe_cells,
+            pipe_length_m,
+            pipe_diameter_m,
+            bore_m,
+            stroke_m,
+            conrod_m,
+            clearance_m3,
+            valve,
+            junction_totals,
+        )
+
+    def _run_steady(
+        self,
+        rpm: float,
+        pipe_cells: int,
+        pipe_length_m: float,
+        pipe_diameter_m: float,
+        bore_m: float,
+        stroke_m: float,
+        conrod_m: float,
+        clearance_m3: float,
+        valve: ValveTiming,
+        junction_totals: Optional[Tuple[float, float, float]],
+    ) -> Dict[str, List[float]]:
+        _, result, _ = self._run_cycles(
+            rpm,
+            pipe_cells,
+            pipe_length_m,
+            pipe_diameter_m,
+            bore_m,
+            stroke_m,
+            conrod_m,
+            clearance_m3,
+            valve,
+            junction_totals,
+            max_cycles=self.cfg.max_cycles,
+            convergence_enabled=True,
+            state=None,
+            cycle_offset=0,
+            sweep_step=None,
+            sweep_rpm=None,
+            check_finite=False,
+        )
+        return result
+
+    def _run_sweep(
+        self,
+        pipe_cells: int,
+        pipe_length_m: float,
+        pipe_diameter_m: float,
+        bore_m: float,
+        stroke_m: float,
+        conrod_m: float,
+        clearance_m3: float,
+        valve: ValveTiming,
+        junction_totals: Optional[Tuple[float, float, float]],
+    ) -> Dict[str, List[float]]:
+        sweep_cfg = self.cfg.sweep
+        rpm_values = _build_rpm_grid(sweep_cfg)
+        disp_m3 = math.pi * (bore_m * 0.5) ** 2 * stroke_m
+        base_state = _build_initial_state(self.cfg, pipe_cells, clearance_m3)
+        state = _clone_state(base_state, self.cfg)
+        combined = {
+            "angle_deg": [],
+            "pressure": [],
+            "ve": [],
+            "trapped_mass": [],
+            "indicated_work": [],
+            "periodicity_metric": [],
+            "convergence_history": [],
+        }
+        sweep_results: List[dict] = []
+        cycle_offset = 0
+        for step_index, rpm in enumerate(rpm_values):
+            if not sweep_cfg.carry_state:
+                state = _clone_state(base_state, self.cfg)
+            try:
+                state, step_result, cycles_run = self._run_cycles(
+                    rpm,
+                    pipe_cells,
+                    pipe_length_m,
+                    pipe_diameter_m,
+                    bore_m,
+                    stroke_m,
+                    conrod_m,
+                    clearance_m3,
+                    valve,
+                    junction_totals,
+                    max_cycles=sweep_cfg.cycles_per_step,
+                    convergence_enabled=False,
+                    state=state,
+                    cycle_offset=cycle_offset,
+                    sweep_step=step_index,
+                    sweep_rpm=rpm,
+                    check_finite=True,
+                )
+                cycle_offset += cycles_run
+            except Exception as exc:  # pragma: no cover - defensive in sweep mode
+                step_summary = {
+                    "rpm": float(rpm),
+                    "imep": None,
+                    "torque": None,
+                    "power": None,
+                    "trapped_mass": None,
+                    "ve": None,
+                    "periodicity_error": None,
+                    "step_index": int(step_index),
+                    "cycle_index": None,
+                    "time_s": float(step_index * sweep_cfg.seconds_per_step)
+                    if sweep_cfg.ramp_mode == "linear_time"
+                    else None,
+                    "status": "failed",
+                    "reason": str(exc),
+                }
+                if sweep_cfg.record_every_step or step_index == len(rpm_values) - 1:
+                    sweep_results.append(step_summary)
+                if sweep_cfg.abort_on_fail:
+                    break
+                state = _clone_state(base_state, self.cfg)
+                continue
+
+            for key in combined:
+                combined[key].extend(step_result.get(key, []))
+
+            cycle_index = cycle_offset - 1 if cycles_run > 0 else None
+            indicated_work = step_result["indicated_work"][-1] if step_result["indicated_work"] else 0.0
+            imep = indicated_work / max(disp_m3, 1e-12)
+            torque = indicated_work / (2.0 * math.pi)
+            omega = rpm * 2.0 * math.pi / 60.0
+            power = torque * omega
+            trapped_mass = step_result["trapped_mass"][-1] if step_result["trapped_mass"] else 0.0
+            ve_value = max(step_result["ve"]) if step_result["ve"] else None
+            periodicity_error = step_result["periodicity_metric"][-1] if step_result["periodicity_metric"] else None
+            step_summary = {
+                "rpm": float(rpm),
+                "imep": float(imep),
+                "torque": float(torque),
+                "power": float(power),
+                "trapped_mass": float(trapped_mass),
+                "ve": float(ve_value) if ve_value is not None else None,
+                "periodicity_error": float(periodicity_error) if periodicity_error is not None else None,
+                "step_index": int(step_index),
+                "cycle_index": int(cycle_index) if cycle_index is not None else None,
+                "time_s": float(step_index * sweep_cfg.seconds_per_step)
+                if sweep_cfg.ramp_mode == "linear_time"
+                else None,
+                "status": "ok",
+            }
+            if sweep_cfg.record_every_step or step_index == len(rpm_values) - 1:
+                sweep_results.append(step_summary)
+
+        combined["sweep_results"] = sweep_results
+        return combined
+
+    def _run_cycles(
+        self,
+        rpm: float,
+        pipe_cells: int,
+        pipe_length_m: float,
+        pipe_diameter_m: float,
+        bore_m: float,
+        stroke_m: float,
+        conrod_m: float,
+        clearance_m3: float,
+        valve: ValveTiming,
+        junction_totals: Optional[Tuple[float, float, float]],
+        *,
+        max_cycles: int,
+        convergence_enabled: bool,
+        state: Optional[_OrchestratorState],
+        cycle_offset: int,
+        sweep_step: Optional[int],
+        sweep_rpm: Optional[float],
+        check_finite: bool,
+    ) -> tuple[_OrchestratorState, Dict[str, List[float]], int]:
         dx = pipe_length_m / pipe_cells
         area_face = math.pi * (pipe_diameter_m * 0.5) ** 2
         piston_area = math.pi * (bore_m * 0.5) ** 2
-        U, rho0, p0, T0, Y_init = _init_pipe_state(self.cfg, pipe_cells)
+        if state is None:
+            state = _build_initial_state(self.cfg, pipe_cells, clearance_m3)
 
-        cyl = CylinderControlVolume(
-            m_total=rho0 * clearance_m3,
-            m_fresh=rho0 * clearance_m3,
-            T=T0,
-            p=p0,
-            V=clearance_m3,
-            gamma=self.cfg.gamma,
-            gas_constant=self.cfg.gas_constant,
-            heat_transfer=self.cfg.heat_transfer,
-        )
+        U = state.U
+        cyl = state.cyl
+        rho0 = state.rho0
+        p0 = state.p0
+        T0 = state.T0
 
         angle_history: List[float] = []
         p_history: List[float] = []
@@ -318,13 +610,14 @@ class Orchestrator:
         omega = rpm * 2.0 * math.pi / 60.0
         dt_theta = math.radians(1.0) / max(omega, 1e-9)
         cycle = 0
+        cycles_run = 0
         last_trapped = None
         last_work = None
         last_imep = None
         periodicity_count = 0
         disp_m3 = math.pi * (bore_m * 0.5) ** 2 * stroke_m
 
-        while cycle < self.cfg.max_cycles:
+        while cycle < max_cycles:
             indicated_work = 0.0
             prev_p = None
             prev_V = None
@@ -522,7 +815,7 @@ class Orchestrator:
                     )
                     t_elapsed += dt_step
 
-                angle_history.append(angle_deg + cycle * 720.0)
+                angle_history.append(angle_deg + (cycle_offset + cycle) * 720.0)
                 p_history.append(cyl.p)
                 ve_history.append(cyl.m_fresh / max(rho0 * (math.pi * (bore_m * 0.5) ** 2) * stroke_m, 1e-9))
                 if prev_p is not None and prev_V is not None:
@@ -544,20 +837,27 @@ class Orchestrator:
                 err_imep = 0.0
             else:
                 err_imep = abs(imep - last_imep) / max(abs(last_imep), 1e-9)
-            convergence_history.append(
-                {
-                    "k": int(cycle),
-                    "err_trapped_mass": float(err_trapped),
-                    "err_imep": float(err_imep),
-                    "err_periodicity_1d": float(periodicity_metric),
-                }
-            )
+            entry = {
+                "k": int(cycle_offset + cycle),
+                "err_trapped_mass": float(err_trapped),
+                "err_imep": float(err_imep),
+                "err_periodicity_1d": float(periodicity_metric),
+            }
+            if sweep_step is not None:
+                entry["sweep_step"] = int(sweep_step)
+                entry["sweep_rpm"] = float(sweep_rpm) if sweep_rpm is not None else None
+                entry["sweep_cycle"] = int(cycle)
+            convergence_history.append(entry)
             if periodicity_metric < self.cfg.periodicity_tol:
                 periodicity_count += 1
             else:
                 periodicity_count = 0
 
-            if last_trapped is not None and last_work is not None:
+            cycles_run += 1
+            if check_finite and not _state_is_finite(U, cyl):
+                raise ValueError("Non-finite state detected during sweep step")
+
+            if convergence_enabled and last_trapped is not None and last_work is not None:
                 cv_ok = (
                     abs(trapped_history[-1] - last_trapped) / max(last_trapped, 1e-9) < self.cfg.convergence_tol
                     and abs(work_history[-1] - last_work) / max(abs(last_work), 1e-9) < self.cfg.convergence_tol
@@ -569,7 +869,9 @@ class Orchestrator:
             last_imep = imep
             cycle += 1
 
-        return {
+        state.U = U
+        state.cyl = cyl
+        result = {
             "angle_deg": angle_history,
             "pressure": p_history,
             "ve": ve_history,
@@ -578,3 +880,4 @@ class Orchestrator:
             "periodicity_metric": periodicity_history,
             "convergence_history": convergence_history,
         }
+        return state, result, cycles_run
