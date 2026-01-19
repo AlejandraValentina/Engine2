@@ -99,6 +99,42 @@ sweep:
 }
 ```
 
+### 1.4 Fuel/BSFC (Optional Metrics Layer)
+The fuel/BSFC layer is **accounting only** and does not alter combustion physics,
+heat release, or any Phase-2 coupling contract. When disabled (default), no fuel
+metrics are produced.
+
+**Fuel config (defaults off):**
+```yaml
+fuel:
+  enabled: false
+  mode: "lambda"            # "lambda" or "afr"
+  lambda_target: 1.0
+  afr_target: 14.7
+  afr_stoich: 14.7
+  lhv_j_per_kg: 4.3e7
+  eta_comb: 0.98
+  bsfc_units: "g_per_kwh"
+  clamp_lambda_min: 0.6
+  clamp_lambda_max: 2.0
+```
+
+**Outputs when enabled (per cycle / per sweep step):**
+- `m_air_fresh_per_cycle_kg`
+- `lambda_used`, `afr_used`
+- `m_fuel_per_cycle_kg`, `fuel_flow_kg_s`, `fuel_power_w`
+- `brake_power_w`, `indicated_power_w`
+- `bsfc_g_per_kwh`, `eta_bte`, `eta_ite`
+
+**Minimal JSON example:**
+```json
+{
+  "simulation_settings": {
+    "fuel": { "enabled": true, "mode": "lambda", "lambda_target": 1.0 }
+  }
+}
+```
+
 ## 2) 1D Gas Dynamics (Euler + Passive Scalar)
 ### 2.1 State Vector (Conserved)
 \[
