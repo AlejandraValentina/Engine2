@@ -100,6 +100,8 @@ class OrchestratorConfig:
                 raise ValueError("throttle.body_diam_m must be positive when enabled")
             if self.throttle.area_exponent <= 0.0:
                 raise ValueError("throttle.area_exponent must be positive when enabled")
+            if self.throttle.rate_limit_per_s is not None and self.throttle.rate_limit_per_s < 0.0:
+                raise ValueError("throttle.rate_limit_per_s must be non-negative when enabled")
             if self.throttle.cd <= 0.0:
                 raise ValueError("throttle.cd must be positive when enabled")
         if self.pipe_prefill.enabled:
@@ -174,6 +176,7 @@ class _OrchestratorState:
     T0: float
     Y_init: float
     twall_pipe_k: float
+    throttle_pos: float
 
 
 def _validate_prefill_state(state: PipePrefillState, label: str) -> None:
@@ -286,6 +289,7 @@ def _build_initial_state(cfg: OrchestratorConfig, pipe_cells: int, clearance_m3:
         heat_transfer=cfg.heat_transfer,
     )
     twall_pipe_k = init_wall_temperature(cfg.wall_thermal)
+    throttle_pos = _clamp_throttle_position(cfg.throttle.position)
     return _OrchestratorState(
         U=U,
         cyl=cyl,
@@ -294,6 +298,7 @@ def _build_initial_state(cfg: OrchestratorConfig, pipe_cells: int, clearance_m3:
         T0=T0,
         Y_init=Y_init,
         twall_pipe_k=twall_pipe_k,
+        throttle_pos=throttle_pos,
     )
 
 
@@ -316,6 +321,7 @@ def _clone_state(state: _OrchestratorState, cfg: OrchestratorConfig) -> _Orchest
         T0=state.T0,
         Y_init=state.Y_init,
         twall_pipe_k=state.twall_pipe_k,
+        throttle_pos=state.throttle_pos,
     )
 
 
@@ -479,19 +485,47 @@ def _compute_valve_boundary(
     return mdot, Hdot, Ydot, ghost
 
 
-def _throttle_is_active(throttle: Throttle) -> bool:
+def _throttle_is_active(throttle: Throttle, position: float | None = None) -> bool:
     if not throttle.enabled:
         return False
-    pos = min(max(throttle.position, 0.0), 1.0)
+    pos = _clamp_throttle_position(throttle.position if position is None else position)
     return pos < 1.0
 
 
-def _throttle_area_eff(throttle: Throttle) -> float:
+def _throttle_area_eff(throttle: Throttle, position: float | None = None) -> float:
     if throttle.body_diam_m <= 0.0:
         raise ValueError("throttle.body_diam_m must be positive when enabled")
-    pos = min(max(throttle.position, 0.0), 1.0)
+    pos = _clamp_throttle_position(throttle.position if position is None else position)
+    exponent = _throttle_area_exponent(throttle)
     area_max = math.pi * (throttle.body_diam_m * 0.5) ** 2
-    return throttle.cd * area_max * (pos ** throttle.area_exponent)
+    return throttle.cd * area_max * (pos ** exponent)
+
+
+def _clamp_throttle_position(position: float) -> float:
+    return min(max(position, 0.0), 1.0)
+
+
+def _throttle_area_exponent(throttle: Throttle) -> float:
+    if throttle.safety_clamps:
+        return max(throttle.area_exponent, 1.0)
+    return throttle.area_exponent
+
+
+def _update_throttle_position(
+    prev_position: float,
+    commanded_position: float,
+    dt: float,
+    rate_limit_per_s: float | None,
+) -> float:
+    prev = _clamp_throttle_position(prev_position)
+    commanded = _clamp_throttle_position(commanded_position)
+    if rate_limit_per_s is None or rate_limit_per_s <= 0.0 or dt <= 0.0:
+        return commanded
+    max_delta = rate_limit_per_s * dt
+    delta = commanded - prev
+    if abs(delta) <= max_delta:
+        return commanded
+    return prev + math.copysign(max_delta, delta)
 
 
 def _relax_downstream_totals(
@@ -750,6 +784,7 @@ class Orchestrator:
         p0 = state.p0
         T0 = state.T0
         twall_pipe_k = state.twall_pipe_k
+        throttle_pos = state.throttle_pos
 
         angle_history: List[float] = []
         p_history: List[float] = []
@@ -860,10 +895,19 @@ class Orchestrator:
                     A_wet=A_wet,
                 )
 
-                throttle_active = self.cfg.pipe_role == "intake" and _throttle_is_active(self.cfg.throttle)
+                throttle_pos = _update_throttle_position(
+                    throttle_pos,
+                    self.cfg.throttle.position,
+                    dt_theta,
+                    self.cfg.throttle.rate_limit_per_s,
+                )
+                throttle_active = self.cfg.pipe_role == "intake" and _throttle_is_active(
+                    self.cfg.throttle,
+                    throttle_pos,
+                )
                 throttle_ghost = None
                 if throttle_active:
-                    area_eff_throttle = _throttle_area_eff(self.cfg.throttle)
+                    area_eff_throttle = _throttle_area_eff(self.cfg.throttle, throttle_pos)
                     prim_out = conserved_to_primitive(U[[-2]], self.cfg.gamma, self.cfg.gas_constant)[0]
                     p_pipe_out = prim_out[2]
                     T_pipe_out = prim_out[3]
@@ -1045,6 +1089,7 @@ class Orchestrator:
         state.U = U
         state.cyl = cyl
         state.twall_pipe_k = twall_pipe_k
+        state.throttle_pos = throttle_pos
         result = {
             "angle_deg": angle_history,
             "pressure": p_history,

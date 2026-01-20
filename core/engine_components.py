@@ -611,6 +611,8 @@ class Throttle:
     body_diam_m: float = 0.0
     cd: float = 1.0
     area_exponent: float = 2.0
+    rate_limit_per_s: float | None = None
+    safety_clamps: bool = False
     p0_amb_Pa: float | None = None
     T0_amb_K: float | None = None
     Y0_amb: float | None = None
@@ -622,6 +624,8 @@ class Throttle:
             "body_diam_m": self.body_diam_m,
             "cd": self.cd,
             "area_exponent": self.area_exponent,
+            "rate_limit_per_s": self.rate_limit_per_s,
+            "safety_clamps": self.safety_clamps,
             "p0_amb_Pa": self.p0_amb_Pa,
             "T0_amb_K": self.T0_amb_K,
             "Y0_amb": self.Y0_amb,
@@ -629,12 +633,15 @@ class Throttle:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Throttle":
+        rate_limit = data.get("rate_limit_per_s")
         return cls(
             enabled=bool(data.get("enabled", False)),
             position=float(data.get("position", 1.0)),
             body_diam_m=float(data.get("body_diam_m", 0.0)),
             cd=float(data.get("cd", 1.0)),
             area_exponent=float(data.get("area_exponent", 2.0)),
+            rate_limit_per_s=float(rate_limit) if rate_limit is not None else None,
+            safety_clamps=bool(data.get("safety_clamps", False)),
             p0_amb_Pa=data.get("p0_amb_Pa"),
             T0_amb_K=data.get("T0_amb_K"),
             Y0_amb=data.get("Y0_amb"),

@@ -511,12 +511,16 @@ Example JSON (enable junction capacitance):
   - `throttle.body_diam_m` (required when enabled)
   - `throttle.cd` (default `1.0`)
   - `throttle.area_exponent` (default `2.0`)
+  - `throttle.rate_limit_per_s` (optional, default `null`): max position change per second
+  - `throttle.safety_clamps` (optional, default `False`)
   - Optional ambient totals: `throttle.p0_amb_Pa`, `throttle.T0_amb_K`, `throttle.Y0_amb`
 - Effective area:
   - \(A_{max} = \pi D^2/4\)
   - \(A_{eff} = C_d A_{max} \cdot \mathrm{clamp}(pos,0,1)^{n}\)
 - Boundary behavior follows the Phase-2 nozzle contract (direction by stagnation totals + hysteresis).
 - Enables part-throttle pumping losses without altering core coupling contracts.
+- If `rate_limit_per_s` is set, the commanded position is filtered with a first-order slew limiter.
+- If `safety_clamps` is enabled, position is clamped to \([0,1]\) and `area_exponent` is clamped to \(\ge 1\).
 
 Example JSON:
 ```json
@@ -527,6 +531,21 @@ Example JSON:
     "body_diam_m": 0.06,
     "area_exponent": 2.0,
     "cd": 1.0
+  }
+}
+```
+
+Example JSON (rate limit + clamps):
+```json
+{
+  "throttle": {
+    "enabled": true,
+    "position": 0.4,
+    "body_diam_m": 0.06,
+    "area_exponent": 2.0,
+    "cd": 1.0,
+    "rate_limit_per_s": 3.0,
+    "safety_clamps": true
   }
 }
 ```
