@@ -576,6 +576,32 @@ Example JSON:
 }
 ```
 
+### 4.9 Wall Thermal (Optional)
+- Optional lumped-capacitance wall temperature for pipe/junction heat transfer.
+- Wall state evolves as:
+  \[
+  \frac{dT_{wall}}{dt} = \frac{hA\,(T_{gas} - T_{wall})}{m_{wall} c_{p,wall}}
+  \]
+- When enabled, heat transfer uses the dynamic \(T_{wall}\) instead of a fixed wall temperature.
+
+Example JSON:
+```json
+{
+  "simulation_settings": {
+    "wall_thermal": {
+      "enabled": true,
+      "m_wall_kg": 2.0,
+      "cp_wall_j_per_kgk": 500.0,
+      "h_w_per_m2k": 50.0,
+      "area_m2": 0.25,
+      "twall_init_k": 450.0,
+      "twall_min_k": 300.0,
+      "twall_max_k": 900.0
+    }
+  }
+}
+```
+
 ### Numerical Stabilization (Optional): Under-relaxation
 - Optional under-relaxation can be applied to downstream totals \((p_{0,down}, T_{0,down}, Y_{0,down})\)
   fed into the 0D coupling step.
@@ -590,6 +616,7 @@ Example JSON:
 - `pipe_prefill.enabled` (default `False`): optional initial pipe state override.
 - `valve_closed_wall_bc.enabled` (default `False`): reflective wall when valve area is near zero.
 - `cp_model` (default `"constant"`): `"constant"` or `"nasa7"` thermally perfect gas.
+- `wall_thermal.enabled` (default `False`): dynamic wall temperature for pipe/junction heat transfer.
 
 **Indexing convention:** in the coupled 1D pipe, `U[0]` is the left ghost cell, `U[-1]` is the right ghost cell, and physical cells are `U[1:-1]`. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
 

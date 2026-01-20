@@ -266,6 +266,43 @@ class FuelConfig:
 
 
 @dataclass
+class WallThermalConfig:
+    enabled: bool = False
+    m_wall_kg: float = 1.0
+    cp_wall_j_per_kgk: float = 500.0
+    h_w_per_m2k: float = 50.0
+    area_m2: float = 1.0
+    twall_init_k: float = 450.0
+    twall_min_k: float = 200.0
+    twall_max_k: float = 1200.0
+
+    def to_dict(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "m_wall_kg": self.m_wall_kg,
+            "cp_wall_j_per_kgk": self.cp_wall_j_per_kgk,
+            "h_w_per_m2k": self.h_w_per_m2k,
+            "area_m2": self.area_m2,
+            "twall_init_k": self.twall_init_k,
+            "twall_min_k": self.twall_min_k,
+            "twall_max_k": self.twall_max_k,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "WallThermalConfig":
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            m_wall_kg=float(data.get("m_wall_kg", 1.0)),
+            cp_wall_j_per_kgk=float(data.get("cp_wall_j_per_kgk", 500.0)),
+            h_w_per_m2k=float(data.get("h_w_per_m2k", 50.0)),
+            area_m2=float(data.get("area_m2", 1.0)),
+            twall_init_k=float(data.get("twall_init_k", 450.0)),
+            twall_min_k=float(data.get("twall_min_k", 200.0)),
+            twall_max_k=float(data.get("twall_max_k", 1200.0)),
+        )
+
+
+@dataclass
 class SimulationSettings:
     """Simulation-level tunables such as ignition timing."""
 
@@ -288,6 +325,7 @@ class SimulationSettings:
     clamp_energy_max: float = 1.0e7  # J/m^3
     enable_heat_transfer_1d: bool = False
     wall_temperature_k: float = 450.0
+    wall_thermal: WallThermalConfig = field(default_factory=WallThermalConfig)
     enable_0d_to_1d_exhaust_coupling: bool = False
     exhaust_valve_cd: float = 0.85
     exhaust_valve_area_model: str = "curtain"
@@ -315,6 +353,7 @@ class SimulationSettings:
             "clamp_energy_max": self.clamp_energy_max,
             "enable_heat_transfer_1d": self.enable_heat_transfer_1d,
             "wall_temperature_k": self.wall_temperature_k,
+            "wall_thermal": self.wall_thermal.to_dict(),
             "enable_0d_to_1d_exhaust_coupling": self.enable_0d_to_1d_exhaust_coupling,
             "exhaust_valve_cd": self.exhaust_valve_cd,
             "exhaust_valve_area_model": self.exhaust_valve_area_model,
@@ -344,6 +383,7 @@ class SimulationSettings:
             clamp_energy_max=data.get("clamp_energy_max", 1.0e7),
             enable_heat_transfer_1d=data.get("enable_heat_transfer_1d", False),
             wall_temperature_k=data.get("wall_temperature_k", 450.0),
+            wall_thermal=WallThermalConfig.from_dict(data.get("wall_thermal", {})),
             enable_0d_to_1d_exhaust_coupling=data.get("enable_0d_to_1d_exhaust_coupling", False),
             exhaust_valve_cd=data.get("exhaust_valve_cd", 0.85),
             exhaust_valve_area_model=data.get("exhaust_valve_area_model", "curtain"),

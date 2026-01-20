@@ -14,10 +14,11 @@ from core.advanced.coupling import (
     reset_ghost_counters,
 )
 from core.advanced.cylinder_cv import CylinderControlVolume, HeatTransferConfig, slider_crank_volume
+from core.advanced.wall_thermal import init_wall_temperature, validate_wall_thermal_config, wall_thermal_step
 from core.advanced.state import Primitive1D, primitive_to_conserved, stagnation_from_static
 from core.advanced.solver_1d import cfl_dt, conserved_to_primitive, muscl_hancock_step
 from core.advanced.nozzle import nozzle_mass_flow
-from core.engine_components import Engine, FuelConfig, Throttle
+from core.engine_components import Engine, FuelConfig, Throttle, WallThermalConfig
 
 try:
     from core.advanced.solver_1d import reset_guard_counters
@@ -75,6 +76,7 @@ class OrchestratorConfig:
     valve_closed_wall_bc: "ValveClosedWallBCConfig" = field(default_factory=lambda: ValveClosedWallBCConfig())
     sweep: SweepConfig = field(default_factory=SweepConfig)
     fuel: FuelConfig = field(default_factory=FuelConfig)
+    wall_thermal: WallThermalConfig = field(default_factory=WallThermalConfig)
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -105,6 +107,7 @@ class OrchestratorConfig:
             _validate_prefill_state(self.pipe_prefill.exhaust, "pipe_prefill.exhaust")
         if self.valve_closed_wall_bc.enabled and self.valve_closed_wall_bc.area_eps_m2 <= 0.0:
             raise ValueError("valve_closed_wall_bc.area_eps_m2 must be positive when enabled")
+        validate_wall_thermal_config(self.wall_thermal)
         if self.sweep.enabled:
             if self.sweep.ramp_mode not in ("step", "linear_time"):
                 raise ValueError("sweep.ramp_mode must be 'step' or 'linear_time'")
@@ -163,6 +166,7 @@ class _OrchestratorState:
     p0: float
     T0: float
     Y_init: float
+    twall_pipe_k: float
 
 
 def _validate_prefill_state(state: PipePrefillState, label: str) -> None:
@@ -206,6 +210,44 @@ def _init_pipe_state(
     return U, rho0, p0, T0, Y_init
 
 
+def _pipe_mean_temperature(U: np.ndarray, gamma: float, gas_constant: float) -> float:
+    prim = conserved_to_primitive(U[1:-1], gamma, gas_constant)
+    rho = prim[:, 0]
+    T = prim[:, 3]
+    mass = float(np.sum(rho))
+    if mass <= 0.0:
+        return float(np.mean(T))
+    return float(np.sum(rho * T) / mass)
+
+
+def _apply_pipe_wall_thermal(
+    U: np.ndarray,
+    dt: float,
+    cfg: WallThermalConfig,
+    twall_k: float,
+    pipe_volume: float,
+    gamma: float,
+    gas_constant: float,
+) -> float:
+    if not cfg.enabled:
+        return twall_k
+    if pipe_volume <= 0.0:
+        raise ValueError("pipe_volume must be positive for wall_thermal")
+
+    T_gas = _pipe_mean_temperature(U, gamma, gas_constant)
+    twall_k, qdot = wall_thermal_step(twall_k, T_gas, dt, cfg)
+    if qdot != 0.0:
+        delta_e = -qdot * dt / pipe_volume
+        U[1:-1, 2] += delta_e
+        rho = U[1:-1, 0]
+        mom = U[1:-1, 1]
+        rho_safe = np.maximum(rho, 1e-12)
+        u = mom / rho_safe
+        kinetic = 0.5 * rho_safe * u * u
+        U[1:-1, 2] = np.maximum(U[1:-1, 2], kinetic + 1e-9)
+    return twall_k
+
+
 def _build_initial_state(cfg: OrchestratorConfig, pipe_cells: int, clearance_m3: float) -> _OrchestratorState:
     U, rho0, p0, T0, Y_init = _init_pipe_state(cfg, pipe_cells)
     cyl = CylinderControlVolume(
@@ -218,7 +260,16 @@ def _build_initial_state(cfg: OrchestratorConfig, pipe_cells: int, clearance_m3:
         gas_constant=cfg.gas_constant,
         heat_transfer=cfg.heat_transfer,
     )
-    return _OrchestratorState(U=U, cyl=cyl, rho0=rho0, p0=p0, T0=T0, Y_init=Y_init)
+    twall_pipe_k = init_wall_temperature(cfg.wall_thermal)
+    return _OrchestratorState(
+        U=U,
+        cyl=cyl,
+        rho0=rho0,
+        p0=p0,
+        T0=T0,
+        Y_init=Y_init,
+        twall_pipe_k=twall_pipe_k,
+    )
 
 
 def _clone_state(state: _OrchestratorState, cfg: OrchestratorConfig) -> _OrchestratorState:
@@ -239,6 +290,7 @@ def _clone_state(state: _OrchestratorState, cfg: OrchestratorConfig) -> _Orchest
         p0=state.p0,
         T0=state.T0,
         Y_init=state.Y_init,
+        twall_pipe_k=state.twall_pipe_k,
     )
 
 
@@ -663,6 +715,7 @@ class Orchestrator:
         dx = pipe_length_m / pipe_cells
         area_face = math.pi * (pipe_diameter_m * 0.5) ** 2
         piston_area = math.pi * (bore_m * 0.5) ** 2
+        pipe_volume = area_face * pipe_length_m
         if state is None:
             state = _build_initial_state(self.cfg, pipe_cells, clearance_m3)
 
@@ -671,6 +724,7 @@ class Orchestrator:
         rho0 = state.rho0
         p0 = state.p0
         T0 = state.T0
+        twall_pipe_k = state.twall_pipe_k
 
         angle_history: List[float] = []
         p_history: List[float] = []
@@ -887,6 +941,16 @@ class Orchestrator:
                         mu=self.cfg.mu,
                         use_numba_1d=self.cfg.use_numba_1d,
                     )
+                    if self.cfg.wall_thermal.enabled:
+                        twall_pipe_k = _apply_pipe_wall_thermal(
+                            U,
+                            dt_step,
+                            self.cfg.wall_thermal,
+                            twall_pipe_k,
+                            pipe_volume,
+                            self.cfg.gamma,
+                            self.cfg.gas_constant,
+                        )
                     t_elapsed += dt_step
 
                 angle_history.append(angle_deg + (cycle_offset + cycle) * 720.0)
@@ -955,6 +1019,7 @@ class Orchestrator:
 
         state.U = U
         state.cyl = cyl
+        state.twall_pipe_k = twall_pipe_k
         result = {
             "angle_deg": angle_history,
             "pressure": p_history,
@@ -1070,6 +1135,7 @@ def run_advanced_single_point(
         pipe_prefill=pipe_prefill,
         valve_closed_wall_bc=wall_bc,
         fuel=engine.simulation_settings.fuel,
+        wall_thermal=engine.simulation_settings.wall_thermal,
     )
     orchestrator = Orchestrator(cfg)
 

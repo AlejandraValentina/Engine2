@@ -4,6 +4,8 @@ import math
 from dataclasses import dataclass
 from typing import Iterable, Tuple
 
+from core.advanced.wall_thermal import init_wall_temperature, validate_wall_thermal_config, wall_thermal_step
+from core.engine_components import WallThermalConfig
 from core.advanced.nozzle import mdot_mag_from_totals
 
 
@@ -88,6 +90,7 @@ class JunctionCapacitance:
         p_init: float = 101325.0,
         T_init: float = 300.0,
         Y_init: float = 0.0,
+        wall_thermal: WallThermalConfig | None = None,
     ) -> None:
         if config.enabled and config.volume_m3 <= 0.0:
             raise ValueError("volume_m3 must be positive when junction capacitance is enabled")
@@ -96,6 +99,8 @@ class JunctionCapacitance:
         self.gas_constant = gas_constant
         self.cp = cp
         self.volume_m3 = max(config.volume_m3, 1e-12)
+        self.wall_thermal = wall_thermal or WallThermalConfig()
+        validate_wall_thermal_config(self.wall_thermal, "junction_capacitance.wall_thermal")
 
         Y_init_clamped = min(max(Y_init, 0.0), 1.0)
         self.m_total = max(p_init * self.volume_m3 / (gas_constant * max(T_init, 1e-6)), 1e-9)
@@ -105,6 +110,7 @@ class JunctionCapacitance:
         self.p = p_init
         self.T = T_init
         self.Y = Y_init_clamped
+        self.twall = init_wall_temperature(self.wall_thermal)
 
     def _cv(self) -> float:
         cv = self.cp - self.gas_constant
@@ -136,8 +142,12 @@ class JunctionCapacitance:
             dE -= flow.mdot * self.cp * flow.T0
             dMY -= flow.mdot * flow.Y0
 
+        qdot_ht = 0.0
+        if self.wall_thermal.enabled:
+            self.twall, qdot_ht = wall_thermal_step(self.twall, self.T, dt, self.wall_thermal)
+
         target_m = self.m_total + dm * dt
-        target_E = self.E_total + dE * dt
+        target_E = self.E_total + dE * dt - qdot_ht * dt
         target_mY = self.mY + dMY * dt
 
         alpha = min(max(self.config.under_relax_alpha, 0.0), 1.0)
