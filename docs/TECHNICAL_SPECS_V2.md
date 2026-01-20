@@ -135,6 +135,61 @@ fuel:
 }
 ```
 
+### 1.5 Auto-Calibration (Optional Tooling)
+Auto-calibration is a **tooling-only** helper that fits a small set of meta parameters
+to match a target dyno curve. It does not alter solver physics or Phase-2 contracts,
+and only runs when explicitly called by a user with `calibration.enabled=true`.
+
+**Calibration config (opt-in):**
+```yaml
+calibration:
+  enabled: true
+  pipe_role: "intake"
+  cycles_per_point: 3
+```
+
+**Meta parameters it can fit:**
+- `brake_model.fmep_pa` (constant FMEP, Pa) or `brake_model.fmep_curve_scale`
+- `simulation_settings.fuel.eta_comb` (combustion efficiency multiplier)
+- `throttle.area_exponent` (only if throttle is enabled)
+
+**Minimal JSON example:**
+```json
+{
+  "calibration": { "enabled": true },
+  "brake_model": { "fmep_pa": 80000.0 },
+  "simulation_settings": {
+    "fuel": { "enabled": true, "mode": "lambda", "lambda_target": 1.0, "eta_comb": 0.98 }
+  },
+  "throttle": { "enabled": true, "area_exponent": 2.0 }
+}
+```
+
+**Python usage snippet:**
+```python
+import json
+from core.calibrator import calibrate_to_curve
+
+with open("presets/v2_full_features_demo.json", "r", encoding="utf-8") as f:
+    base = json.load(f)
+base.setdefault("calibration", {})["enabled"] = True
+base.setdefault("brake_model", {})["fmep_pa"] = 80000.0
+
+target_points = [
+    {"rpm": 3000, "brake_power_w": 80000.0},
+    {"rpm": 4000, "brake_power_w": 95000.0},
+]
+
+result = calibrate_to_curve(
+    base_project_config=base,
+    target_points=target_points,
+    fit={"fmep": True, "eta_comb": True, "throttle_k": False},
+)
+
+with open("calibrated_config.json", "w", encoding="utf-8") as f:
+    json.dump(result["best_config"], f, indent=2)
+```
+
 ## 2) 1D Gas Dynamics (Euler + Passive Scalar)
 ### 2.1 State Vector (Conserved)
 \[
