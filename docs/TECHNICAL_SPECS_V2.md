@@ -535,6 +535,8 @@ Example JSON:
 - Allows setting the initial pipe state for faster convergence.
 - If enabled, physical cells are initialized from the role-specific settings.
 - Defaults when enabled: intake \(Y=1\), exhaust \(Y=0\) with higher \(T\) (e.g., 700 K).
+- If `auto` is enabled, intake uses ambient \(p/T\) and exhaust uses ambient \(p\) with
+  `exhaust_prefill_T_K` for temperature.
 
 Example JSON:
 ```json
@@ -543,6 +545,17 @@ Example JSON:
     "enabled": true,
     "intake": { "p_Pa": 101325.0, "T_K": 300.0, "Y": 1.0 },
     "exhaust": { "p_Pa": 101325.0, "T_K": 700.0, "Y": 0.0 }
+  }
+}
+```
+
+Example JSON (auto defaults):
+```json
+{
+  "pipe_prefill": {
+    "enabled": true,
+    "auto": true,
+    "exhaust_prefill_T_K": 700.0
   }
 }
 ```

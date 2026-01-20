@@ -103,8 +103,11 @@ class OrchestratorConfig:
             if self.throttle.cd <= 0.0:
                 raise ValueError("throttle.cd must be positive when enabled")
         if self.pipe_prefill.enabled:
-            _validate_prefill_state(self.pipe_prefill.intake, "pipe_prefill.intake")
-            _validate_prefill_state(self.pipe_prefill.exhaust, "pipe_prefill.exhaust")
+            if self.pipe_prefill.auto:
+                _validate_prefill_auto(self.pipe_prefill)
+            else:
+                _validate_prefill_state(self.pipe_prefill.intake, "pipe_prefill.intake")
+                _validate_prefill_state(self.pipe_prefill.exhaust, "pipe_prefill.exhaust")
         if self.valve_closed_wall_bc.enabled and self.valve_closed_wall_bc.area_eps_m2 <= 0.0:
             raise ValueError("valve_closed_wall_bc.area_eps_m2 must be positive when enabled")
         validate_wall_thermal_config(self.wall_thermal)
@@ -146,6 +149,10 @@ class PipePrefillState:
 @dataclass
 class PipePrefillConfig:
     enabled: bool = False
+    auto: bool = False
+    auto_amb_p_Pa: float = 101325.0
+    auto_amb_T_K: float = 300.0
+    exhaust_prefill_T_K: float = 700.0
     intake: PipePrefillState = field(default_factory=PipePrefillState)
     exhaust: PipePrefillState = field(
         default_factory=lambda: PipePrefillState(p_Pa=101325.0, T_K=700.0, Y=0.0)
@@ -178,14 +185,32 @@ def _validate_prefill_state(state: PipePrefillState, label: str) -> None:
         raise ValueError(f"{label}.Y must be within [0, 1]")
 
 
+def _validate_prefill_auto(cfg: PipePrefillConfig) -> None:
+    if cfg.auto_amb_p_Pa <= 0.0:
+        raise ValueError("pipe_prefill.auto_amb_p_Pa must be positive")
+    if cfg.auto_amb_T_K <= 0.0:
+        raise ValueError("pipe_prefill.auto_amb_T_K must be positive")
+    if cfg.exhaust_prefill_T_K <= 0.0:
+        raise ValueError("pipe_prefill.exhaust_prefill_T_K must be positive")
+
+
 def _init_pipe_state(
     cfg: OrchestratorConfig, pipe_cells: int
 ) -> tuple[np.ndarray, float, float, float, float]:
     if cfg.pipe_prefill.enabled:
-        state = cfg.pipe_prefill.intake if cfg.pipe_role == "intake" else cfg.pipe_prefill.exhaust
-        p0 = float(state.p_Pa)
-        T0 = float(state.T_K)
-        Y_init = float(state.Y)
+        if cfg.pipe_prefill.auto:
+            p0 = float(cfg.pipe_prefill.auto_amb_p_Pa)
+            if cfg.pipe_role == "intake":
+                T0 = float(cfg.pipe_prefill.auto_amb_T_K)
+                Y_init = 1.0
+            else:
+                T0 = float(cfg.pipe_prefill.exhaust_prefill_T_K)
+                Y_init = 0.0
+        else:
+            state = cfg.pipe_prefill.intake if cfg.pipe_role == "intake" else cfg.pipe_prefill.exhaust
+            p0 = float(state.p_Pa)
+            T0 = float(state.T_K)
+            Y_init = float(state.Y)
         rho0 = p0 / (cfg.gas_constant * max(T0, 1e-9))
     else:
         rho0 = 1.2
@@ -1113,8 +1138,15 @@ def run_advanced_single_point(
     clearance_m3 = area * stroke_m / max(engine.head.compression_ratio - 1.0, 1e-6)
 
     prefill_cfg = project_config.get("pipe_prefill", {})
+    amb_p_pa = float(engine.simulation_settings.air_pressure_bar) * 100000.0
+    amb_T_k = float(engine.simulation_settings.air_temperature_c) + 273.15
+    exhaust_prefill_T = prefill_cfg.get("exhaust_prefill_T_K", prefill_cfg.get("exhaust_prefill_T", 700.0))
     pipe_prefill = PipePrefillConfig(
         enabled=bool(prefill_cfg.get("enabled", False)),
+        auto=bool(prefill_cfg.get("auto", False)),
+        auto_amb_p_Pa=float(prefill_cfg.get("auto_amb_p_Pa", amb_p_pa)),
+        auto_amb_T_K=float(prefill_cfg.get("auto_amb_T_K", amb_T_k)),
+        exhaust_prefill_T_K=float(exhaust_prefill_T),
         intake=PipePrefillState(**prefill_cfg.get("intake", {})),
         exhaust=PipePrefillState(**prefill_cfg.get("exhaust", {})),
     )
