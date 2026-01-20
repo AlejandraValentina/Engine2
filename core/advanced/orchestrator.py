@@ -17,7 +17,7 @@ from core.advanced.cylinder_cv import CylinderControlVolume, HeatTransferConfig,
 from core.advanced.state import Primitive1D, primitive_to_conserved, stagnation_from_static
 from core.advanced.solver_1d import cfl_dt, conserved_to_primitive, muscl_hancock_step
 from core.advanced.nozzle import nozzle_mass_flow
-from core.engine_components import FuelConfig, Throttle
+from core.engine_components import Engine, FuelConfig, Throttle
 
 try:
     from core.advanced.solver_1d import reset_guard_counters
@@ -967,3 +967,185 @@ class Orchestrator:
         if self.cfg.fuel.enabled:
             result["fuel_metrics"] = fuel_metrics_history
         return state, result, cycles_run
+
+
+def _build_valve_timing(engine: Engine, pipe_role: str) -> ValveTiming:
+    cam = engine.camshaft
+    head = engine.head
+    if pipe_role == "intake":
+        lift_m = float(cam.intake_lift) * 1e-3
+        seat_mm = head.intake_valve_diameter_mm or head.intake_valve_diameter
+        open_start = 0.0
+        open_end = open_start + max(float(cam.intake_duration), 1.0)
+        cd = 0.9
+    else:
+        lift_m = float(cam.exhaust_lift) * 1e-3
+        seat_mm = head.exhaust_valve_seat_diameter_mm or head.exhaust_valve_diameter_mm or head.exhaust_valve_diameter
+        open_start = 360.0
+        open_end = open_start + max(float(cam.exhaust_duration), 1.0)
+        cd = float(getattr(engine.simulation_settings, "exhaust_valve_cd", getattr(head, "exhaust_valve_cd", 0.9)))
+    return ValveTiming(
+        open_start_deg=open_start,
+        open_end_deg=open_end,
+        max_lift_m=lift_m,
+        seat_diameter_m=float(seat_mm) * 1e-3,
+        cd=cd,
+    )
+
+
+def _fmep_from_engine(engine: Engine, rpm: float) -> float:
+    f_cfg = engine.friction
+    f_base = getattr(f_cfg, "friction_base_kpa", 35.0) + 5.0
+    f_lin = getattr(f_cfg, "friction_linear_factor", 0.02)
+    f_quad = getattr(f_cfg, "friction_quadratic_factor", 1.8e-6)
+    fmep_kpa = f_base + f_lin * rpm + f_quad * rpm * rpm
+    be_type = (getattr(f_cfg, "bottom_end_type", "Standard") or "Standard").lower()
+    if be_type == "performance":
+        fmep_kpa *= 0.9
+    elif be_type == "race":
+        fmep_kpa *= 0.72
+    fmep_pa = fmep_kpa * 1000.0
+    fmep_pa *= getattr(f_cfg, "global_scaling_factor", 1.0)
+    return float(fmep_pa)
+
+
+def _resolve_fmep_pa(project_config: dict, engine: Engine, rpm: float) -> float:
+    brake_model = project_config.get("brake_model", {})
+    if "fmep_pa" in brake_model:
+        return float(brake_model.get("fmep_pa", 0.0))
+    if "fmep_curve_scale" in brake_model:
+        scale = float(brake_model.get("fmep_curve_scale", 1.0))
+        return max(_fmep_from_engine(engine, rpm) * scale, 0.0)
+    return 0.0
+
+
+def run_advanced_single_point(
+    project_config: dict,
+    rpm: float,
+    *,
+    cycles: int = 3,
+    warm_start_state: Optional[dict] = None,
+) -> tuple[dict, dict]:
+    engine = Engine.from_dict(project_config)
+    calibration_cfg = project_config.get("calibration", {})
+    pipe_role = calibration_cfg.get("pipe_role", "intake")
+    if pipe_role not in ("intake", "exhaust"):
+        raise ValueError("calibration.pipe_role must be 'intake' or 'exhaust'")
+
+    if pipe_role == "intake":
+        pipe_length_m = engine.intake.runner_length * 1e-3
+        pipe_diameter_m = engine.intake.runner_diameter * 1e-3
+        gamma = engine.simulation_settings.gamma_air
+    else:
+        pipe_length_m = engine.exhaust.header_primary_length * 1e-3
+        pipe_diameter_m = engine.exhaust.header_primary_diameter * 1e-3
+        gamma = engine.simulation_settings.gamma_exhaust
+
+    bore_m = engine.block.bore * 1e-3
+    stroke_m = engine.block.stroke * 1e-3
+    conrod_m = engine.block.conrod_length * 1e-3
+    area = math.pi * (bore_m * 0.5) ** 2
+    clearance_m3 = area * stroke_m / max(engine.head.compression_ratio - 1.0, 1e-6)
+
+    prefill_cfg = project_config.get("pipe_prefill", {})
+    pipe_prefill = PipePrefillConfig(
+        enabled=bool(prefill_cfg.get("enabled", False)),
+        intake=PipePrefillState(**prefill_cfg.get("intake", {})),
+        exhaust=PipePrefillState(**prefill_cfg.get("exhaust", {})),
+    )
+    wall_bc = ValveClosedWallBCConfig(**project_config.get("valve_closed_wall_bc", {}))
+
+    cfg = OrchestratorConfig(
+        gamma=float(gamma),
+        gas_constant=float(engine.simulation_settings.gas_constant_R),
+        cp_model=engine.simulation_settings.cp_model,
+        cfl=float(calibration_cfg.get("cfl", 0.5)),
+        dt_max=float(calibration_cfg.get("dt_max", 5e-5)),
+        max_cycles=int(cycles),
+        convergence_tol=0.0,
+        periodicity_tol=0.0,
+        periodicity_required=int(cycles) + 1,
+        pipe_role=pipe_role,
+        throttle=engine.throttle,
+        pipe_prefill=pipe_prefill,
+        valve_closed_wall_bc=wall_bc,
+        fuel=engine.simulation_settings.fuel,
+    )
+    orchestrator = Orchestrator(cfg)
+
+    warm_state = warm_start_state or {}
+    state = warm_state.get("state")
+    cycle_offset = int(warm_state.get("cycle_offset", 0))
+    valve = _build_valve_timing(engine, pipe_role)
+    state, result, cycles_run = orchestrator._run_cycles(
+        rpm=float(rpm),
+        pipe_cells=int(calibration_cfg.get("pipe_cells", 1)),
+        pipe_length_m=pipe_length_m,
+        pipe_diameter_m=pipe_diameter_m,
+        bore_m=bore_m,
+        stroke_m=stroke_m,
+        conrod_m=conrod_m,
+        clearance_m3=clearance_m3,
+        valve=valve,
+        junction_totals=None,
+        max_cycles=int(cycles),
+        convergence_enabled=False,
+        state=state,
+        cycle_offset=cycle_offset,
+        sweep_step=None,
+        sweep_rpm=None,
+        check_finite=True,
+    )
+    next_state = {"state": state, "cycle_offset": cycle_offset + cycles_run}
+
+    indicated_work = result["indicated_work"][-1] if result["indicated_work"] else 0.0
+    disp_per_cyl_m3 = area * stroke_m
+    disp_total_m3 = disp_per_cyl_m3 * engine.block.num_cylinders
+    indicated_work_total = indicated_work * engine.block.num_cylinders
+    indicated_torque_nm = indicated_work_total / (2.0 * math.pi)
+    omega = float(rpm) * 2.0 * math.pi / 60.0
+    indicated_power_w = indicated_torque_nm * omega
+
+    fmep_pa = _resolve_fmep_pa(project_config, engine, float(rpm))
+    friction_torque = fmep_pa * disp_total_m3 / (4.0 * math.pi)
+    brake_torque_nm = max(0.0, indicated_torque_nm - friction_torque)
+    brake_power_w = brake_torque_nm * omega
+    imep_pa = indicated_work / max(disp_per_cyl_m3, 1e-12)
+    bmep_pa = brake_torque_nm * 4.0 * math.pi / max(disp_total_m3, 1e-12)
+
+    ve_value = max(result.get("ve", []), default=0.0)
+    trapped = result["trapped_mass"][-1] if result["trapped_mass"] else 0.0
+    fuel_flow_total = None
+    bsfc = None
+    eta_bte = None
+    eta_ite = None
+    if cfg.fuel.enabled and result.get("fuel_metrics"):
+        fuel_last = result["fuel_metrics"][-1]
+        afr_used = fuel_last.get("afr_used")
+        m_air_fresh = fuel_last.get("m_air_fresh_per_cycle_kg", 0.0)
+        m_fuel_per_cycle = m_air_fresh / max(float(afr_used or 0.0), 1e-12)
+        cycles_per_second = float(rpm) / 120.0
+        fuel_flow_total = m_fuel_per_cycle * cycles_per_second * engine.block.num_cylinders
+        fuel_power = fuel_flow_total * cfg.fuel.lhv_j_per_kg * cfg.fuel.eta_comb
+        bsfc = _bsfc_g_per_kwh(fuel_flow_total, brake_power_w)
+        if fuel_power > 0.0:
+            eta_bte = brake_power_w / fuel_power
+            eta_ite = indicated_power_w / fuel_power
+
+    out = {
+        "rpm": float(rpm),
+        "imep_pa": float(imep_pa),
+        "bmep_pa": float(bmep_pa),
+        "indicated_torque_nm": float(indicated_torque_nm),
+        "indicated_power_w": float(indicated_power_w),
+        "brake_torque_nm": float(brake_torque_nm),
+        "brake_power_w": float(brake_power_w),
+        "trapped_mass": float(trapped),
+        "ve": float(ve_value),
+        "fuel_flow_kg_s": float(fuel_flow_total) if fuel_flow_total is not None else None,
+        "bsfc_g_per_kwh": float(bsfc) if bsfc is not None else None,
+        "eta_bte": float(eta_bte) if eta_bte is not None else None,
+        "eta_ite": float(eta_ite) if eta_ite is not None else None,
+        "raw": result,
+    }
+    return out, next_state
