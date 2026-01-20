@@ -41,7 +41,6 @@ def calibrate_to_curve(
     if _targets_need_fuel(target_points) and not _fuel_enabled(config_base):
         raise ValueError("Fuel targets require simulation_settings.fuel.enabled=true")
 
-    rng = np.random.default_rng(seed)
     bound_cfg = _merge_bounds(bounds)
 
     fmep_param = _fmep_param_name(config_base)
@@ -70,7 +69,6 @@ def calibrate_to_curve(
                 target_points,
                 best_loss,
                 best_preds,
-                rng,
             )
             if best_val != params[key]:
                 improved = True
@@ -99,58 +97,139 @@ def _optimize_param(
     target_points: list[dict],
     best_loss: float,
     best_preds: list[dict] | None,
-    rng: np.random.Generator,
 ) -> tuple[float, float, list[dict] | None]:
     grid = np.linspace(lo, hi, 9)
-    best_val = params[key]
-    candidates = _scan_grid(base_config, params, key, grid, target_points, best_loss)
-    best_loss, best_val, best_preds = _select_best(candidates, rng, best_loss, best_val, best_preds)
-    step = (hi - lo) / 8.0
-    for _ in range(2):
-        local = _local_grid(best_val, step, lo, hi)
-        candidates = _scan_grid(base_config, params, key, local, target_points, best_loss)
-        best_loss, best_val, best_preds = _select_best(candidates, rng, best_loss, best_val, best_preds)
-        step *= 0.5
+    best_val, best_loss, best_preds, grid_cache = _grid_search(
+        base_config,
+        params,
+        key,
+        grid,
+        target_points,
+        best_loss,
+        best_preds,
+        lo,
+        hi,
+    )
+
+    best_idx = int(np.argmin([grid_cache[float(val)][0] for val in grid]))
+    if 0 < best_idx < len(grid) - 1:
+        a = float(grid[best_idx - 1])
+        b = float(grid[best_idx + 1])
+        best_val, best_loss, best_preds = _golden_section_search(
+            base_config,
+            params,
+            key,
+            a,
+            b,
+            target_points,
+            best_val,
+            best_loss,
+            best_preds,
+            lo=lo,
+            hi=hi,
+        )
+
+    rounded = _round_param(key, best_val)
+    if rounded != best_val:
+        best_loss, best_preds = _evaluate_at(base_config, params, key, rounded, target_points, lo, hi)
+        best_val = rounded
     return best_val, best_loss, best_preds
 
 
-def _scan_grid(
+def _grid_search(
     base_config: dict,
     params: dict,
     key: str,
     grid: np.ndarray,
     target_points: list[dict],
     best_loss: float,
-) -> list[tuple[float, float, list[dict]]]:
-    candidates = []
-    for value in grid:
-        trial_params = dict(params)
-        trial_params[key] = float(value)
-        loss, preds = _evaluate_loss(base_config, trial_params, target_points)
-        if loss <= best_loss + 1e-12:
-            candidates.append((loss, float(value), preds))
-    if not candidates:
-        loss, preds = _evaluate_loss(base_config, params, target_points)
-        candidates.append((loss, params[key], preds))
-    return candidates
-
-
-def _select_best(
-    candidates: list[tuple[float, float, list[dict]]],
-    rng: np.random.Generator,
-    best_loss: float,
-    best_val: float,
     best_preds: list[dict] | None,
+    lo: float,
+    hi: float,
+) -> tuple[float, float, list[dict] | None, dict[float, tuple[float, list[dict]]]]:
+    cache: dict[float, tuple[float, list[dict]]] = {}
+    for value in grid:
+        loss, preds = _evaluate_at(base_config, params, key, float(value), target_points, lo, hi)
+        cache[float(value)] = (loss, preds)
+        if loss < best_loss:
+            best_loss = loss
+            best_preds = preds
+    best_val = min(cache, key=lambda val: (cache[val][0], val))
+    best_loss = cache[best_val][0]
+    best_preds = cache[best_val][1]
+    return best_val, best_loss, best_preds, cache
+
+
+def _evaluate_at(
+    base_config: dict,
+    params: dict,
+    key: str,
+    value: float,
+    target_points: list[dict],
+    lo: float | None = None,
+    hi: float | None = None,
+) -> tuple[float, list[dict]]:
+    trial_params = dict(params)
+    if lo is not None and hi is not None:
+        value = min(max(float(value), lo), hi)
+    trial_params[key] = float(value)
+    return _evaluate_loss(base_config, trial_params, target_points)
+
+
+def _golden_section_search(
+    base_config: dict,
+    params: dict,
+    key: str,
+    a: float,
+    b: float,
+    target_points: list[dict],
+    best_val: float,
+    best_loss: float,
+    best_preds: list[dict] | None,
+    max_iter: int = 32,
+    tol: float = 1000.0,
+    lo: float | None = None,
+    hi: float | None = None,
 ) -> tuple[float, float, list[dict] | None]:
-    candidates.sort(key=lambda item: (item[0], item[1]))
-    best_loss = candidates[0][0]
-    best_vals = [item for item in candidates if abs(item[0] - best_loss) <= 1e-12]
-    if len(best_vals) == 1:
-        _, best_val, best_preds = best_vals[0]
-    else:
-        idx = int(rng.integers(0, len(best_vals)))
-        _, best_val, best_preds = best_vals[idx]
-    return best_loss, best_val, best_preds
+    a = float(min(a, b))
+    b = float(max(a, b))
+    if lo is not None and hi is not None:
+        a = min(max(a, lo), hi)
+        b = min(max(b, lo), hi)
+    if abs(b - a) <= tol:
+        return best_val, best_loss, best_preds
+    phi = (1.0 + math.sqrt(5.0)) / 2.0
+    invphi = 1.0 / phi
+    c = b - (b - a) * invphi
+    d = a + (b - a) * invphi
+    f_c, p_c = _evaluate_at(base_config, params, key, c, target_points, lo, hi)
+    f_d, p_d = _evaluate_at(base_config, params, key, d, target_points, lo, hi)
+    if f_c < best_loss:
+        best_loss, best_val, best_preds = f_c, c, p_c
+    if f_d < best_loss:
+        best_loss, best_val, best_preds = f_d, d, p_d
+
+    for _ in range(max_iter):
+        if abs(b - a) <= tol:
+            break
+        if f_c <= f_d:
+            b = d
+            d = c
+            f_d, p_d = f_c, p_c
+            c = b - (b - a) * invphi
+            f_c, p_c = _evaluate_at(base_config, params, key, c, target_points, lo, hi)
+            if f_c < best_loss:
+                best_loss, best_val, best_preds = f_c, c, p_c
+        else:
+            a = c
+            c = d
+            f_c, p_c = f_d, p_d
+            d = a + (b - a) * invphi
+            f_d, p_d = _evaluate_at(base_config, params, key, d, target_points, lo, hi)
+            if f_d < best_loss:
+                best_loss, best_val, best_preds = f_d, d, p_d
+
+    return best_val, best_loss, best_preds
 
 
 def _evaluate_loss(
@@ -298,7 +377,13 @@ def _targets_need_fuel(targets: list[dict]) -> bool:
     return False
 
 
-def _local_grid(center: float, step: float, lo: float, hi: float) -> np.ndarray:
-    values = [center + offset * step for offset in (-2, -1, 0, 1, 2)]
-    clamped = [min(max(val, lo), hi) for val in values]
-    return np.array(sorted(set(clamped)))
+def _round_param(key: str, value: float) -> float:
+    if key == "fmep_pa":
+        return round(value / 100.0) * 100.0
+    if key == "fmep_curve_scale":
+        return round(value, 4)
+    if key == "eta_comb":
+        return round(value, 4)
+    if key == "throttle_exponent":
+        return round(value, 4)
+    return value
