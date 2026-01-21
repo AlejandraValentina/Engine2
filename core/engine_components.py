@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import math
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from core.units import cc_to_m3, mm_to_m
 
@@ -331,6 +331,7 @@ class SimulationSettings:
     exhaust_valve_area_model: str = "curtain"
     trace_metadata: bool = True
     fuel: FuelConfig = field(default_factory=FuelConfig)
+    intake_plenum: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -359,6 +360,7 @@ class SimulationSettings:
             "exhaust_valve_area_model": self.exhaust_valve_area_model,
             "trace_metadata": self.trace_metadata,
             "fuel": self.fuel.to_dict(),
+            "intake_plenum": self.intake_plenum,
         }
 
     @classmethod
@@ -389,6 +391,7 @@ class SimulationSettings:
             exhaust_valve_area_model=data.get("exhaust_valve_area_model", "curtain"),
             trace_metadata=data.get("trace_metadata", True),
             fuel=FuelConfig.from_dict(data.get("fuel", {})),
+            intake_plenum=data.get("intake_plenum", {}),
         )
 
 
