@@ -51,6 +51,7 @@ The list is stored under the `convergence_history` key in the result payload.
 | `initial_Y` | `None` | Override initial scalar (must be within [0,1]). |
 | `combustion.enabled` | `False` | Enable v2.1 composition-dependent combustion. |
 | `heat_transfer.enabled` | `False` | Enable cylinder heat-transfer sink. |
+| `enable_pumping_work` | `False` | Track pumping work (opt-in accounting output). |
 | `coupling_relax_alpha` | `1.0` | Under-relaxation strength for downstream totals. |
 | `coupling_relax_warmup_iters` | `0` | Warmup ramp for under-relaxation. |
 | `phase_deg_intake` | `0.0` | Cam phasing offset for intake (degrees). |
@@ -74,6 +75,9 @@ sweep:
   carry_state: true          # reuse last converged state
   record_every_step: true
   abort_on_fail: false
+  throttle_position_grid: []           # optional list of throttle positions
+  throttle_position_from_load: null    # optional load map (see below)
+  record_part_load_metrics: false
 ```
 
 **Behavior notes:**
@@ -82,6 +86,8 @@ sweep:
 - `carry_state=true` warm-starts the cylinder + pipe states between RPM points.
 - Each sweep step records `rpm`, `imep`, `torque`, `power`, `trapped_mass`, `ve` (if available),
   `periodicity_error`, and a `step_index`/`cycle_index` (plus `time_s` in `linear_time` mode).
+- If `throttle_position_grid` or `throttle_position_from_load` is provided, the throttle
+  position is updated per sweep step and part-load metrics are recorded.
 - Failures are recorded with `status="failed"` and a `reason` string; execution continues
   unless `abort_on_fail=true`.
 
@@ -98,6 +104,35 @@ sweep:
   }
 }
 ```
+
+**Throttle sweep helper examples:**
+```json
+{
+  "sweep": {
+    "enabled": true,
+    "rpm_start": 2000,
+    "rpm_end": 4000,
+    "rpm_step": 500,
+    "throttle_position_grid": [1.0, 0.7, 0.4]
+  }
+}
+```
+
+```json
+{
+  "sweep": {
+    "enabled": true,
+    "rpm_start": 2000,
+    "rpm_end": 4000,
+    "rpm_step": 500,
+    "throttle_position_from_load": {
+      "load_grid": [0.0, 1.0],
+      "position_grid": [0.3, 1.0]
+    }
+  }
+}
+```
+Load is the normalized sweep progress from 0.0 (first step) to 1.0 (last step).
 
 ### 1.4 Fuel/BSFC (Optional Metrics Layer)
 The fuel/BSFC layer is **accounting only** and does not alter combustion physics,
@@ -125,6 +160,12 @@ fuel:
 - `m_fuel_per_cycle_kg`, `fuel_flow_kg_s`, `fuel_power_w`
 - `brake_power_w`, `indicated_power_w`
 - `bsfc_g_per_kwh`, `eta_bte`, `eta_ite`
+
+**Part-load sweep outputs (opt-in):**
+- `map_estimate`: intake MAP estimate (mean intake pipe pressure during intake stroke).
+- `pumping_work`: pumping work per cycle (integral of \(p\,dV\) over intake + exhaust).
+- `brake_power_w`: brake power estimate (falls back to indicated power in the advanced core).
+- `bsfc_g_per_kwh`: fuel consumption per brake power (fuel must be enabled).
 
 **Minimal JSON example:**
 ```json
