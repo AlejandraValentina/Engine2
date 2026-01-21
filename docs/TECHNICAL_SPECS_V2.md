@@ -52,6 +52,7 @@ The list is stored under the `convergence_history` key in the result payload.
 | `combustion.enabled` | `False` | Enable v2.1 composition-dependent combustion. |
 | `heat_transfer.enabled` | `False` | Enable cylinder heat-transfer sink. |
 | `enable_pumping_work` | `False` | Track pumping work (opt-in accounting output). |
+| `simulation_settings.intake_plenum.enabled` | `False` | Optional intake plenum capacitance between throttle and pipe. |
 | `coupling_relax_alpha` | `1.0` | Under-relaxation strength for downstream totals. |
 | `coupling_relax_warmup_iters` | `0` | Warmup ramp for under-relaxation. |
 | `phase_deg_intake` | `0.0` | Cam phasing offset for intake (degrees). |
@@ -620,7 +621,38 @@ Example JSON (auto defaults):
 }
 ```
 
-### 4.7 Valve-Closed Wall BC (Optional)
+### 4.7 Intake Plenum Capacitance (Optional)
+- Optional 0D plenum capacitance between ambient/throttle and the intake pipe inlet.
+- When enabled, flow path is: ambient -> throttle nozzle (if enabled) -> plenum -> pipe inlet nozzle.
+- Plenum update uses:
+  \[
+  \frac{dm}{dt} = \dot{m}_{in} - \dot{m}_{out},\quad
+  \frac{dE}{dt} = \dot{m}_{in}h_{0,in} - \dot{m}_{out}h_{0,out} - \dot{Q}_{ht},\quad
+  \frac{d(mY)}{dt} = \dot{m}_{in}Y_{in} - \dot{m}_{out}Y_{plenum}
+  \]
+- The plenum is treated as a static reservoir (\(u \approx 0\)), so \(p_0 \approx p\) and \(T_0 \approx T\).
+- Floors `p_floor_pa`/`t_floor_k` clamp state updates; `under_relax_alpha` applies only to the plenum \(p/T\) update.
+- \( \dot{Q}_{ht} \) is optional and defaults to zero.
+
+Example JSON:
+```json
+{
+  "simulation_settings": {
+    "intake_plenum": {
+      "enabled": true,
+      "volume_m3": 0.004,
+      "p_init_pa": 101325.0,
+      "t_init_k": 300.0,
+      "y_init": 1.0,
+      "p_floor_pa": 20000.0,
+      "t_floor_k": 200.0,
+      "under_relax_alpha": 1.0
+    }
+  }
+}
+```
+
+### 4.8 Valve-Closed Wall BC (Optional)
 - When enabled and \(A_{eff} < \epsilon\), the valve boundary becomes a reflective wall:
   \(u_g = -u\), \(p_g = p\), \(\rho_g = \rho\), \(Y_g = Y\).
 - Ensures \(\dot{m} \approx 0\) for nearly closed valves without invoking nozzle inversion.
@@ -635,7 +667,7 @@ Example JSON:
 }
 ```
 
-### 4.8 Thermally Perfect Gas (Optional)
+### 4.9 Thermally Perfect Gas (Optional)
 - Enable NASA7-based \(c_p(T)\), \(h(T)\), \(e(T)\), and \(\gamma(T)\).
 - Mixture uses \(Y_{fresh}\) as a blend between fresh air and a burned-gas proxy.
 - \(e(T)\) inversion uses Newton-Raphson with clamped temperature bounds.
@@ -649,7 +681,7 @@ Example JSON:
 }
 ```
 
-### 4.9 Wall Thermal (Optional)
+### 4.10 Wall Thermal (Optional)
 - Optional lumped-capacitance wall temperature for pipe/junction heat transfer.
 - Wall state evolves as:
   \[
@@ -690,6 +722,7 @@ Example JSON:
 - `valve_closed_wall_bc.enabled` (default `False`): reflective wall when valve area is near zero.
 - `cp_model` (default `"constant"`): `"constant"` or `"nasa7"` thermally perfect gas.
 - `wall_thermal.enabled` (default `False`): dynamic wall temperature for pipe/junction heat transfer.
+- `simulation_settings.intake_plenum.enabled` (default `False`): intake plenum capacitance between throttle and pipe.
 
 **Indexing convention:** in the coupled 1D pipe, `U[0]` is the left ghost cell, `U[-1]` is the right ghost cell, and physical cells are `U[1:-1]`. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
 
