@@ -28,6 +28,32 @@ except ImportError:  # pragma: no cover - compat for older solver_1d
 
 
 @dataclass
+class ThrottleLoadMap:
+    load_grid: List[float] = field(default_factory=list)
+    position_grid: List[float] = field(default_factory=list)
+
+    def position_for_load(self, load: float) -> float:
+        if not self.load_grid or not self.position_grid:
+            raise ValueError("throttle_position_from_load requires non-empty grids")
+        if len(self.load_grid) != len(self.position_grid):
+            raise ValueError("throttle_position_from_load grids must match in length")
+        if len(self.load_grid) == 1:
+            return self.position_grid[0]
+
+        load_clamped = min(max(load, self.load_grid[0]), self.load_grid[-1])
+        for idx in range(len(self.load_grid) - 1):
+            lo = self.load_grid[idx]
+            hi = self.load_grid[idx + 1]
+            if hi <= lo:
+                continue
+            if load_clamped <= hi:
+                t = (load_clamped - lo) / (hi - lo)
+                pos = self.position_grid[idx] + t * (self.position_grid[idx + 1] - self.position_grid[idx])
+                return pos
+        return self.position_grid[-1]
+
+
+@dataclass
 class SweepConfig:
     enabled: bool = False
     rpm_start: float = 3000.0
@@ -39,6 +65,9 @@ class SweepConfig:
     carry_state: bool = True
     record_every_step: bool = True
     abort_on_fail: bool = False
+    throttle_position_grid: Optional[List[float]] = None
+    throttle_position_from_load: Optional[ThrottleLoadMap] = None
+    record_part_load_metrics: bool = False
 
 
 @dataclass
@@ -77,6 +106,7 @@ class OrchestratorConfig:
     sweep: SweepConfig = field(default_factory=SweepConfig)
     fuel: FuelConfig = field(default_factory=FuelConfig)
     wall_thermal: WallThermalConfig = field(default_factory=WallThermalConfig)
+    enable_pumping_work: bool = False
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -122,6 +152,7 @@ class OrchestratorConfig:
                 raise ValueError("sweep.cycles_per_step must be >= 1")
             if self.sweep.ramp_mode == "linear_time" and self.sweep.seconds_per_step <= 0.0:
                 raise ValueError("sweep.seconds_per_step must be positive for linear_time")
+        _validate_sweep_throttle(self.sweep)
         if self.fuel.enabled:
             if self.fuel.mode not in ("lambda", "afr"):
                 raise ValueError("fuel.mode must be 'lambda' or 'afr'")
@@ -195,6 +226,39 @@ def _validate_prefill_auto(cfg: PipePrefillConfig) -> None:
         raise ValueError("pipe_prefill.auto_amb_T_K must be positive")
     if cfg.exhaust_prefill_T_K <= 0.0:
         raise ValueError("pipe_prefill.exhaust_prefill_T_K must be positive")
+
+
+def _validate_sweep_throttle(cfg: SweepConfig) -> None:
+    if not cfg.enabled:
+        return
+    grid = cfg.throttle_position_grid
+    load_map = cfg.throttle_position_from_load
+    if grid is not None and load_map is not None:
+        raise ValueError("sweep throttle_position_grid and throttle_position_from_load are mutually exclusive")
+    if grid is not None:
+        _validate_throttle_position_grid(grid)
+    if load_map is not None:
+        _validate_throttle_load_map(load_map)
+
+
+def _validate_throttle_position_grid(grid: List[float]) -> None:
+    if not grid:
+        raise ValueError("sweep throttle_position_grid cannot be empty")
+    for value in grid:
+        if not (0.0 <= float(value) <= 1.0):
+            raise ValueError("sweep throttle_position_grid values must be within [0, 1]")
+
+
+def _validate_throttle_load_map(load_map: ThrottleLoadMap) -> None:
+    if not load_map.load_grid or not load_map.position_grid:
+        raise ValueError("sweep throttle_position_from_load requires non-empty grids")
+    if len(load_map.load_grid) != len(load_map.position_grid):
+        raise ValueError("sweep throttle_position_from_load grids must match in length")
+    if any(load_map.load_grid[i] > load_map.load_grid[i + 1] for i in range(len(load_map.load_grid) - 1)):
+        raise ValueError("sweep throttle_position_from_load load_grid must be non-decreasing")
+    for value in load_map.position_grid:
+        if not (0.0 <= float(value) <= 1.0):
+            raise ValueError("sweep throttle_position_from_load positions must be within [0, 1]")
 
 
 def _init_pipe_state(
@@ -345,6 +409,23 @@ def _build_rpm_grid(cfg: SweepConfig) -> List[float]:
         else:
             rpm = rpm_next
     return values
+
+
+def _sweep_load_fraction(step_index: int, total_steps: int) -> float:
+    if total_steps <= 1:
+        return 0.0
+    return step_index / float(total_steps - 1)
+
+
+def _resolve_sweep_throttle_position(cfg: SweepConfig, step_index: int, total_steps: int) -> Optional[float]:
+    if cfg.throttle_position_grid is not None:
+        grid = cfg.throttle_position_grid
+        index = min(max(step_index, 0), len(grid) - 1)
+        return float(grid[index])
+    if cfg.throttle_position_from_load is not None:
+        load = _sweep_load_fraction(step_index, total_steps)
+        return float(cfg.throttle_position_from_load.position_for_load(load))
+    return None
 
 
 def _state_is_finite(U: np.ndarray, cyl: CylinderControlVolume) -> bool:
@@ -632,6 +713,8 @@ class Orchestrator:
             sweep_step=None,
             sweep_rpm=None,
             check_finite=False,
+            track_pumping_work=self.cfg.enable_pumping_work,
+            track_map=False,
         )
         return result
 
@@ -652,6 +735,13 @@ class Orchestrator:
         disp_m3 = math.pi * (bore_m * 0.5) ** 2 * stroke_m
         base_state = _build_initial_state(self.cfg, pipe_cells, clearance_m3)
         state = _clone_state(base_state, self.cfg)
+        throttle_positions_enabled = self.cfg.throttle.enabled and (
+            sweep_cfg.throttle_position_grid is not None or sweep_cfg.throttle_position_from_load is not None
+        )
+        record_part_load_metrics = sweep_cfg.record_part_load_metrics or throttle_positions_enabled
+        track_pumping_work = self.cfg.enable_pumping_work or record_part_load_metrics
+        track_map = record_part_load_metrics
+        throttle_position_original = self.cfg.throttle.position
         combined = {
             "angle_deg": [],
             "pressure": [],
@@ -668,6 +758,10 @@ class Orchestrator:
         for step_index, rpm in enumerate(rpm_values):
             if not sweep_cfg.carry_state:
                 state = _clone_state(base_state, self.cfg)
+            if throttle_positions_enabled:
+                pos = _resolve_sweep_throttle_position(sweep_cfg, step_index, len(rpm_values))
+                if pos is not None:
+                    self.cfg.throttle.position = _clamp_throttle_position(pos)
             try:
                 state, step_result, cycles_run = self._run_cycles(
                     rpm,
@@ -687,6 +781,8 @@ class Orchestrator:
                     sweep_step=step_index,
                     sweep_rpm=rpm,
                     check_finite=True,
+                    track_pumping_work=track_pumping_work,
+                    track_map=track_map,
                 )
                 cycle_offset += cycles_run
             except Exception as exc:  # pragma: no cover - defensive in sweep mode
@@ -725,6 +821,8 @@ class Orchestrator:
             trapped_mass = step_result["trapped_mass"][-1] if step_result["trapped_mass"] else 0.0
             ve_value = max(step_result["ve"]) if step_result["ve"] else None
             periodicity_error = step_result["periodicity_metric"][-1] if step_result["periodicity_metric"] else None
+            cycles_per_second = rpm / 120.0
+            brake_power_w = indicated_work * cycles_per_second
             step_summary = {
                 "rpm": float(rpm),
                 "imep": float(imep),
@@ -740,6 +838,16 @@ class Orchestrator:
                 else None,
                 "status": "ok",
             }
+            if record_part_load_metrics:
+                step_summary["brake_power_w"] = float(brake_power_w)
+            if track_pumping_work:
+                pump_hist = step_result.get("pumping_work", [])
+                if pump_hist:
+                    step_summary["pumping_work"] = float(pump_hist[-1])
+            if track_map:
+                map_hist = step_result.get("map_estimate", [])
+                if map_hist:
+                    step_summary["map_estimate"] = float(map_hist[-1])
             if self.cfg.fuel.enabled:
                 fuel_tail = step_result.get("fuel_metrics", [])
                 if fuel_tail:
@@ -747,6 +855,7 @@ class Orchestrator:
             if sweep_cfg.record_every_step or step_index == len(rpm_values) - 1:
                 sweep_results.append(step_summary)
 
+        self.cfg.throttle.position = throttle_position_original
         combined["sweep_results"] = sweep_results
         return combined
 
@@ -770,6 +879,8 @@ class Orchestrator:
         sweep_step: Optional[int],
         sweep_rpm: Optional[float],
         check_finite: bool,
+        track_pumping_work: bool = False,
+        track_map: bool = False,
     ) -> tuple[_OrchestratorState, Dict[str, List[float]], int]:
         dx = pipe_length_m / pipe_cells
         area_face = math.pi * (pipe_diameter_m * 0.5) ** 2
@@ -794,6 +905,8 @@ class Orchestrator:
         periodicity_history: List[float] = []
         convergence_history: List[dict] = []
         fuel_metrics_history: List[dict] = []
+        pumping_work_history: List[float] = []
+        map_history: List[float] = []
 
         omega = rpm * 2.0 * math.pi / 60.0
         dt_theta = math.radians(1.0) / max(omega, 1e-9)
@@ -807,8 +920,14 @@ class Orchestrator:
 
         while cycle < max_cycles:
             indicated_work = 0.0
+            pumping_work = 0.0
+            pumping_work_approx = 0.0
+            pumping_samples = 0
+            map_sum = 0.0
+            map_samples = 0
             prev_p = None
             prev_V = None
+            prev_angle = None
             U_cycle_start = U.copy()
             prev_down_totals: Optional[Tuple[float, float, float]] = None
             for step in range(int(720.0 / 1.0)):
@@ -826,6 +945,9 @@ class Orchestrator:
                 Y_pipe = prim_pipe[4]
                 u_pipe = prim_pipe[1]
                 rho_pipe = prim_pipe[0]
+                if track_map and angle_deg < 180:
+                    map_sum += p_pipe
+                    map_samples += 1
                 p0_pipe, T0_pipe = stagnation_from_static(
                     p_pipe,
                     T_pipe,
@@ -875,6 +997,13 @@ class Orchestrator:
                     mdot_out = 0.0
                     Hdot_out = 0.0
                     Ydot_out = 0.0
+                if track_pumping_work:
+                    rho_safe = max(rho_pipe, 1e-9)
+                    delta_p_in = p_pipe - cyl.p
+                    delta_p_out = cyl.p - p_pipe
+                    pumping_work_approx += (
+                        (mdot_in * delta_p_in + mdot_out * delta_p_out) / rho_safe
+                    ) * dt_theta
                 Qdot = combustion_qdot(
                     angle_deg,
                     rpm,
@@ -1026,12 +1155,25 @@ class Orchestrator:
                 p_history.append(cyl.p)
                 ve_history.append(cyl.m_fresh / max(rho0 * (math.pi * (bore_m * 0.5) ** 2) * stroke_m, 1e-9))
                 if prev_p is not None and prev_V is not None:
-                    indicated_work += 0.5 * (prev_p + cyl.p) * (V - prev_V)
+                    work_step = 0.5 * (prev_p + cyl.p) * (V - prev_V)
+                    indicated_work += work_step
+                    if track_pumping_work and prev_angle is not None:
+                        if prev_angle < 180 or prev_angle >= 540:
+                            pumping_work += work_step
+                            pumping_samples += 1
                 prev_p = cyl.p
                 prev_V = V
+                prev_angle = angle_deg
 
             trapped_history.append(cyl.m_fresh)
             work_history.append(indicated_work)
+            if track_pumping_work:
+                if pumping_samples > 0:
+                    pumping_work_history.append(pumping_work)
+                else:
+                    pumping_work_history.append(pumping_work_approx)
+            if track_map:
+                map_history.append(map_sum / map_samples if map_samples > 0 else 0.0)
             denom = max(np.linalg.norm(U_cycle_start[1:-1]), 1e-12)
             periodicity_metric = float(np.linalg.norm(U[1:-1] - U_cycle_start[1:-1]) / denom)
             periodicity_history.append(periodicity_metric)
@@ -1099,6 +1241,10 @@ class Orchestrator:
             "periodicity_metric": periodicity_history,
             "convergence_history": convergence_history,
         }
+        if track_pumping_work:
+            result["pumping_work"] = pumping_work_history
+        if track_map:
+            result["map_estimate"] = map_history
         if self.cfg.fuel.enabled:
             result["fuel_metrics"] = fuel_metrics_history
         return state, result, cycles_run
