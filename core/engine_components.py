@@ -333,6 +333,8 @@ class SimulationSettings:
     fuel: FuelConfig = field(default_factory=FuelConfig)
     intake_plenum: dict[str, Any] = field(default_factory=dict)
     exhaust_plenum: dict[str, Any] = field(default_factory=dict)
+    junction_capacitance: dict[str, Any] = field(default_factory=dict)
+    junction_losses: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -363,6 +365,8 @@ class SimulationSettings:
             "fuel": self.fuel.to_dict(),
             "intake_plenum": self.intake_plenum,
             "exhaust_plenum": self.exhaust_plenum,
+            "junction_capacitance": self.junction_capacitance,
+            "junction_losses": self.junction_losses,
         }
 
     @classmethod
@@ -395,6 +399,8 @@ class SimulationSettings:
             fuel=FuelConfig.from_dict(data.get("fuel", {})),
             intake_plenum=data.get("intake_plenum", {}),
             exhaust_plenum=data.get("exhaust_plenum", {}),
+            junction_capacitance=data.get("junction_capacitance", {}),
+            junction_losses=data.get("junction_losses", {}),
         )
 
 
