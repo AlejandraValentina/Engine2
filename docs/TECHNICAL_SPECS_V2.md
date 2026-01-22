@@ -54,6 +54,8 @@ The list is stored under the `convergence_history` key in the result payload.
 | `enable_pumping_work` | `False` | Track pumping work (opt-in accounting output). |
 | `simulation_settings.intake_plenum.enabled` | `False` | Optional intake plenum capacitance between throttle and pipe. |
 | `simulation_settings.exhaust_plenum.enabled` | `False` | Optional exhaust plenum capacitance between valve and pipe. |
+| `simulation_settings.junction_capacitance.enabled` | `False` | Optional 0D junction capacitance for multi-leg junctions. |
+| `simulation_settings.junction_losses.enabled` | `False` | Optional per-leg K-loss overrides at junctions. |
 | `coupling_relax_alpha` | `1.0` | Under-relaxation strength for downstream totals. |
 | `coupling_relax_warmup_iters` | `0` | Warmup ramp for under-relaxation. |
 | `phase_deg_intake` | `0.0` | Cam phasing offset for intake (degrees). |
@@ -678,7 +680,39 @@ Example JSON:
 }
 ```
 
-### 4.9 Valve-Closed Wall BC (Optional)
+### 4.9 Junction Capacitance v2 (Optional)
+- Optional 0D junction capacitance for multi-leg collectors (e.g., 4→1).
+- Each leg exchanges flow with the junction reservoir (u≈0), filtering pressure spikes.
+- Optional per-leg K-loss reduces |mdot| without flipping direction; totals are not modified by losses.
+
+Example JSON:
+```json
+{
+  "simulation_settings": {
+    "junction_capacitance": {
+      "enabled": true,
+      "volume_m3": 0.003,
+      "p_init_pa": 101325.0,
+      "t_init_k": 700.0,
+      "y_init": 0.0,
+      "p_floor_pa": 20000.0,
+      "t_floor_k": 200.0,
+      "under_relax_alpha": 1.0,
+      "max_dt_s": 1e-4
+    },
+    "junction_losses": {
+      "enabled": true,
+      "default_k": 0.5,
+      "legs": {
+        "leg_a": 1.2,
+        "leg_b": 0.8
+      }
+    }
+  }
+}
+```
+
+### 4.10 Valve-Closed Wall BC (Optional)
 - When enabled and \(A_{eff} < \epsilon\), the valve boundary becomes a reflective wall:
   \(u_g = -u\), \(p_g = p\), \(\rho_g = \rho\), \(Y_g = Y\).
 - Ensures \(\dot{m} \approx 0\) for nearly closed valves without invoking nozzle inversion.
@@ -693,7 +727,7 @@ Example JSON:
 }
 ```
 
-### 4.10 Thermally Perfect Gas (Optional)
+### 4.11 Thermally Perfect Gas (Optional)
 - Enable NASA7-based \(c_p(T)\), \(h(T)\), \(e(T)\), and \(\gamma(T)\).
 - Mixture uses \(Y_{fresh}\) as a blend between fresh air and a burned-gas proxy.
 - \(e(T)\) inversion uses Newton-Raphson with clamped temperature bounds.
@@ -707,7 +741,7 @@ Example JSON:
 }
 ```
 
-### 4.11 Wall Thermal (Optional)
+### 4.12 Wall Thermal (Optional)
 - Optional lumped-capacitance wall temperature for pipe/junction heat transfer.
 - Wall state evolves as:
   \[
@@ -750,6 +784,8 @@ Example JSON:
 - `wall_thermal.enabled` (default `False`): dynamic wall temperature for pipe/junction heat transfer.
 - `simulation_settings.intake_plenum.enabled` (default `False`): intake plenum capacitance between throttle and pipe.
 - `simulation_settings.exhaust_plenum.enabled` (default `False`): exhaust plenum capacitance between valve and pipe.
+- `simulation_settings.junction_capacitance.enabled` (default `False`): optional junction capacitance reservoir.
+- `simulation_settings.junction_losses.enabled` (default `False`): optional per-leg junction K-loss overrides.
 
 **Indexing convention:** in the coupled 1D pipe, `U[0]` is the left ghost cell, `U[-1]` is the right ghost cell, and physical cells are `U[1:-1]`. The downstream static state \((p_{down}, T_{down}, Y_{down})\) is sampled from `U[1]`.
 
