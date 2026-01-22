@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from typing import Union
 
 
 @dataclass
@@ -88,32 +89,103 @@ class IntakePlenumConfig:
         )
 
 
-def validate_plenum_config(cfg: IntakePlenumConfig) -> None:
+@dataclass
+class ExhaustPlenumConfig:
+    enabled: bool = False
+    volume_m3: float = 0.0
+    p_init_pa: float | None = None
+    t_init_k: float | None = None
+    y_init: float = 0.0
+    p_floor_pa: float = 20000.0
+    t_floor_k: float = 200.0
+    under_relax_alpha: float = 1.0
+    apply_to: str = "exhaust_only"
+    heat_transfer: PlenumHeatTransferConfig = field(default_factory=PlenumHeatTransferConfig)
+
+    def to_dict(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "volume_m3": self.volume_m3,
+            "p_init_pa": self.p_init_pa,
+            "t_init_k": self.t_init_k,
+            "y_init": self.y_init,
+            "p_floor_pa": self.p_floor_pa,
+            "t_floor_k": self.t_floor_k,
+            "under_relax_alpha": self.under_relax_alpha,
+            "apply_to": self.apply_to,
+            "heat_transfer": self.heat_transfer.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ExhaustPlenumConfig":
+        p_init_pa = data.get("p_init_pa")
+        if p_init_pa is None and "p_init_Pa" in data:
+            p_init_pa = data.get("p_init_Pa")
+        t_init_k = data.get("t_init_k")
+        if t_init_k is None and "T_init_K" in data:
+            t_init_k = data.get("T_init_K")
+        y_init = data.get("y_init")
+        if y_init is None and "Y_init" in data:
+            y_init = data.get("Y_init")
+        p_floor_pa = data.get("p_floor_pa")
+        if p_floor_pa is None and "p_min_Pa" in data:
+            p_floor_pa = data.get("p_min_Pa")
+        t_floor_k = data.get("t_floor_k")
+        if t_floor_k is None and "T_min_K" in data:
+            t_floor_k = data.get("T_min_K")
+
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            volume_m3=float(data.get("volume_m3", 0.0)),
+            p_init_pa=float(p_init_pa) if p_init_pa is not None else None,
+            t_init_k=float(t_init_k) if t_init_k is not None else None,
+            y_init=float(y_init) if y_init is not None else 0.0,
+            p_floor_pa=float(p_floor_pa) if p_floor_pa is not None else 20000.0,
+            t_floor_k=float(t_floor_k) if t_floor_k is not None else 200.0,
+            under_relax_alpha=float(data.get("under_relax_alpha", 1.0)),
+            apply_to=str(data.get("apply_to", "exhaust_only")),
+            heat_transfer=PlenumHeatTransferConfig.from_dict(data.get("heat_transfer", {})),
+        )
+
+
+PlenumConfig = Union[IntakePlenumConfig, ExhaustPlenumConfig]
+
+
+def _plenum_label(cfg: PlenumConfig) -> str:
+    if isinstance(cfg, ExhaustPlenumConfig):
+        return "exhaust_plenum"
+    return "intake_plenum"
+
+
+def validate_plenum_config(cfg: PlenumConfig, label: str = "intake_plenum") -> None:
     if not cfg.enabled:
         return
     if cfg.volume_m3 <= 0.0:
-        raise ValueError("intake_plenum.volume_m3 must be positive when enabled")
+        raise ValueError(f"{label}.volume_m3 must be positive when enabled")
     if cfg.p_init_pa is not None and cfg.p_init_pa <= 0.0:
-        raise ValueError("intake_plenum.p_init_pa must be positive when provided")
+        raise ValueError(f"{label}.p_init_pa must be positive when provided")
     if cfg.t_init_k is not None and cfg.t_init_k <= 0.0:
-        raise ValueError("intake_plenum.t_init_k must be positive when provided")
+        raise ValueError(f"{label}.t_init_k must be positive when provided")
     if not (0.0 <= cfg.y_init <= 1.0):
-        raise ValueError("intake_plenum.y_init must be within [0, 1]")
+        raise ValueError(f"{label}.y_init must be within [0, 1]")
     if cfg.p_floor_pa <= 0.0:
-        raise ValueError("intake_plenum.p_floor_pa must be positive")
+        raise ValueError(f"{label}.p_floor_pa must be positive")
     if cfg.t_floor_k <= 0.0:
-        raise ValueError("intake_plenum.t_floor_k must be positive")
+        raise ValueError(f"{label}.t_floor_k must be positive")
     if cfg.under_relax_alpha < 0.0:
-        raise ValueError("intake_plenum.under_relax_alpha must be non-negative")
+        raise ValueError(f"{label}.under_relax_alpha must be non-negative")
+    apply_to = getattr(cfg, "apply_to", None)
+    if apply_to is not None and apply_to != "exhaust_only":
+        raise ValueError(f"{label}.apply_to must be 'exhaust_only'")
     if cfg.heat_transfer.enabled:
         if cfg.heat_transfer.h_w_per_m2k <= 0.0:
-            raise ValueError("intake_plenum.heat_transfer.h_w_per_m2k must be positive when enabled")
+            raise ValueError(f"{label}.heat_transfer.h_w_per_m2k must be positive when enabled")
         if cfg.heat_transfer.area_m2 <= 0.0:
-            raise ValueError("intake_plenum.heat_transfer.area_m2 must be positive when enabled")
+            raise ValueError(f"{label}.heat_transfer.area_m2 must be positive when enabled")
         if cfg.heat_transfer.wall_temp_k <= 0.0:
-            raise ValueError("intake_plenum.heat_transfer.wall_temp_k must be positive when enabled")
+            raise ValueError(f"{label}.heat_transfer.wall_temp_k must be positive when enabled")
         if cfg.heat_transfer.clamp_qdot <= 0.0:
-            raise ValueError("intake_plenum.heat_transfer.clamp_qdot must be positive when enabled")
+            raise ValueError(f"{label}.heat_transfer.clamp_qdot must be positive when enabled")
 
 
 @dataclass
@@ -133,7 +205,7 @@ def _cv_from_cp(cp: float, gas_constant: float) -> float:
     return cv
 
 
-def _min_mass(cfg: IntakePlenumConfig, volume_m3: float, gas_constant: float) -> float:
+def _min_mass(cfg: PlenumConfig, volume_m3: float, gas_constant: float) -> float:
     t_floor = max(cfg.t_floor_k, 1e-6)
     return max(1e-9, cfg.p_floor_pa * volume_m3 / (gas_constant * t_floor))
 
@@ -150,7 +222,7 @@ def _heat_transfer_qdot(cfg: PlenumHeatTransferConfig, T_gas: float) -> float:
 
 
 def init_plenum_state_from_config(
-    cfg: IntakePlenumConfig,
+    cfg: PlenumConfig,
     gas_constant: float,
     cp: float,
     gamma: float,
@@ -162,7 +234,7 @@ def init_plenum_state_from_config(
     t_init_override: float | None = None,
     y_init_override: float | None = None,
 ) -> PlenumState:
-    validate_plenum_config(cfg)
+    validate_plenum_config(cfg, label=_plenum_label(cfg))
     _ = gamma
 
     p_init = p_init_override
@@ -196,7 +268,7 @@ def init_plenum_state_from_config(
 
 def update_plenum_state(
     state: PlenumState,
-    cfg: IntakePlenumConfig,
+    cfg: PlenumConfig,
     gas_constant: float,
     cp: float,
     volume_m3: float,
@@ -261,7 +333,7 @@ def update_plenum_state(
 class PlenumControlVolume:
     def __init__(
         self,
-        config: IntakePlenumConfig,
+        config: PlenumConfig,
         gas_constant: float,
         cp: float,
         gamma: float,
@@ -273,7 +345,7 @@ class PlenumControlVolume:
         T_init: float | None = None,
         Y_init: float | None = None,
     ) -> None:
-        validate_plenum_config(config)
+        validate_plenum_config(config, label=_plenum_label(config))
         self.config = config
         self.gas_constant = gas_constant
         self.cp = cp

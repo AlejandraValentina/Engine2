@@ -14,7 +14,12 @@ from core.advanced.coupling import (
     reset_ghost_counters,
 )
 from core.advanced.cylinder_cv import CylinderControlVolume, HeatTransferConfig, slider_crank_volume
-from core.advanced.plenum_cv import IntakePlenumConfig, PlenumControlVolume, validate_plenum_config
+from core.advanced.plenum_cv import (
+    ExhaustPlenumConfig,
+    IntakePlenumConfig,
+    PlenumControlVolume,
+    validate_plenum_config,
+)
 from core.advanced.wall_thermal import init_wall_temperature, validate_wall_thermal_config, wall_thermal_step
 from core.advanced.state import Primitive1D, primitive_to_conserved, stagnation_from_static
 from core.advanced.solver_1d import cfl_dt, conserved_to_primitive, muscl_hancock_step
@@ -105,6 +110,7 @@ class OrchestratorConfig:
     pipe_prefill: "PipePrefillConfig" = field(default_factory=lambda: PipePrefillConfig())
     valve_closed_wall_bc: "ValveClosedWallBCConfig" = field(default_factory=lambda: ValveClosedWallBCConfig())
     intake_plenum: IntakePlenumConfig = field(default_factory=IntakePlenumConfig)
+    exhaust_plenum: ExhaustPlenumConfig = field(default_factory=ExhaustPlenumConfig)
     sweep: SweepConfig = field(default_factory=SweepConfig)
     fuel: FuelConfig = field(default_factory=FuelConfig)
     wall_thermal: WallThermalConfig = field(default_factory=WallThermalConfig)
@@ -145,7 +151,8 @@ class OrchestratorConfig:
         if self.valve_closed_wall_bc.enabled and self.valve_closed_wall_bc.area_eps_m2 <= 0.0:
             raise ValueError("valve_closed_wall_bc.area_eps_m2 must be positive when enabled")
         validate_wall_thermal_config(self.wall_thermal)
-        validate_plenum_config(self.intake_plenum)
+        validate_plenum_config(self.intake_plenum, label="intake_plenum")
+        validate_plenum_config(self.exhaust_plenum, label="exhaust_plenum")
         if self.sweep.enabled:
             if self.sweep.ramp_mode not in ("step", "linear_time"):
                 raise ValueError("sweep.ramp_mode must be 'step' or 'linear_time'")
@@ -212,6 +219,7 @@ class _OrchestratorState:
     twall_pipe_k: float
     throttle_pos: float
     plenum: Optional[PlenumControlVolume]
+    exhaust_plenum: Optional[PlenumControlVolume]
 
 
 def _validate_prefill_state(state: PipePrefillState, label: str) -> None:
@@ -314,6 +322,10 @@ def _resolve_ambient_totals(cfg: OrchestratorConfig, p0: float, T0: float) -> tu
     return float(p_amb), float(T_amb), float(Y_amb)
 
 
+def _resolve_exhaust_plenum_defaults(p0: float, T0: float, Y_init: float) -> tuple[float, float, float]:
+    return float(p0), float(T0), min(max(float(Y_init), 0.0), 1.0)
+
+
 def _pipe_mean_temperature(U: np.ndarray, gamma: float, gas_constant: float) -> float:
     prim = conserved_to_primitive(U[1:-1], gamma, gas_constant)
     rho = prim[:, 0]
@@ -367,6 +379,7 @@ def _build_initial_state(cfg: OrchestratorConfig, pipe_cells: int, clearance_m3:
     twall_pipe_k = init_wall_temperature(cfg.wall_thermal)
     throttle_pos = _clamp_throttle_position(cfg.throttle.position)
     plenum = None
+    exhaust_plenum = None
     if cfg.intake_plenum.enabled and cfg.pipe_role == "intake":
         p_amb, T_amb, Y_amb = _resolve_ambient_totals(cfg, p0, T0)
         plenum = PlenumControlVolume(
@@ -378,6 +391,17 @@ def _build_initial_state(cfg: OrchestratorConfig, pipe_cells: int, clearance_m3:
             T_amb=T_amb,
             Y_amb=Y_amb,
         )
+    if cfg.exhaust_plenum.enabled and cfg.pipe_role == "exhaust" and cfg.exhaust_plenum.apply_to == "exhaust_only":
+        p_def, T_def, Y_def = _resolve_exhaust_plenum_defaults(p0, T0, Y_init)
+        exhaust_plenum = PlenumControlVolume(
+            cfg.exhaust_plenum,
+            cfg.gas_constant,
+            cfg.cp,
+            cfg.gamma,
+            p_amb=p_def,
+            T_amb=T_def,
+            Y_amb=Y_def,
+        )
     return _OrchestratorState(
         U=U,
         cyl=cyl,
@@ -388,6 +412,7 @@ def _build_initial_state(cfg: OrchestratorConfig, pipe_cells: int, clearance_m3:
         twall_pipe_k=twall_pipe_k,
         throttle_pos=throttle_pos,
         plenum=plenum,
+        exhaust_plenum=exhaust_plenum,
     )
 
 
@@ -403,6 +428,7 @@ def _clone_state(state: _OrchestratorState, cfg: OrchestratorConfig) -> _Orchest
         heat_transfer=state.cyl.heat_transfer,
     )
     plenum = state.plenum.clone() if state.plenum is not None else None
+    exhaust_plenum = state.exhaust_plenum.clone() if state.exhaust_plenum is not None else None
     return _OrchestratorState(
         U=state.U.copy(),
         cyl=cyl,
@@ -413,6 +439,7 @@ def _clone_state(state: _OrchestratorState, cfg: OrchestratorConfig) -> _Orchest
         twall_pipe_k=state.twall_pipe_k,
         throttle_pos=state.throttle_pos,
         plenum=plenum,
+        exhaust_plenum=exhaust_plenum,
     )
 
 
@@ -591,6 +618,15 @@ def _compute_valve_boundary(
         cp_model=cfg.cp_model,
     )
     return mdot, Hdot, Ydot, ghost
+
+
+@dataclass
+class _FixedAreaValve:
+    area_m2: float
+
+    def area_eff(self, angle_deg: float) -> float:
+        _ = angle_deg
+        return max(self.area_m2, 0.0)
 
 
 def _throttle_is_active(throttle: Throttle, position: float | None = None) -> bool:
@@ -925,6 +961,8 @@ class Orchestrator:
         throttle_pos = state.throttle_pos
         plenum = state.plenum
         plenum_enabled = plenum is not None
+        exhaust_plenum = state.exhaust_plenum
+        exhaust_plenum_enabled = exhaust_plenum is not None
 
         angle_history: List[float] = []
         p_history: List[float] = []
@@ -998,19 +1036,97 @@ class Orchestrator:
                     self.cfg.coupling_relax_warmup_iters,
                 )
                 prev_down_totals = relaxed_totals
-                mdot, Hdot, Ydot, ghost = _compute_valve_boundary(
-                    self.cfg,
-                    valve,
-                    angle_deg,
-                    cyl,
-                    prim_pipe,
-                    relaxed_totals[0],
-                    relaxed_totals[1],
-                    relaxed_totals[2],
-                    area_face,
-                    rho_pipe,
-                    u_pipe,
-                )
+                if self.cfg.pipe_role == "exhaust" and exhaust_plenum_enabled:
+                    Y_cyl = cyl.m_fresh / max(cyl.m_total, 1e-9)
+                    rho_plenum = exhaust_plenum.p / (
+                        self.cfg.gas_constant * max(exhaust_plenum.T, 1e-9)
+                    )
+                    mdot_valve, Hdot_valve, Ydot_valve, _ = boundary_flux_from_nozzle(
+                        cyl.p,
+                        cyl.T,
+                        Y_cyl,
+                        exhaust_plenum.p,
+                        valve=valve,
+                        angle_deg=angle_deg,
+                        gamma=self.cfg.gamma,
+                        gas_constant=self.cfg.gas_constant,
+                        cp=self.cfg.cp,
+                        cp_model=self.cfg.cp_model,
+                        p0_down=exhaust_plenum.p,
+                        T0_down=exhaust_plenum.T,
+                        Y0_down=exhaust_plenum.Y,
+                        loss_coeff=self.cfg.loss_coeff,
+                        rho_down=rho_plenum,
+                        u_down=None,
+                        area_pipe_m2=area_face,
+                    )
+
+                    plenum_valve = _FixedAreaValve(area_face)
+                    mdot_plenum, Hdot_plenum, Ydot_plenum, _ = boundary_flux_from_nozzle(
+                        exhaust_plenum.p,
+                        exhaust_plenum.T,
+                        exhaust_plenum.Y,
+                        prim_pipe[2],
+                        valve=plenum_valve,
+                        angle_deg=0.0,
+                        gamma=self.cfg.gamma,
+                        gas_constant=self.cfg.gas_constant,
+                        cp=self.cfg.cp,
+                        cp_model=self.cfg.cp_model,
+                        p0_down=relaxed_totals[0],
+                        T0_down=relaxed_totals[1],
+                        Y0_down=relaxed_totals[2],
+                        loss_coeff=0.0,
+                        rho_down=rho_pipe,
+                        u_down=u_pipe,
+                        area_pipe_m2=area_face,
+                    )
+
+                    if mdot_plenum >= 0.0:
+                        ghost_p = exhaust_plenum.p
+                        ghost_T = exhaust_plenum.T
+                        ghost_Y = exhaust_plenum.Y
+                    else:
+                        ghost_p = relaxed_totals[0]
+                        ghost_T = relaxed_totals[1]
+                        ghost_Y = relaxed_totals[2]
+                    ghost = ghost_state_from_nozzle(
+                        ghost_p,
+                        ghost_T,
+                        ghost_Y,
+                        mdot_plenum,
+                        max(area_face, 1e-9),
+                        self.cfg.gamma,
+                        self.cfg.gas_constant,
+                        phase=self.cfg.coupling_phase,
+                        cp_model=self.cfg.cp_model,
+                    )
+
+                    exhaust_plenum.update(
+                        dt_theta,
+                        mdot_valve,
+                        Hdot_valve,
+                        Ydot_valve,
+                        mdot_plenum,
+                        Hdot_plenum,
+                        Ydot_plenum,
+                    )
+
+                    mdot, Hdot, Ydot = mdot_valve, Hdot_valve, Ydot_valve
+                else:
+                    mdot, Hdot, Ydot, ghost = _compute_valve_boundary(
+                        self.cfg,
+                        valve,
+                        angle_deg,
+                        cyl,
+                        prim_pipe,
+                        relaxed_totals[0],
+                        relaxed_totals[1],
+                        relaxed_totals[2],
+                        area_face,
+                        rho_pipe,
+                        u_pipe,
+                    )
 
                 if mdot >= 0.0:
                     mdot_in = 0.0
@@ -1354,6 +1470,7 @@ class Orchestrator:
         state.twall_pipe_k = twall_pipe_k
         state.throttle_pos = throttle_pos
         state.plenum = plenum
+        state.exhaust_plenum = exhaust_plenum
         result = {
             "angle_deg": angle_history,
             "pressure": p_history,
@@ -1465,7 +1582,11 @@ def run_advanced_single_point(
     )
     wall_bc = ValveClosedWallBCConfig(**project_config.get("valve_closed_wall_bc", {}))
     sim_plenum = getattr(engine.simulation_settings, "intake_plenum", {})
+    sim_exhaust_plenum = getattr(engine.simulation_settings, "exhaust_plenum", {})
     plenum_cfg = IntakePlenumConfig.from_dict(sim_plenum or project_config.get("intake_plenum", {}))
+    exhaust_plenum_cfg = ExhaustPlenumConfig.from_dict(
+        sim_exhaust_plenum or project_config.get("exhaust_plenum", {})
+    )
 
     cfg = OrchestratorConfig(
         gamma=float(gamma),
@@ -1484,6 +1605,7 @@ def run_advanced_single_point(
         fuel=engine.simulation_settings.fuel,
         wall_thermal=engine.simulation_settings.wall_thermal,
         intake_plenum=plenum_cfg,
+        exhaust_plenum=exhaust_plenum_cfg,
     )
     orchestrator = Orchestrator(cfg)
 

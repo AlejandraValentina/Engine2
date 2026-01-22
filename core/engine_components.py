@@ -332,6 +332,7 @@ class SimulationSettings:
     trace_metadata: bool = True
     fuel: FuelConfig = field(default_factory=FuelConfig)
     intake_plenum: dict[str, Any] = field(default_factory=dict)
+    exhaust_plenum: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -361,6 +362,7 @@ class SimulationSettings:
             "trace_metadata": self.trace_metadata,
             "fuel": self.fuel.to_dict(),
             "intake_plenum": self.intake_plenum,
+            "exhaust_plenum": self.exhaust_plenum,
         }
 
     @classmethod
@@ -392,6 +394,7 @@ class SimulationSettings:
             trace_metadata=data.get("trace_metadata", True),
             fuel=FuelConfig.from_dict(data.get("fuel", {})),
             intake_plenum=data.get("intake_plenum", {}),
+            exhaust_plenum=data.get("exhaust_plenum", {}),
         )
 
 
