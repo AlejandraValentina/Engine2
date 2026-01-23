@@ -56,6 +56,20 @@ See: FEATURES.md and VALIDATION_GUIDE.md.
    python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json
    ```
 
+## Quick Validation Commands
+```bash
+py -3 -m pytest -q
+py -3 -m pytest -q -W error::RuntimeWarning
+py -3 -m pytest -q -W error::RuntimeWarning -k pro_dyno
+```
+
+## Run Demo
+Preset: `presets/v2_full_features_demo.json`  
+```bash
+python examples/run_v2_full_features_demo.py
+```
+Writes `out_v2_demo.json`.
+
 ## Docs
 - [TECHNICAL_DOCS.md](TECHNICAL_DOCS.md) – especificación técnica de modelos 0D/1D.
 - [DOCUMENTATION.md](DOCUMENTATION.md) – guía general y notas de arquitectura.
@@ -88,7 +102,7 @@ Run a short advanced case with optional flags wired in:
 ```bash
 python examples/run_v2_full_features_demo.py
 ```
-This writes `examples/out_v2_demo.json` with convergence history and summary metrics.
+This writes `out_v2_demo.json` with convergence history and summary metrics.
 
 Manual wiring (if you prefer a notebook or custom runner):
 ```bash

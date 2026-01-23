@@ -43,14 +43,13 @@
 - [x] Cylinder heat transfer (opt-in) - Evidencia: `core/advanced/cylinder_cv.py`, `tests/unit/test_cylinder_heat_transfer.py`. Run: `python -m pytest -q tests/unit/test_cylinder_heat_transfer.py`.
 - [x] Under-relaxation for coupling totals (opt-in) - Evidencia: `tests/unit/test_coupling_under_relaxation.py`. Run: `python -m pytest -q tests/unit/test_coupling_under_relaxation.py`.
 - [x] Convergence history export (advanced) - Evidencia: `tests/unit/test_convergence_history_export.py`. Run: `python -m pytest -q tests/unit/test_convergence_history_export.py`.
-- [ ] Throttle (optional, part-throttle boundary) - Planned: no reproducible evidence yet.
-- [ ] Pipe prefill (optional P/T initialization) - Planned: no reproducible evidence yet.
-- [ ] Valve-closed wall BC (optional) - Planned: no reproducible evidence yet.
-- [x] 1D SoA + Numba kernel (opt-in) - Evidencia: `tests/unit/test_solver1d_numba_matches_python_step.py`, `tests/unit/test_solver1d_numba_respects_guardrails_no_warnings.py`, `tests/unit/test_solver1d_soa_matches_aos_step.py`. Run: `python -m pytest -q tests/unit/test_solver1d_numba_matches_python_step.py tests/unit/test_solver1d_numba_respects_guardrails_no_warnings.py tests/unit/test_solver1d_soa_matches_aos_step.py`.
-- [x] Junction mixing + per-leg losses (opt-in) - Evidencia: `core/advanced/junctions.py`, `tests/unit/test_junction_mixing.py`, `tests/unit/test_junction_leg_k_manual_reduces_mdot_no_flip.py`, `tests/unit/test_estimate_K_from_geometry_monotonic.py`. Run: `python -m pytest -q tests/unit/test_junction_mixing.py tests/unit/test_junction_leg_k_manual_reduces_mdot_no_flip.py tests/unit/test_estimate_K_from_geometry_monotonic.py`.
-- [x] Cylinder heat transfer (opt-in) - Evidencia: `core/advanced/cylinder_cv.py`, `tests/unit/test_cylinder_heat_transfer.py`. Run: `python -m pytest -q tests/unit/test_cylinder_heat_transfer.py`.
-- [x] Under-relaxation for coupling totals (opt-in) - Evidencia: `tests/unit/test_coupling_under_relaxation.py`. Run: `python -m pytest -q tests/unit/test_coupling_under_relaxation.py`.
-- [x] Convergence history export (advanced) - Evidencia: `tests/unit/test_convergence_history_export.py`. Run: `python -m pytest -q tests/unit/test_convergence_history_export.py`.
-- [ ] Throttle (optional, part-throttle boundary) - Planned: no reproducible evidence yet.
-- [ ] Pipe prefill (optional P/T initialization) - Planned: no reproducible evidence yet.
-- [ ] Valve-closed wall BC (optional) - Planned: no reproducible evidence yet.
+- [x] Throttle (opt-in) + rate limiting + safety clamps - Evidencia: `tests/unit/test_throttle_boundary.py`, `tests/unit/test_throttle_rate_limit.py`.
+- [x] Pipe prefill (opt-in) + auto defaults (opt-in) - Evidencia: `tests/unit/test_pipe_prefill.py`, `tests/unit/test_pipe_prefill_auto_defaults.py`.
+- [x] Valve-closed wall BC (opt-in) - Evidencia: `tests/unit/test_valve_closed_wall_bc.py`.
+- [x] NASA7 cp_model="nasa7" (opt-in) - Evidencia: `tests/unit/test_nasa7_thermo.py`.
+- [x] Fuel/BSFC accounting (opt-in) - Evidencia: `tests/unit/test_fuel_lambda_mode_basic.py`, `tests/unit/test_fuel_disabled_no_outputs.py`, `tests/unit/test_bsfc_formula_g_per_kwh.py`, `tests/unit/test_sweep_records_fuel_metrics.py`.
+- [x] Part-load sweep outputs + pumping work (opt-in) - Evidencia: `tests/unit/test_throttle_part_load_monotonic.py`, `tests/unit/test_bsfc_part_throttle_increases.py`, `tests/unit/test_sweep_produces_monotonic_rpm_grid.py`.
+- [x] Intake plenum CV (opt-in) - Evidencia: `tests/unit/test_plenum_capacitance_damps_map.py`, `tests/unit/test_plenum_defaults_no_change.py`, `tests/unit/test_plenum_mass_scalar_invariants.py`.
+- [x] Exhaust plenum CV (opt-in) - Evidencia: `tests/unit/test_exhaust_plenum_damps_blowdown_peak.py`, `tests/unit/test_exhaust_plenum_defaults_no_change.py`, `tests/unit/test_exhaust_plenum_mass_scalar_invariants.py`.
+- [x] Junction capacitance v2 reservoir + per-leg K-loss hooks (opt-in) - Evidencia: `tests/unit/test_junction_capacitance.py`, `tests/unit/test_junction_capacitance_conserves_mass_scalar.py`, `tests/unit/test_junction_leg_k_loss_reduces_mdot_bidirectional.py`, `tests/unit/test_junction_leg_k_manual_reduces_mdot_no_flip.py`.
+- [x] Junction capacitance wired into network runner path (opt-in) - Evidencia: `tests/unit/test_network_runner_junction_capacitance_wiring.py`.

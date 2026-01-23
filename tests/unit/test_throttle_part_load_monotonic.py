@@ -92,6 +92,8 @@ def test_throttle_part_load_monotonic(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert map_vals[0] > map_vals[1] > map_vals[2]
     assert brake_vals[0] > brake_vals[1] > brake_vals[2]
+    for entry in sweep_results:
+        assert "pumping_work" in entry
 
 
 def test_defaults_unchanged_without_throttle(monkeypatch: pytest.MonkeyPatch) -> None:

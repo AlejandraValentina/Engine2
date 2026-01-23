@@ -33,3 +33,17 @@ def test_throttle_wot_parity_with_rate_limit() -> None:
     area_eff = _throttle_area_eff(throttle, pos)
     area_max = math.pi * (0.07 * 0.5) ** 2
     assert abs(area_eff - area_max) < 1e-12
+
+
+def test_throttle_safety_clamps_exponent() -> None:
+    throttle = Throttle(
+        enabled=True,
+        position=0.5,
+        body_diam_m=0.07,
+        cd=1.0,
+        area_exponent=0.3,
+        safety_clamps=True,
+    )
+    area_eff = _throttle_area_eff(throttle)
+    area_max = math.pi * (0.07 * 0.5) ** 2
+    assert abs(area_eff - area_max * 0.5) < 1e-12

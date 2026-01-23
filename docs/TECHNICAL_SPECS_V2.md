@@ -33,9 +33,36 @@ The orchestrator exports per-cycle convergence metrics as a JSON-serializable li
 - `err_periodicity_1d`: L2 norm of 1D state change (physical cells only).
 The list is stored under the `convergence_history` key in the result payload.
 
-### 1.2 Feature Flags / Options (Implemented)
+### 1.2 Feature Flags & Defaults
+Defaults below reflect the advanced orchestrator config and engine simulation settings.
+When loading from an engine JSON, `cp_model`, `fuel`, `intake_plenum`, and `exhaust_plenum`
+are read from `simulation_settings`.
+
 | Flag | Default | Meaning |
 | --- | --- | --- |
+| `throttle.enabled` | `False` | Enable throttle boundary (opt-in). |
+| `throttle.position` | `1.0` | Throttle position (1.0 = WOT). |
+| `throttle.body_diam_m` | `0.0` | Throttle body diameter in meters. |
+| `throttle.area_exponent` | `2.0` | Area exponent for throttle curve. |
+| `throttle.rate_limit_per_s` | `None` | Optional slew-rate limiter (per second). |
+| `throttle.safety_clamps` | `False` | Clamp throttle exponent to >= 1.0. |
+| `pipe_prefill.enabled` | `False` | Prefill pipe state (manual/auto). |
+| `pipe_prefill.auto` | `False` | Auto prefill using ambient defaults. |
+| `pipe_prefill.auto_amb_p_Pa` | `101325.0` | Ambient pressure for auto prefill. |
+| `pipe_prefill.auto_amb_T_K` | `300.0` | Ambient temperature for auto prefill. |
+| `pipe_prefill.exhaust_prefill_T_K` | `700.0` | Exhaust prefill temperature (auto). |
+| `valve_closed_wall_bc.enabled` | `False` | Reflective wall BC when valve is closed. |
+| `valve_closed_wall_bc.area_eps_m2` | `1e-7` | Residual area for wall BC. |
+| `cp_model` | `"constant"` | Thermo cp model (`"constant"` or `"nasa7"`). |
+| `fuel.enabled` | `False` | Fuel/BSFC accounting metrics. |
+| `fuel.mode` | `"lambda"` | Fuel accounting mode. |
+| `sweep.enabled` | `False` | RPM sweep runner (opt-in). |
+| `sweep.record_part_load_metrics` | `False` | Record part-load metrics during sweep. |
+| `enable_pumping_work` | `False` | Track pumping work (opt-in accounting output). |
+| `intake_plenum.enabled` | `False` | Optional intake plenum control volume. |
+| `exhaust_plenum.enabled` | `False` | Optional exhaust plenum control volume. |
+| `simulation_settings.junction_capacitance.enabled` | `False` | Junction capacitance in v1 network runner. |
+| `simulation_settings.junction_losses.enabled` | `False` | Per-leg K-loss overrides in v1 network runner. |
 | `outlet_mode` | `"non_reflecting"` | Outlet BC mode: `"copy"`, `"non_reflecting"`, `"impedance"`. |
 | `p_outlet` | `None` | Static outlet target used by non-reflecting/impedance BC. |
 | `outlet_reflection` | `None` | Reflection coefficient for impedance BC (if used). |
@@ -51,15 +78,109 @@ The list is stored under the `convergence_history` key in the result payload.
 | `initial_Y` | `None` | Override initial scalar (must be within [0,1]). |
 | `combustion.enabled` | `False` | Enable v2.1 composition-dependent combustion. |
 | `heat_transfer.enabled` | `False` | Enable cylinder heat-transfer sink. |
-| `enable_pumping_work` | `False` | Track pumping work (opt-in accounting output). |
-| `simulation_settings.intake_plenum.enabled` | `False` | Optional intake plenum capacitance between throttle and pipe. |
-| `simulation_settings.exhaust_plenum.enabled` | `False` | Optional exhaust plenum capacitance between valve and pipe. |
-| `simulation_settings.junction_capacitance.enabled` | `False` | Optional 0D junction capacitance for multi-leg junctions. |
-| `simulation_settings.junction_losses.enabled` | `False` | Optional per-leg K-loss overrides at junctions. |
 | `coupling_relax_alpha` | `1.0` | Under-relaxation strength for downstream totals. |
 | `coupling_relax_warmup_iters` | `0` | Warmup ramp for under-relaxation. |
 | `phase_deg_intake` | `0.0` | Cam phasing offset for intake (degrees). |
 | `phase_deg_exhaust` | `0.0` | Cam phasing offset for exhaust (degrees). |
+
+#### Minimal JSON snippets (opt-in)
+Throttle:
+```json
+{
+  "throttle": { "enabled": true, "position": 1.0, "body_diam_m": 0.07 }
+}
+```
+
+Pipe prefill (manual):
+```json
+{
+  "pipe_prefill": {
+    "enabled": true,
+    "auto": false,
+    "intake": { "p_Pa": 101325.0, "T_K": 305.0, "Y": 1.0 },
+    "exhaust": { "p_Pa": 101325.0, "T_K": 700.0, "Y": 0.0 }
+  }
+}
+```
+
+Pipe prefill (auto):
+```json
+{
+  "pipe_prefill": {
+    "enabled": true,
+    "auto": true,
+    "auto_amb_p_Pa": 101325.0,
+    "auto_amb_T_K": 300.0,
+    "exhaust_prefill_T_K": 700.0
+  }
+}
+```
+
+Valve-closed wall BC:
+```json
+{
+  "valve_closed_wall_bc": { "enabled": true, "area_eps_m2": 1e-7 }
+}
+```
+
+NASA7 cp model:
+```json
+{
+  "simulation_settings": { "cp_model": "nasa7" }
+}
+```
+
+Fuel/BSFC accounting:
+```json
+{
+  "simulation_settings": {
+    "fuel": { "enabled": true, "mode": "lambda", "lambda_target": 1.0 }
+  }
+}
+```
+
+Part-load sweep:
+```json
+{
+  "sweep": {
+    "enabled": true,
+    "rpm_start": 2000,
+    "rpm_end": 3000,
+    "rpm_step": 500,
+    "cycles_per_step": 2,
+    "throttle_position_grid": [1.0, 0.6],
+    "record_part_load_metrics": true
+  }
+}
+```
+
+Intake plenum:
+```json
+{
+  "simulation_settings": {
+    "intake_plenum": { "enabled": true, "volume_m3": 0.004, "p_init_pa": 101325.0, "t_init_k": 300.0 }
+  }
+}
+```
+
+Exhaust plenum:
+```json
+{
+  "simulation_settings": {
+    "exhaust_plenum": { "enabled": true, "volume_m3": 0.003, "p_init_pa": 101325.0, "t_init_k": 700.0 }
+  }
+}
+```
+
+Junction capacitance + junction losses (network runner):
+```json
+{
+  "simulation_settings": {
+    "junction_capacitance": { "enabled": true, "volume_m3": 0.01, "under_relax_alpha": 0.7 },
+    "junction_losses": { "enabled": true, "default_k": 1.0 }
+  }
+}
+```
 
 ### 1.3 Transient RPM Sweep (Optional)
 An opt-in sweep mode can approximate a dyno ramp by stepping RPM and running a short
@@ -842,6 +963,14 @@ Provide histories for:
 - Selected pipe probes (pressure, velocity, \(Y_{fresh}\)).
 
 ## 7) Testing & Verification Requirements
+### Validation Commands
+```bash
+py -3 -m pytest -q
+py -3 -m pytest -q -W error::RuntimeWarning
+py -3 -m pytest -q -W error::RuntimeWarning -k pro_dyno
+```
+`-m "integration or legacy"` runs expected-to-fail band tests under current legacy calibration.
+
 ### Unit Tests
 - Nozzle choking regime correctness.
 - Conservative transport of \(\rho Y_{fresh}\) (no negative \(Y\), stable bounds with guardrail clamp).
