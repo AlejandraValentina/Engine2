@@ -80,7 +80,31 @@
     "air_temperature_c": 25.0,
     "air_pressure_bar": 1.013,
     "exhaust_backpressure_factor": 1.05,
-    "cp_model": "nasa7"
+    "cp_model": "nasa7",
+    "fuel": { "enabled": true, "mode": "lambda", "lambda_target": 1.0 },
+    "intake_plenum": {
+      "enabled": true,
+      "volume_m3": 0.004,
+      "p_init_pa": 101325.0,
+      "t_init_k": 300.0,
+      "y_init": 1.0
+    },
+    "exhaust_plenum": {
+      "enabled": true,
+      "volume_m3": 0.003,
+      "p_init_pa": 101325.0,
+      "t_init_k": 700.0,
+      "y_init": 0.0
+    },
+    "junction_capacitance": {
+      "enabled": true,
+      "volume_m3": 0.01,
+      "under_relax_alpha": 0.7
+    },
+    "junction_losses": {
+      "enabled": true,
+      "default_k": 1.0
+    }
   },
   "fuel": {
     "type_name": "Pump Gas",
@@ -93,10 +117,13 @@
     "position": 1.0,
     "body_diam_m": 0.060,
     "area_exponent": 2.0,
+    "rate_limit_per_s": 5.0,
+    "safety_clamps": true,
     "cd": 1.0
   },
   "pipe_prefill": {
     "enabled": true,
+    "auto": false,
     "intake": { "p_Pa": 101325.0, "T_K": 305.0, "Y": 1.0 },
     "exhaust": { "p_Pa": 101325.0, "T_K": 700.0, "Y": 0.0 }
   },
@@ -104,6 +131,7 @@
     "enabled": true,
     "area_eps_m2": 1e-7
   },
+  "enable_pumping_work": true,
   "junctions": {
     "exh_4_to_1": {
       "volume": 0.0009,
