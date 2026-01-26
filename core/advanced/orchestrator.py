@@ -22,7 +22,14 @@ from core.advanced.plenum_cv import (
 )
 from core.advanced.wall_thermal import init_wall_temperature, validate_wall_thermal_config, wall_thermal_step
 from core.advanced.state import Primitive1D, primitive_to_conserved, stagnation_from_static
-from core.advanced.solver_1d import cfl_dt, conserved_to_primitive, muscl_hancock_step
+from core.advanced.solver_1d import (
+    ShockCFLConfig,
+    cfl_dt,
+    conserved_to_primitive,
+    muscl_hancock_step,
+    shock_cfl_plan,
+    validate_shock_cfl_config,
+)
 from core.advanced.nozzle import nozzle_mass_flow
 from core.engine_components import Engine, FuelConfig, Throttle, WallThermalConfig
 
@@ -115,6 +122,7 @@ class OrchestratorConfig:
     fuel: FuelConfig = field(default_factory=FuelConfig)
     wall_thermal: WallThermalConfig = field(default_factory=WallThermalConfig)
     enable_pumping_work: bool = False
+    shock_cfl: ShockCFLConfig = field(default_factory=ShockCFLConfig)
 
     def __post_init__(self) -> None:
         if self.cp is None:
@@ -133,6 +141,7 @@ class OrchestratorConfig:
             raise ValueError("coupling_relax_warmup_iters must be >= 0")
         if self.cp_model not in ("constant", "nasa7"):
             raise ValueError("cp_model must be 'constant' or 'nasa7'")
+        validate_shock_cfl_config(self.shock_cfl)
         if self.throttle.enabled:
             if self.throttle.body_diam_m <= 0.0:
                 raise ValueError("throttle.body_diam_m must be positive when enabled")
@@ -1357,35 +1366,46 @@ class Orchestrator:
                         ghost_left=1,
                         ghost_right=1,
                     )
-                    dt_step = min(dt_cfl, dt_theta - t_elapsed)
-                    U = muscl_hancock_step(
+                    dt_base = min(dt_cfl, dt_theta - t_elapsed)
+                    dt_step, n_substeps = shock_cfl_plan(
                         U,
-                        dx,
-                        dt_step,
+                        dt_base,
                         self.cfg.gamma,
                         self.cfg.gas_constant,
-                        friction_factor=0.0,
-                        diameter=pipe_diameter_m,
-                        p_outlet=p_outlet,
-                        outlet_mode=outlet_mode,
-                        reflection_coeff=self.cfg.outlet_reflection,
-                        impedance=self.cfg.outlet_impedance,
-                        friction_model=self.cfg.friction_model if self.cfg.enable_friction else None,
-                        friction_energy_mode=self.cfg.friction_energy_mode,
-                        roughness=self.cfg.roughness_m,
-                        mu=self.cfg.mu,
-                        use_numba_1d=self.cfg.use_numba_1d,
+                        self.cfg.shock_cfl,
+                        ghost_left=1,
+                        ghost_right=1,
                     )
-                    if self.cfg.wall_thermal.enabled:
-                        twall_pipe_k = _apply_pipe_wall_thermal(
+                    dt_sub = dt_step / max(n_substeps, 1)
+                    for _ in range(n_substeps):
+                        U = muscl_hancock_step(
                             U,
-                            dt_step,
-                            self.cfg.wall_thermal,
-                            twall_pipe_k,
-                            pipe_volume,
+                            dx,
+                            dt_sub,
                             self.cfg.gamma,
                             self.cfg.gas_constant,
+                            friction_factor=0.0,
+                            diameter=pipe_diameter_m,
+                            p_outlet=p_outlet,
+                            outlet_mode=outlet_mode,
+                            reflection_coeff=self.cfg.outlet_reflection,
+                            impedance=self.cfg.outlet_impedance,
+                            friction_model=self.cfg.friction_model if self.cfg.enable_friction else None,
+                            friction_energy_mode=self.cfg.friction_energy_mode,
+                            roughness=self.cfg.roughness_m,
+                            mu=self.cfg.mu,
+                            use_numba_1d=self.cfg.use_numba_1d,
                         )
+                        if self.cfg.wall_thermal.enabled:
+                            twall_pipe_k = _apply_pipe_wall_thermal(
+                                U,
+                                dt_sub,
+                                self.cfg.wall_thermal,
+                                twall_pipe_k,
+                                pipe_volume,
+                                self.cfg.gamma,
+                                self.cfg.gas_constant,
+                            )
                     t_elapsed += dt_step
 
                 angle_history.append(angle_deg + (cycle_offset + cycle) * 720.0)
@@ -1587,6 +1607,8 @@ def run_advanced_single_point(
     exhaust_plenum_cfg = ExhaustPlenumConfig.from_dict(
         sim_exhaust_plenum or project_config.get("exhaust_plenum", {})
     )
+    sim_shock_cfl = getattr(engine.simulation_settings, "shock_cfl", {})
+    shock_cfl_cfg = ShockCFLConfig.from_dict(sim_shock_cfl or project_config.get("shock_cfl", {}))
 
     cfg = OrchestratorConfig(
         gamma=float(gamma),
@@ -1606,6 +1628,7 @@ def run_advanced_single_point(
         wall_thermal=engine.simulation_settings.wall_thermal,
         intake_plenum=plenum_cfg,
         exhaust_plenum=exhaust_plenum_cfg,
+        shock_cfl=shock_cfl_cfg,
     )
     orchestrator = Orchestrator(cfg)
 

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import logging
 import math
+from dataclasses import dataclass, field
+
 import numpy as np
 
 from core.advanced.limiters import minmod
@@ -30,6 +32,55 @@ _VELOCITY_FIX_LIMIT = 20
 _OUTLET_FALLBACK_COUNT = 0
 _OUTLET_FALLBACK_LIMIT = 10
 _NUMBA_BUFFERS: dict[int, dict[str, np.ndarray]] = {}
+
+
+@dataclass
+class ShockCFLSubstepsConfig:
+    enabled: bool = True
+    max_substeps: int = 6
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ShockCFLSubstepsConfig":
+        return cls(
+            enabled=bool(data.get("enabled", True)),
+            max_substeps=int(data.get("max_substeps", 6)),
+        )
+
+
+@dataclass
+class ShockCFLConfig:
+    enabled: bool = False
+    k: float = 8.0
+    min_factor: float = 0.25
+    sensor: str = "dp_over_p"
+    p_floor: float = 1.0
+    substeps: ShockCFLSubstepsConfig = field(default_factory=ShockCFLSubstepsConfig)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ShockCFLConfig":
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            k=float(data.get("k", 8.0)),
+            min_factor=float(data.get("min_factor", 0.25)),
+            sensor=str(data.get("sensor", "dp_over_p")),
+            p_floor=float(data.get("p_floor", 1.0)),
+            substeps=ShockCFLSubstepsConfig.from_dict(data.get("substeps", {})),
+        )
+
+
+def validate_shock_cfl_config(cfg: ShockCFLConfig) -> None:
+    if not cfg.enabled:
+        return
+    if cfg.k < 0.0:
+        raise ValueError("shock_cfl.k must be non-negative")
+    if not (0.0 < cfg.min_factor <= 1.0):
+        raise ValueError("shock_cfl.min_factor must be in (0, 1]")
+    if cfg.sensor not in ("dp_over_p", "du_over_a"):
+        raise ValueError("shock_cfl.sensor must be 'dp_over_p' or 'du_over_a'")
+    if cfg.p_floor <= 0.0:
+        raise ValueError("shock_cfl.p_floor must be positive")
+    if cfg.substeps.max_substeps < 1:
+        raise ValueError("shock_cfl.substeps.max_substeps must be >= 1")
 
 def _u_max(gamma: float) -> float:
     return 200.0 * math.sqrt(max(gamma, 1e-9))
@@ -1339,3 +1390,76 @@ def cfl_dt(
     a = np.sqrt(gamma * p_safe / rho_safe)
     max_speed = np.max(np.abs(prim[:, 1]) + a)
     return min(dt_max, cfl * dx / max(max_speed, 1e-9))
+
+
+def _shock_sensor_value(
+    prim: np.ndarray,
+    gamma: float,
+    cfg: ShockCFLConfig,
+) -> float:
+    if prim.shape[0] < 3:
+        return 0.0
+    p = prim[:, 2]
+    if cfg.sensor == "dp_over_p":
+        denom = np.maximum(p[1:-1], cfg.p_floor)
+        s = np.abs(p[2:] - p[:-2]) / denom
+    else:
+        rho = prim[:, 0]
+        rho_safe = np.maximum(rho, _DENSITY_FLOOR)
+        p_safe = np.maximum(p, _PRESSURE_FLOOR)
+        a = np.sqrt(gamma * p_safe / rho_safe)
+        denom = np.maximum(a[1:-1], 1e-9)
+        u = prim[:, 1]
+        s = np.abs(u[2:] - u[:-2]) / denom
+    if s.size == 0:
+        return 0.0
+    return float(np.max(s))
+
+
+def shock_cfl_factor(
+    U: np.ndarray,
+    gamma: float,
+    gas_constant: float,
+    cfg: ShockCFLConfig,
+    ghost_left: int = 1,
+    ghost_right: int = 1,
+) -> float:
+    if not cfg.enabled:
+        return 1.0
+    if ghost_left < 0 or ghost_right < 0:
+        raise ValueError("ghost_left/ghost_right must be non-negative")
+    end = U.shape[0] - ghost_right
+    if ghost_left >= end:
+        raise ValueError("ghost_left/ghost_right exclude all cells")
+    U_phys = U[ghost_left:end].copy()
+    prim = conserved_to_primitive(U_phys, gamma, gas_constant)
+    s_max = _shock_sensor_value(prim, gamma, cfg)
+    factor = 1.0 / (1.0 + cfg.k * s_max)
+    return float(np.clip(factor, cfg.min_factor, 1.0))
+
+
+def shock_cfl_plan(
+    U: np.ndarray,
+    dt_base: float,
+    gamma: float,
+    gas_constant: float,
+    cfg: ShockCFLConfig,
+    ghost_left: int = 1,
+    ghost_right: int = 1,
+) -> tuple[float, int]:
+    if dt_base <= 0.0 or not cfg.enabled:
+        return dt_base, 1
+    factor = shock_cfl_factor(
+        U,
+        gamma,
+        gas_constant,
+        cfg,
+        ghost_left=ghost_left,
+        ghost_right=ghost_right,
+    )
+    dt_shock = dt_base * factor
+    if not cfg.substeps.enabled or dt_shock >= dt_base:
+        return dt_shock, 1
+    n_sub = int(math.ceil(dt_base / max(dt_shock, 1e-12)))
+    n_sub = max(1, min(n_sub, cfg.substeps.max_substeps))
+    return dt_base, n_sub

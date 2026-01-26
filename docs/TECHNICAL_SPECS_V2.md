@@ -73,6 +73,13 @@ are read from `simulation_settings`.
 | `roughness_m` | `0.0` | Pipe roughness for friction model. |
 | `mu` | `1.8e-5` | Dynamic viscosity used for Reynolds number. |
 | `use_numba_1d` | `False` | Enable the optional Numba SoA kernel. |
+| `shock_cfl.enabled` | `False` | Enable shock-aware CFL scaling (opt-in). |
+| `shock_cfl.k` | `8.0` | Shock sensor gain for CFL scaling. |
+| `shock_cfl.min_factor` | `0.25` | Minimum CFL multiplier when shock-aware is enabled. |
+| `shock_cfl.sensor` | `"dp_over_p"` | Shock sensor type (`dp_over_p` or `du_over_a`). |
+| `shock_cfl.p_floor` | `1.0` | Pressure floor for `dp_over_p` sensor denominator. |
+| `shock_cfl.substeps.enabled` | `True` | Substep the 1D solver when shock CFL reduces dt. |
+| `shock_cfl.substeps.max_substeps` | `6` | Upper bound on shock CFL substeps. |
 | `loss_coeff` | `0.0` | Optional K-loss at the cylinder/pipe boundary. |
 | `pipe_role` | `"intake"` | Pipe scalar initialization (intake/exhaust). |
 | `initial_Y` | `None` | Override initial scalar (must be within [0,1]). |
@@ -181,6 +188,21 @@ Junction capacitance + junction losses (network runner):
   }
 }
 ```
+Shock-aware CFL + substepping:
+```json
+{
+  "simulation_settings": {
+    "shock_cfl": {
+      "enabled": true,
+      "k": 8.0,
+      "min_factor": 0.25,
+      "sensor": "dp_over_p",
+      "substeps": { "enabled": true, "max_substeps": 6 }
+    }
+  }
+}
+```
+
 
 ### 1.3 Transient RPM Sweep (Optional)
 An opt-in sweep mode can approximate a dyno ramp by stepping RPM and running a short
@@ -451,6 +473,10 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - `dt_max` configurable; `dt_min` optional safety lower bound.
 - Orchestrator recomputes \(\Delta t\) every step from the current 1D state.
 - CFL uses **physical cells only** (ghost cells excluded) and does not mutate the input state.
+- **Shock-aware CFL (opt-in):** `shock_cfl` scales \(\Delta t\) by
+  \(f = 1/(1 + k\,s)\), where \(s\) is a cheap pressure/velocity jump sensor.
+  If `shock_cfl.substeps.enabled`, the solver may substep the 1D update so the
+  total step length is preserved while each substep respects the reduced CFL.
 
 ### 2.8 Outlet Boundary (Phase 1)
 - Default outlet uses a copy/Neumann condition (legacy behavior).
@@ -895,6 +921,7 @@ Example JSON:
 
 ### Optional Feature Flags (Implemented)
 - `use_numba_1d` (default `False`): enable Numba SoA kernel for the 1D step.
+- `shock_cfl.enabled` (default `False`): shock-aware CFL scaling with optional substeps.
 - `combustion.enabled` (default `False`): v2.1 Wiebe-based combustion tied to \(Y_{fresh}\).
 - `heat_transfer.enabled` (default `False`): cylinder wall heat-transfer sink.
 - `outlet_mode` (default `"non_reflecting"`): `"copy"`, `"non_reflecting"`, or `"impedance"` (see §2.8).
