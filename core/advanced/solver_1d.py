@@ -1329,7 +1329,97 @@ def muscl_hancock_step(
     friction_energy_mode: str = "wall_loss",
     use_numba_1d: bool = False,
 ) -> np.ndarray:
-    if use_numba_1d and _HAS_NUMBA:
+    if use_numba_1d:
+        return step_soa_numba(
+            U,
+            dx,
+            dt,
+            gamma,
+            gas_constant,
+            friction_factor=friction_factor,
+            diameter=diameter,
+            p_outlet=p_outlet,
+            outlet_mode=outlet_mode,
+            reflection_coeff=reflection_coeff,
+            impedance=impedance,
+            friction_model=friction_model,
+            roughness=roughness,
+            mu=mu,
+            friction_energy_mode=friction_energy_mode,
+        )
+    return step_soa_python(
+        U,
+        dx,
+        dt,
+        gamma,
+        gas_constant,
+        friction_factor=friction_factor,
+        diameter=diameter,
+        p_outlet=p_outlet,
+        outlet_mode=outlet_mode,
+        reflection_coeff=reflection_coeff,
+        impedance=impedance,
+        friction_model=friction_model,
+        roughness=roughness,
+        mu=mu,
+        friction_energy_mode=friction_energy_mode,
+    )
+
+
+def step_soa_python(
+    U: np.ndarray,
+    dx: float,
+    dt: float,
+    gamma: float,
+    gas_constant: float,
+    friction_factor: float = 0.0,
+    diameter: float = 1.0,
+    p_outlet: float | None = None,
+    outlet_mode: str | None = None,
+    reflection_coeff: float | None = None,
+    impedance: float | None = None,
+    friction_model: str | None = None,
+    roughness: float = 0.0,
+    mu: float = 1.8e-5,
+    friction_energy_mode: str = "wall_loss",
+) -> np.ndarray:
+    return _muscl_hancock_step_soa(
+        U,
+        dx,
+        dt,
+        gamma,
+        gas_constant,
+        friction_factor=friction_factor,
+        diameter=diameter,
+        p_outlet=p_outlet,
+        outlet_mode=outlet_mode,
+        reflection_coeff=reflection_coeff,
+        impedance=impedance,
+        friction_model=friction_model,
+        roughness=roughness,
+        mu=mu,
+        friction_energy_mode=friction_energy_mode,
+    )
+
+
+def step_soa_numba(
+    U: np.ndarray,
+    dx: float,
+    dt: float,
+    gamma: float,
+    gas_constant: float,
+    friction_factor: float = 0.0,
+    diameter: float = 1.0,
+    p_outlet: float | None = None,
+    outlet_mode: str | None = None,
+    reflection_coeff: float | None = None,
+    impedance: float | None = None,
+    friction_model: str | None = None,
+    roughness: float = 0.0,
+    mu: float = 1.8e-5,
+    friction_energy_mode: str = "wall_loss",
+) -> np.ndarray:
+    if _HAS_NUMBA:
         return _muscl_hancock_step_soa_numba(
             U,
             dx,

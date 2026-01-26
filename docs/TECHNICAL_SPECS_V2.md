@@ -229,6 +229,13 @@ Shock-aware CFL + substepping:
   }
 }
 ```
+Numba SoA kernel:
+```json
+{
+  "use_numba_1d": true
+}
+```
+
 
 
 ### 1.3 Transient RPM Sweep (Optional)
@@ -515,6 +522,12 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - **Impedance mode:** optional outlet model using a reflection coefficient or impedance:
   - `outlet_mode="impedance"` with `reflection_coeff` in \([-1,1]\), or
   - `outlet_impedance` (Pa·s/m) converted using \(R = (Z - \rho a)/(Z + \rho a)\).
+
+### 2.9 Extensibility & Numba Dispatch
+- The 1D solver always keeps a Python SoA reference path for debugging and extensions.
+- `use_numba_1d = True` selects the Numba kernel when available; otherwise it falls back
+  to the Python path without altering results.
+- Extensions should remain outside the Numba kernel to keep the optimized path stable.
 
 ## 3) 0D Thermodynamics (Open Control Volume Cylinder)
 ### 3.1 State Tracking (Minimum)
