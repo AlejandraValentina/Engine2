@@ -359,8 +359,25 @@ def _apply_pipe_wall_thermal(
     if pipe_volume <= 0.0:
         raise ValueError("pipe_volume must be positive for wall_thermal")
 
+    prim = conserved_to_primitive(U[1:-1], gamma, gas_constant)
+    rho = prim[:, 0]
+    u = prim[:, 1]
     T_gas = _pipe_mean_temperature(U, gamma, gas_constant)
-    twall_k, qdot = wall_thermal_step(twall_k, T_gas, dt, cfg)
+    mass = float(np.sum(rho))
+    rho_mean = float(np.mean(rho)) if rho.size > 0 else 0.0
+    u_mean = float(np.sum(np.abs(u) * rho) / mass) if mass > 0.0 else 0.0
+    cp = gamma * gas_constant / max(gamma - 1.0, 1e-9)
+    diameter = 4.0 * pipe_volume / cfg.area_m2 if cfg.area_m2 > 0.0 else None
+    twall_k, qdot = wall_thermal_step(
+        twall_k,
+        T_gas,
+        dt,
+        cfg,
+        rho=rho_mean,
+        u=u_mean,
+        diameter_m=diameter,
+        cp=cp,
+    )
     if qdot != 0.0:
         delta_e = -qdot * dt / pipe_volume
         U[1:-1, 2] += delta_e

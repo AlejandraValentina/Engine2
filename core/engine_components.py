@@ -271,6 +271,14 @@ class WallThermalConfig:
     m_wall_kg: float = 1.0
     cp_wall_j_per_kgk: float = 500.0
     h_w_per_m2k: float = 50.0
+    h_model: str = "constant"
+    h_mult: float = 1.0
+    h_min: float = 10.0
+    h_max: float = 5000.0
+    mu_model: str = "constant"
+    mu_const: float = 1.8e-5
+    k_th_const: float = 0.026
+    pr_const: float = 0.71
     area_m2: float = 1.0
     twall_init_k: float = 450.0
     twall_min_k: float = 200.0
@@ -282,6 +290,14 @@ class WallThermalConfig:
             "m_wall_kg": self.m_wall_kg,
             "cp_wall_j_per_kgk": self.cp_wall_j_per_kgk,
             "h_w_per_m2k": self.h_w_per_m2k,
+            "h_model": self.h_model,
+            "h_mult": self.h_mult,
+            "h_min": self.h_min,
+            "h_max": self.h_max,
+            "mu_model": self.mu_model,
+            "mu_const": self.mu_const,
+            "k_th_const": self.k_th_const,
+            "pr_const": self.pr_const,
             "area_m2": self.area_m2,
             "twall_init_k": self.twall_init_k,
             "twall_min_k": self.twall_min_k,
@@ -290,11 +306,20 @@ class WallThermalConfig:
 
     @classmethod
     def from_dict(cls, data: dict) -> "WallThermalConfig":
+        h_default = data.get("h_w_per_m2k", data.get("h_const", 50.0))
         return cls(
             enabled=bool(data.get("enabled", False)),
             m_wall_kg=float(data.get("m_wall_kg", 1.0)),
             cp_wall_j_per_kgk=float(data.get("cp_wall_j_per_kgk", 500.0)),
-            h_w_per_m2k=float(data.get("h_w_per_m2k", 50.0)),
+            h_w_per_m2k=float(h_default),
+            h_model=str(data.get("h_model", "constant")),
+            h_mult=float(data.get("h_mult", 1.0)),
+            h_min=float(data.get("h_min", 10.0)),
+            h_max=float(data.get("h_max", 5000.0)),
+            mu_model=str(data.get("mu_model", "constant")),
+            mu_const=float(data.get("mu_const", 1.8e-5)),
+            k_th_const=float(data.get("k_th_const", 0.026)),
+            pr_const=float(data.get("pr_const", 0.71)),
             area_m2=float(data.get("area_m2", 1.0)),
             twall_init_k=float(data.get("twall_init_k", 450.0)),
             twall_min_k=float(data.get("twall_min_k", 200.0)),

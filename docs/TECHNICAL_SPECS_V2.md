@@ -36,7 +36,8 @@ The list is stored under the `convergence_history` key in the result payload.
 ### 1.2 Feature Flags & Defaults
 Defaults below reflect the advanced orchestrator config and engine simulation settings.
 When loading from an engine JSON, `cp_model`, `fuel`, `intake_plenum`, and `exhaust_plenum`
-are read from `simulation_settings`.
+are read from `simulation_settings`. Wall thermal and shock CFL settings are also read from
+`simulation_settings` when provided.
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
@@ -85,6 +86,16 @@ are read from `simulation_settings`.
 | `initial_Y` | `None` | Override initial scalar (must be within [0,1]). |
 | `combustion.enabled` | `False` | Enable v2.1 composition-dependent combustion. |
 | `heat_transfer.enabled` | `False` | Enable cylinder heat-transfer sink. |
+| `wall_thermal.enabled` | `False` | Enable lumped wall thermal model (pipe/junction). |
+| `wall_thermal.h_model` | `"constant"` | Heat-transfer model (`constant` or `dittus_boelter`). |
+| `wall_thermal.h_w_per_m2k` | `50.0` | Constant \(h\) baseline for wall thermal. |
+| `wall_thermal.h_mult` | `1.0` | Global multiplier for wall \(h\). |
+| `wall_thermal.h_min` | `10.0` | Minimum \(h\) clamp. |
+| `wall_thermal.h_max` | `5000.0` | Maximum \(h\) clamp. |
+| `wall_thermal.mu_model` | `"constant"` | Viscosity model for Dittus–Boelter. |
+| `wall_thermal.mu_const` | `1.8e-5` | Constant viscosity reference (Pa·s). |
+| `wall_thermal.k_th_const` | `0.026` | Constant thermal conductivity (W/m·K). |
+| `wall_thermal.pr_const` | `0.71` | Constant Prandtl number fallback. |
 | `coupling_relax_alpha` | `1.0` | Under-relaxation strength for downstream totals. |
 | `coupling_relax_warmup_iters` | `0` | Warmup ramp for under-relaxation. |
 | `phase_deg_intake` | `0.0` | Cam phasing offset for intake (degrees). |
@@ -188,6 +199,22 @@ Junction capacitance + junction losses (network runner):
   }
 }
 ```
+Wall thermal (constant or Dittus–Boelter):
+```json
+{
+  "simulation_settings": {
+    "wall_thermal": {
+      "enabled": true,
+      "h_model": "dittus_boelter",
+      "h_w_per_m2k": 50.0,
+      "h_mult": 1.0,
+      "h_min": 10.0,
+      "h_max": 5000.0
+    }
+  }
+}
+```
+
 Shock-aware CFL + substepping:
 ```json
 {
@@ -462,8 +489,8 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
     - \(Re = \rho |u| D/\mu\)
   - **Energy mode:** `wall_loss` applies \(S_E = u S_{mom}\); `adiabatic` skips explicit \(S_E\).
 - **Heat transfer (1D):**
-  - Phase 1 default **OFF**: `settings.enable_1d_heat_transfer = False`.
-  - If enabled, use a documented wall heat-loss model with parameters declared in settings.
+  - Default **OFF**: `wall_thermal.enabled = False`.
+  - When enabled, apply the lumped wall model with configurable `h_model`/clamps (see §4.12).
 
 ### 2.7 Adaptive Time Step
 \[
@@ -895,6 +922,11 @@ Example JSON:
   \frac{dT_{wall}}{dt} = \frac{hA\,(T_{gas} - T_{wall})}{m_{wall} c_{p,wall}}
   \]
 - When enabled, heat transfer uses the dynamic \(T_{wall}\) instead of a fixed wall temperature.
+- `h_model="constant"` uses `h_w_per_m2k` as the baseline coefficient.
+- `h_model="dittus_boelter"` uses \(Nu = 0.023 Re^{0.8} Pr^{0.4}\) for turbulent flow
+  and applies `h_min`/`h_max` clamps with an optional `h_mult`.
+- `mu_model="sutherland"` provides a temperature-dependent viscosity when desired;
+  otherwise `mu_const`, `k_th_const`, and `pr_const` act as fallbacks.
 
 Example JSON:
 ```json
@@ -904,7 +936,11 @@ Example JSON:
       "enabled": true,
       "m_wall_kg": 2.0,
       "cp_wall_j_per_kgk": 500.0,
+      "h_model": "dittus_boelter",
       "h_w_per_m2k": 50.0,
+      "h_mult": 1.0,
+      "h_min": 10.0,
+      "h_max": 5000.0,
       "area_m2": 0.25,
       "twall_init_k": 450.0,
       "twall_min_k": 300.0,

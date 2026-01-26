@@ -546,7 +546,21 @@ class JunctionCapacitance:
 
         qdot_ht = 0.0
         if self.wall_thermal.enabled:
-            self.twall, qdot_ht = wall_thermal_step(self.twall, self.T, dt, self.wall_thermal)
+            rho = self.p / (self.gas_constant * max(self.T, 1e-9))
+            area = self.wall_thermal.area_m2
+            mdot_through = 0.5 * (abs(mdot_in) + abs(mdot_out))
+            u_eff = mdot_through / (rho * area) if area > 0.0 and rho > 0.0 else 0.0
+            diameter = 4.0 * self.volume_m3 / area if area > 0.0 else None
+            self.twall, qdot_ht = wall_thermal_step(
+                self.twall,
+                self.T,
+                dt,
+                self.wall_thermal,
+                rho=rho,
+                u=u_eff,
+                diameter_m=diameter,
+                cp=self.cp,
+            )
             Hdot_out += qdot_ht
 
         state = JunctionCapacitanceState(
