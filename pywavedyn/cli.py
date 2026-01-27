@@ -12,6 +12,7 @@ from typing import Iterable, Sequence
 import numpy as np
 
 from core.engine_components import Engine, Pipe
+from acoustics.audio_generator import save_multicylinder_wav
 from core.thermo import CylinderSimulator
 from core.simulator import Engine1DSolver
 from core.wave_utils import build_exhaust_coupling, compute_pressure_matrix
@@ -143,11 +144,51 @@ def run_scope(engine_path: Path, rpm: float, cycles: int, out_path: Path) -> Non
         )
         coupling_mode = "0d_to_1d_exhaust"
 
-    history, audio, time_vector = solver.run_full_simulation(
-        rpm,
-        cycles=cycles,
-        coupling_data=coupling_data,
-    )
+    if max_steps is not None and max_steps > 0:
+        for state in solver.primary_states:
+            state["U"] = state["initial"].copy()
+        solver.tail_state["U"] = solver.tail_state["initial"].copy()
+        solver.time = 0.0
+
+        history = []
+        audio = []
+        time_vector = []
+
+        for _ in range(int(max_steps)):
+            dt = solver.get_time_step()
+            p_stag_by_cyl = None
+            t_stag_by_cyl = None
+            if engine.simulation_settings.enable_0d_to_1d_exhaust_coupling:
+                if coupling_data is None:
+                    raise ValueError("0D->1D exhaust coupling enabled but no coupling data provided")
+                p_stag_by_cyl = {}
+                t_stag_by_cyl = {}
+                base_angle = (solver.time * rpm * 6.0) % 720.0
+                for cyl_id in range(1, solver.n_cyl + 1):
+                    data = coupling_data.get(cyl_id)
+                    if data is None:
+                        raise ValueError(f"Missing coupling data for cylinder {cyl_id}")
+                    cyl_angle = (base_angle + solver.phase_map.get(cyl_id, 0.0)) % 720.0
+                    angle_arr = data["angle"]
+                    p_arr = data["p_stag"]
+                    t_arr = data["t_stag"]
+                    p_stag_by_cyl[cyl_id] = float(np.interp(cyl_angle, angle_arr, p_arr))
+                    t_stag_by_cyl[cyl_id] = float(np.interp(cyl_angle, angle_arr, t_arr))
+
+            solver.step(rpm=rpm, dt=dt, p_stag_by_cyl=p_stag_by_cyl, T_stag_by_cyl=t_stag_by_cyl)
+            history.append(solver.primary_states[0]["U"].copy())
+            p_grid = (solver.gamma - 1.0) * (
+                solver.tail_state["U"][:, 2]
+                - 0.5 * (solver.tail_state["U"][:, 1] ** 2) / solver.tail_state["U"][:, 0]
+            )
+            audio.append(float(p_grid[-1]))
+            time_vector.append(solver.time)
+    else:
+        history, audio, time_vector = solver.run_full_simulation(
+            rpm,
+            cycles=cycles,
+            coupling_data=coupling_data,
+        )
     matrix = compute_pressure_matrix(history, solver.gamma)
     output = {
         "metadata": _metadata(engine, raw, coupling_mode=coupling_mode),
@@ -232,6 +273,138 @@ def run_selfcheck(expectations_path: Path, out_path: Path) -> int:
                         engine.block.firing_order,
                     )
                     coupling_mode = "0d_to_1d_exhaust"
+def run_audio(
+    engine_path: Path,
+    rpm: float,
+    duration: float,
+    sample_rate: int,
+    out_path: Path,
+    firing_order: str | None,
+) -> None:
+    engine, _raw = _load_engine(engine_path)
+    order = _parse_firing_order(firing_order or "")
+    if not order:
+        order = list(engine.block.firing_order)
+    save_multicylinder_wav(
+        engine,
+        rpm=rpm,
+        firing_order=order,
+        duration=duration,
+        sample_rate=sample_rate,
+        filename=out_path,
+    )
+
+
+def run_sweep(
+    engine_path: Path,
+    rpm: float,
+    out_path: Path,
+    runner_lengths: list[float] | None = None,
+    points: int = 5,
+    span_mm: float = 200.0,
+) -> None:
+    engine, raw = _load_engine(engine_path)
+    lengths = runner_lengths or _runner_length_grid(
+        base_mm=float(engine.intake.runner_length),
+        points=points,
+        span_mm=span_mm,
+    )
+    results = []
+    for length in lengths:
+        sweep_engine = Engine.from_dict(engine.to_dict())
+        sweep_engine.intake.runner_length = float(length)
+        sim = CylinderSimulator(sweep_engine)
+        cycle = sim.run_cycle(float(rpm))
+        results.append(
+            {
+                "runner_length_mm": float(length),
+                "rpm": float(rpm),
+                "mean_power_hp": float(cycle["mean_power_hp"]),
+                "mean_torque_nm": float(cycle["mean_torque_nm"]),
+                "bmep_bar": float(cycle["bmep_bar"]),
+            }
+        )
+
+    output = {
+        "metadata": _metadata(engine, raw, coupling_mode="none"),
+        "sweep": {
+            "param": "intake.runner_length",
+            "unit": "mm",
+            "rpm": float(rpm),
+            "values": [float(v) for v in lengths],
+        },
+        "results": results,
+    }
+    _write_json(out_path, output)
+
+
+def _cutlist_text_path(out_path: Path) -> Path:
+    if out_path.suffix:
+        return out_path.with_suffix(".txt")
+    return out_path.with_name(out_path.name + ".txt")
+
+
+def run_cutlist(engine_path: Path, out_path: Path) -> None:
+    engine, raw = _load_engine(engine_path)
+    block = engine.block
+    intake = engine.intake
+    exhaust = engine.exhaust
+
+    cut_items = [
+        {
+            "name": "intake_runner",
+            "count": int(block.num_cylinders),
+            "length_mm": float(intake.runner_length),
+            "diameter_mm": float(intake.runner_diameter),
+        },
+        {
+            "name": "exhaust_primary",
+            "count": int(block.num_cylinders),
+            "length_mm": float(exhaust.header_primary_length),
+            "diameter_mm": float(exhaust.header_primary_diameter),
+        },
+        {
+            "name": "exhaust_collector",
+            "count": 1,
+            "length_mm": float(exhaust.collector_length),
+        },
+    ]
+
+    output = {
+        "metadata": _metadata(engine, raw, coupling_mode="none"),
+        "engine": {
+            "model_name": engine.model_name,
+            "num_cylinders": int(block.num_cylinders),
+            "firing_order": list(block.firing_order),
+        },
+        "intake": {
+            "runner_length_mm": float(intake.runner_length),
+            "runner_diameter_mm": float(intake.runner_diameter),
+            "plenum_volume_l": float(intake.plenum_volume),
+            "throttle_body_dia_mm": float(intake.throttle_body_dia),
+        },
+        "exhaust": {
+            "primary_length_mm": float(exhaust.header_primary_length),
+            "primary_diameter_mm": float(exhaust.header_primary_diameter),
+            "collector_length_mm": float(exhaust.collector_length),
+        },
+        "cutlist": cut_items,
+    }
+    _write_json(out_path, output)
+
+    text_lines = [
+        f"model_name: {engine.model_name}",
+        f"num_cylinders: {int(block.num_cylinders)}",
+        f"intake.runner_length_mm: {float(intake.runner_length):.2f}",
+        f"intake.runner_diameter_mm: {float(intake.runner_diameter):.2f}",
+        f"exhaust.primary_length_mm: {float(exhaust.header_primary_length):.2f}",
+        f"exhaust.primary_diameter_mm: {float(exhaust.header_primary_diameter):.2f}",
+        f"exhaust.collector_length_mm: {float(exhaust.collector_length):.2f}",
+    ]
+    text_path = _cutlist_text_path(out_path)
+    text_path.write_text("\n".join(text_lines) + "\n", encoding="utf-8")
+
+
                 solver = _build_wave_solver(engine)
                 history, _, _ = solver.run_full_simulation(
                     rpm,
@@ -301,10 +474,60 @@ def main(argv: Iterable[str] | None = None) -> None:
     if args.command == "dyno":
         run_dyno(args.engine, args.rpm, args.out)
     elif args.command == "scope":
-        run_scope(args.engine, args.rpm, args.cycles, args.out)
+        run_scope(
+            args.engine,
+            args.rpm,
+            args.cycles,
+            args.out,
+            target_dx=args.target_dx,
+            max_steps=args.max_steps,
+        )
+    elif args.command == "audio":
+        run_audio(
+            args.engine,
+            args.rpm,
+            args.duration,
+            args.sample_rate,
+            args.out,
+            args.firing_order,
+        )
+    elif args.command == "sweep":
+        run_sweep(
+            args.engine,
+            args.rpm,
+            args.out,
+            runner_lengths=_parse_length_list(args.runner_lengths),
+            points=args.points,
+            span_mm=args.span_mm,
+        )
+    elif args.command == "cutlist":
+        engine_path = args.engine if args.engine is not None else args.preset
+        run_cutlist(engine_path, args.out)
     elif args.command == "selfcheck":
         sys.exit(run_selfcheck(args.expectations, args.out))
 
 
 if __name__ == "__main__":
     main()
+    audio = sub.add_parser("audio", help="Render multi-cylinder audio WAV (headless)")
+    audio.add_argument("--engine", required=True, type=Path)
+    audio.add_argument("--rpm", required=True, type=float)
+    audio.add_argument("--duration", type=float, default=2.0)
+    audio.add_argument("--sample-rate", type=int, default=44_100)
+    audio.add_argument("--firing-order", type=str, default="")
+    audio.add_argument("--out", required=True, type=Path)
+
+    sweep = sub.add_parser("sweep", help="Run a headless sweep (runner length)")
+    sweep.add_argument("--engine", required=True, type=Path)
+    sweep.add_argument("--rpm", required=True, type=float)
+    sweep.add_argument("--runner-lengths", type=str, default="")
+    sweep.add_argument("--points", type=int, default=5)
+    sweep.add_argument("--span-mm", type=float, default=200.0)
+    sweep.add_argument("--out", required=True, type=Path)
+
+    cutlist = sub.add_parser("cutlist", help="Generate cut-list report (JSON + text)")
+    cutlist_group = cutlist.add_mutually_exclusive_group(required=True)
+    cutlist_group.add_argument("--engine", type=Path)
+    cutlist_group.add_argument("--preset", type=Path, help=argparse.SUPPRESS)
+    cutlist.add_argument("--out", required=True, type=Path)
+

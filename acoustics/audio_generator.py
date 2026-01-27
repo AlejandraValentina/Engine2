@@ -1,8 +1,13 @@
+from __future__ import annotations
+
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
 from scipy import interpolate, signal
 from scipy.io import wavfile
+
+from core.engine_components import Engine
 
 
 class AudioSynthesizer:
@@ -76,6 +81,82 @@ class AudioSynthesizer:
         if normalized is None:
             return
         self.save_waveform(normalized, filename)
+
+
+def _single_cylinder_pulse(
+    engine: Engine,
+    rpm: float,
+    sample_rate: int,
+) -> np.ndarray:
+    rpm = max(float(rpm), 1.0)
+    sample_rate = max(int(sample_rate), 1000)
+    period = 120.0 / rpm
+    samples = max(int(round(period * sample_rate)), 16)
+    t = np.arange(samples, dtype=np.float64) / sample_rate
+
+    length_m = max(float(engine.exhaust.header_primary_length) * 1e-3, 0.2)
+    c_sound = 500.0
+    f0 = c_sound / (4.0 * length_m)
+    f0 = float(np.clip(f0, 80.0, 400.0))
+
+    decay = np.exp(-t * f0 * 1.5)
+    wave = np.sin(2.0 * np.pi * f0 * t)
+    wave += 0.4 * np.sin(2.0 * np.pi * 2.0 * f0 * t)
+    wave *= decay
+
+    peak = float(np.max(np.abs(wave)))
+    if peak > 0.0:
+        wave = wave / peak
+    return wave.astype(np.float32)
+
+
+def synthesize_multicylinder_waveform(
+    engine: Engine,
+    rpm: float,
+    firing_order: list[int] | None,
+    duration: float,
+    sample_rate: int,
+) -> np.ndarray:
+    """Render a multi-cylinder waveform using the firing order mix."""
+
+    rpm = max(float(rpm), 1.0)
+    duration = max(float(duration), 0.01)
+    sample_rate = int(sample_rate)
+    firing_order = list(firing_order or engine.block.firing_order or [1])
+
+    single_wave = _single_cylinder_pulse(engine, rpm, sample_rate)
+    return generate_full_engine_sound(
+        single_wave,
+        rpm,
+        firing_order,
+        sample_rate,
+        duration=duration,
+    )
+
+
+def save_multicylinder_wav(
+    engine: Engine,
+    rpm: float,
+    firing_order: list[int] | None,
+    duration: float,
+    sample_rate: int,
+    filename: str | Path,
+) -> np.ndarray:
+    """Generate and save a deterministic multi-cylinder WAV file."""
+
+    waveform = synthesize_multicylinder_waveform(
+        engine,
+        rpm=rpm,
+        firing_order=firing_order,
+        duration=duration,
+        sample_rate=sample_rate,
+    )
+    if waveform.size == 0:
+        raise ValueError("Empty waveform generated; check inputs")
+    path = Path(filename)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wavfile.write(path, int(sample_rate), waveform.astype(np.float32))
+    return waveform
 
 
 def generate_full_engine_sound(
