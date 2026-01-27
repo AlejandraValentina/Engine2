@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dyno.schema.json",
+  "type": "object",
+  "required": ["metadata", "results"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rpm", "mean_power_hp", "mean_torque_nm", "bmep_bar", "ve_actual"],
+        "properties": {
+          "rpm": {"type": "number"},
+          "mean_power_hp": {"type": "number"},
+          "mean_torque_nm": {"type": "number"},
+          "bmep_bar": {"type": "number"},
+          "ve_actual": {"type": "number"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
