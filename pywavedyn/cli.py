@@ -405,6 +405,80 @@ def run_cutlist(engine_path: Path, out_path: Path) -> None:
             "name": "exhaust_collector",
             "count": 1,
             "length_mm": float(exhaust.collector_length),
+def _read_expectations(path: Path) -> dict:
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _case_engine_path(expectations_path: Path, case_file: str) -> Path:
+    base = expectations_path.parent
+    return (base / case_file).resolve()
+
+
+def _check_finite(name: str, array: np.ndarray, issues: list[str]) -> None:
+    if not np.isfinite(array).all():
+        issues.append(f"{name} contains NaN/inf")
+
+
+def _write_json(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def run_selfcheck(expectations_path: Path, out_path: Path) -> int:
+    expectations = _read_expectations(expectations_path)
+    cases = expectations.get("cases", [])
+    report: dict = {"cases": [], "status": "pass"}
+    exit_code = 0
+
+    for case in cases:
+        case_name = case.get("file")
+        if not case_name:
+            continue
+        engine_path = _case_engine_path(expectations_path, case_name)
+        issues: list[str] = []
+        case_entry = {"file": case_name, "issues": issues, "checks": {}}
+        try:
+            engine, raw = _load_engine(engine_path)
+            simulator = CylinderSimulator(engine)
+
+            dyno_rpms: Sequence[float] = case.get("rpm", [])
+            dyno_results = []
+            for rpm in dyno_rpms:
+                cycle = simulator.run_cycle(float(rpm))
+                dyno_results.append(cycle)
+                _check_finite("pressure", cycle["pressure"], issues)
+                _check_finite("temperature", cycle["temperature"], issues)
+                if np.min(cycle["pressure"]) <= 0:
+                    issues.append("pressure <= 0")
+                if np.min(cycle["temperature"]) <= 0:
+                    issues.append("temperature <= 0")
+                ve_val = float(cycle.get("ve_actual", 0.0))
+                if not (0.0 <= ve_val <= 1.5):
+                    issues.append("ve out of bounds")
+
+            power_min = case.get("power_hp_min", [])
+            power_max = case.get("power_hp_max", [])
+            if power_min and power_max and len(dyno_results) == len(power_min):
+                for idx, cycle in enumerate(dyno_results):
+                    power = float(cycle["mean_power_hp"])
+                    if power < power_min[idx] or power > power_max[idx]:
+                        issues.append(f"power_hp out of range at idx={idx}")
+
+            scope_cfg = case.get("scope")
+            if scope_cfg:
+                rpm = float(scope_cfg.get("rpm", 2000.0))
+                cycles = int(scope_cfg.get("cycles", 1))
+                coupling_mode = "none"
+                coupling_data = None
+                if engine.simulation_settings.enable_0d_to_1d_exhaust_coupling:
+                    cycle = simulator.run_cycle(rpm)
+                    coupling_data = build_exhaust_coupling(
+                        cycle["angle"],
+                        cycle["exhaust_p_stag"],
+                        cycle["exhaust_t_stag"],
+                        engine.block.firing_order,
+                    )
+                    coupling_mode = "0d_to_1d_exhaust"
         },
     ]
 
@@ -458,6 +532,28 @@ def run_cutlist(engine_path: Path, out_path: Path) -> None:
                 case_entry["checks"]["coupling_mode"] = coupling_mode
 
             metadata = _metadata(engine, raw, coupling_mode=case_entry["checks"].get("coupling_mode", "none"))
+    audio = sub.add_parser("audio", help="Render multi-cylinder audio WAV (headless)")
+    audio.add_argument("--engine", required=True, type=Path)
+    audio.add_argument("--rpm", required=True, type=float)
+    audio.add_argument("--duration", type=float, default=2.0)
+    audio.add_argument("--sample-rate", type=int, default=44_100)
+    audio.add_argument("--firing-order", type=str, default="")
+    audio.add_argument("--out", required=True, type=Path)
+
+    sweep = sub.add_parser("sweep", help="Run a headless sweep (runner length)")
+    sweep.add_argument("--engine", required=True, type=Path)
+    sweep.add_argument("--rpm", required=True, type=float)
+    sweep.add_argument("--runner-lengths", type=str, default="")
+    sweep.add_argument("--points", type=int, default=5)
+    sweep.add_argument("--span-mm", type=float, default=200.0)
+    sweep.add_argument("--out", required=True, type=Path)
+
+    cutlist = sub.add_parser("cutlist", help="Generate cut-list report (JSON + text)")
+    cutlist_group = cutlist.add_mutually_exclusive_group(required=True)
+    cutlist_group.add_argument("--engine", type=Path)
+    cutlist_group.add_argument("--preset", type=Path, help=argparse.SUPPRESS)
+    cutlist.add_argument("--out", required=True, type=Path)
+
             if not all(key in metadata for key in ("input_hash", "settings", "coupling_mode")):
                 issues.append("metadata missing required keys")
 
@@ -532,28 +628,6 @@ def main(argv: Iterable[str] | None = None) -> None:
     elif args.command == "sweep":
         run_sweep(
             args.engine,
-    audio = sub.add_parser("audio", help="Render multi-cylinder audio WAV (headless)")
-    audio.add_argument("--engine", required=True, type=Path)
-    audio.add_argument("--rpm", required=True, type=float)
-    audio.add_argument("--duration", type=float, default=2.0)
-    audio.add_argument("--sample-rate", type=int, default=44_100)
-    audio.add_argument("--firing-order", type=str, default="")
-    audio.add_argument("--out", required=True, type=Path)
-
-    sweep = sub.add_parser("sweep", help="Run a headless sweep (runner length)")
-    sweep.add_argument("--engine", required=True, type=Path)
-    sweep.add_argument("--rpm", required=True, type=float)
-    sweep.add_argument("--runner-lengths", type=str, default="")
-    sweep.add_argument("--points", type=int, default=5)
-    sweep.add_argument("--span-mm", type=float, default=200.0)
-    sweep.add_argument("--out", required=True, type=Path)
-
-    cutlist = sub.add_parser("cutlist", help="Generate cut-list report (JSON + text)")
-    cutlist_group = cutlist.add_mutually_exclusive_group(required=True)
-    cutlist_group.add_argument("--engine", type=Path)
-    cutlist_group.add_argument("--preset", type=Path, help=argparse.SUPPRESS)
-    cutlist.add_argument("--out", required=True, type=Path)
-
             args.rpm,
             args.out,
             runner_lengths=_parse_length_list(args.runner_lengths),
