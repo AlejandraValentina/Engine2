@@ -43,6 +43,10 @@ def test_cli_dyno_and_scope(tmp_path: Path) -> None:
             "2000",
             "--cycles",
             "1",
+            "--target-dx",
+            "0.05",
+            "--max-steps",
+            "30",
             "--out",
             str(scope_out),
         ]

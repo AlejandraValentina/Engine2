@@ -241,12 +241,20 @@ def ghost_state_from_nozzle(
             p0, T0, area_face, hi, gamma, gas_constant, cp_model=cp_model, Y_fresh=Y0
         )
     )
-    while mdot_hi < target and hi < 0.999:
+    max_bracket_iters = 32
+    for _ in range(max_bracket_iters):
+        if mdot_hi >= target or hi >= 0.999:
+            break
         hi = min(hi * 2.0, 0.999)
         mdot_hi = abs(
             mdot_from_stagnation(
                 p0, T0, area_face, hi, gamma, gas_constant, cp_model=cp_model, Y_fresh=Y0
             )
+        )
+    else:
+        raise RuntimeError(
+            "Ghost inversion bracket loop exceeded max iterations: "
+            f"max_iters={max_bracket_iters} target={target:.3e} mdot_hi={mdot_hi:.3e} hi={hi:.3f}"
         )
     if mdot_hi < target:
         if target <= mdot_choked * 1.001:

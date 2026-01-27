@@ -1362,7 +1362,13 @@ class Orchestrator:
                 else:
                     p_outlet = self.cfg.p_outlet if self.cfg.p_outlet is not None else p0
                     outlet_mode = self.cfg.outlet_mode
-                while t_elapsed < dt_theta:
+                max_substeps = max(
+                    10,
+                    int(math.ceil(dt_theta / max(self.cfg.dt_max, 1e-12))) * 10,
+                )
+                for _ in range(max_substeps):
+                    if t_elapsed >= dt_theta:
+                        break
                     U[0] = ghost
                     if throttle_active:
                         if plenum_ghost is not None:
@@ -1393,6 +1399,13 @@ class Orchestrator:
                         ghost_left=1,
                         ghost_right=1,
                     )
+                    if not math.isfinite(dt_step) or dt_step <= 0.0:
+                        raise RuntimeError(
+                            "Orchestrator time step stalled: "
+                            f"dt_step={dt_step} dt_cfl={dt_cfl} dt_theta={dt_theta} "
+                            f"t_elapsed={t_elapsed} rpm={rpm} pipe_cells={pipe_cells} "
+                            f"pipe_length_m={pipe_length_m} pipe_diameter_m={pipe_diameter_m}"
+                        )
                     dt_sub = dt_step / max(n_substeps, 1)
                     for _ in range(n_substeps):
                         U = muscl_hancock_step(
@@ -1424,6 +1437,13 @@ class Orchestrator:
                                 self.cfg.gas_constant,
                             )
                     t_elapsed += dt_step
+                if t_elapsed < dt_theta:
+                    raise RuntimeError(
+                        "Orchestrator substep loop exceeded max iterations: "
+                        f"max_substeps={max_substeps} t_elapsed={t_elapsed} "
+                        f"dt_theta={dt_theta} rpm={rpm} pipe_cells={pipe_cells} "
+                        f"pipe_length_m={pipe_length_m} pipe_diameter_m={pipe_diameter_m}"
+                    )
 
                 angle_history.append(angle_deg + (cycle_offset + cycle) * 720.0)
                 p_history.append(cyl.p)

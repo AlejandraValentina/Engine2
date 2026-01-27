@@ -1,38 +1,46 @@
 from __future__ import annotations
 
+import json
+import math
+from pathlib import Path
+
 import pytest
 
-pytest.importorskip("numpy")
-
-import numpy as np
-
-from core.engine_components import Pipe, SimulationSettings
+from core.advanced.orchestrator import Orchestrator
+from core.pro_dyno_v2 import ProDynoV2Runner
 from core.simulator import Engine1DSolver
+from pywavedyn.cli import run_dyno
 
 
-def _build_solver(settings: SimulationSettings) -> Engine1DSolver:
-    primary = Pipe(length=200.0, diameter_inlet=35.0, diameter_outlet=35.0)
-    tail = Pipe(length=300.0, diameter_inlet=45.0, diameter_outlet=45.0)
-    return Engine1DSolver([primary], tail, firing_order=[1], settings=settings)
+PRESET = Path("presets/legacy/custom_twin_230cc.json")
 
 
-def test_coupling_disabled_allows_default() -> None:
-    settings = SimulationSettings(enable_0d_to_1d_exhaust_coupling=False)
-    solver = _build_solver(settings)
-    history, _, _ = solver.run_full_simulation(rpm=1000.0, cycles=1)
-    assert len(history) > 0
+def _boom(label: str):
+    def _raise(*_args, **_kwargs):
+        raise AssertionError(f"Unexpected call to {label} in v1 default path")
+
+    return _raise
 
 
-def test_coupling_requires_inputs() -> None:
-    settings = SimulationSettings(enable_0d_to_1d_exhaust_coupling=True)
-    solver = _build_solver(settings)
-    with pytest.raises(ValueError):
-        solver.run_full_simulation(rpm=1000.0, cycles=1)
+def test_coupling_disabled_noop_does_not_call_advanced(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr(ProDynoV2Runner, "run_sweep", _boom("ProDynoV2Runner.run_sweep"))
+    monkeypatch.setattr(Engine1DSolver, "run_full_simulation", _boom("Engine1DSolver.run_full_simulation"))
+    monkeypatch.setattr(Orchestrator, "run", _boom("Orchestrator.run"))
 
-    angle = np.linspace(0.0, 720.0, 10)
-    p_stag = np.full_like(angle, 200000.0)
-    t_stag = np.full_like(angle, 900.0)
-    coupling = {1: {"angle": angle, "p_stag": p_stag, "t_stag": t_stag}}
+    out_path = tmp_path / "dyno.json"
+    run_dyno(PRESET, "2000", out_path, mode="v1")
 
-    history, _, _ = solver.run_full_simulation(rpm=1000.0, cycles=1, coupling_data=coupling)
-    assert len(history) > 0
+    payload = json.loads(out_path.read_text(encoding="utf-8"))
+    coupling_mode = payload.get("metadata", {}).get("coupling_mode")
+    assert coupling_mode == "none", f"Expected coupling_mode='none', got {coupling_mode!r}"
+
+    results = payload.get("results", [])
+    assert len(results) == 1, f"Expected 1 result, got {len(results)}"
+    entry = results[0]
+
+    for key in ("rpm", "mean_power_hp", "mean_torque_nm", "bmep_bar", "ve_actual"):
+        assert key in entry, f"Missing key '{key}' in result"
+        value = float(entry[key])
+        assert math.isfinite(value), f"Non-finite {key}={value}"
+
+    assert float(entry["rpm"]) > 0.0, f"rpm must be positive, got {entry['rpm']}"
