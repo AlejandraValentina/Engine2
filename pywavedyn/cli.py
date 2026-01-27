@@ -148,6 +148,44 @@ def run_scope(engine_path: Path, rpm: float, cycles: int, out_path: Path) -> Non
         for state in solver.primary_states:
             state["U"] = state["initial"].copy()
         solver.tail_state["U"] = solver.tail_state["initial"].copy()
+    return results
+
+
+def _dyno_results_v2(engine: Engine, rpm_values: list[float]) -> list[dict]:
+    runner = ProDynoV2Runner(engine)
+    rpm_ints = [int(round(rpm)) for rpm in rpm_values]
+    sweep = runner.run_sweep(rpm_ints)
+
+    displacement_m3 = max(cc_to_m3(engine.block.displacement_cc), 1e-9)
+    results = []
+    for idx, rpm in enumerate(rpm_ints):
+        mean_power_hp = float(sweep["mean_power_hp"][idx])
+        mean_torque_nm = float(sweep["mean_torque_nm"][idx])
+        bmep_bar = mean_torque_nm * 4.0 * math.pi / displacement_m3 / 100000.0
+        ve_actual = float(sweep["ve_real"][idx])
+        results.append(
+            {
+                "rpm": float(rpm),
+                "mean_power_hp": mean_power_hp,
+                "mean_torque_nm": mean_torque_nm,
+                "bmep_bar": float(bmep_bar),
+                "ve_actual": ve_actual,
+            }
+        )
+    return results
+
+
+def run_dyno(engine_path: Path, rpm_spec: str, out_path: Path, mode: str = "v1") -> None:
+    engine, raw = _load_engine(engine_path)
+    rpm_values = _parse_rpm_range(rpm_spec)
+    if mode == "v1":
+        results = _dyno_results_v1(engine, rpm_values)
+        coupling_mode = "none"
+    elif mode == "v2":
+        results = _dyno_results_v2(engine, rpm_values)
+        coupling_mode = "v2_orchestrator"
+    else:
+        raise ValueError(f"Unknown mode '{mode}' (expected 'v1' or 'v2')")
         solver.time = 0.0
 
         history = []
@@ -494,21 +532,6 @@ def main(argv: Iterable[str] | None = None) -> None:
     elif args.command == "sweep":
         run_sweep(
             args.engine,
-            args.rpm,
-            args.out,
-            runner_lengths=_parse_length_list(args.runner_lengths),
-            points=args.points,
-            span_mm=args.span_mm,
-        )
-    elif args.command == "cutlist":
-        engine_path = args.engine if args.engine is not None else args.preset
-        run_cutlist(engine_path, args.out)
-    elif args.command == "selfcheck":
-        sys.exit(run_selfcheck(args.expectations, args.out))
-
-
-if __name__ == "__main__":
-    main()
     audio = sub.add_parser("audio", help="Render multi-cylinder audio WAV (headless)")
     audio.add_argument("--engine", required=True, type=Path)
     audio.add_argument("--rpm", required=True, type=float)
@@ -531,3 +554,18 @@ if __name__ == "__main__":
     cutlist_group.add_argument("--preset", type=Path, help=argparse.SUPPRESS)
     cutlist.add_argument("--out", required=True, type=Path)
 
+            args.rpm,
+            args.out,
+            runner_lengths=_parse_length_list(args.runner_lengths),
+            points=args.points,
+            span_mm=args.span_mm,
+        )
+    elif args.command == "cutlist":
+        engine_path = args.engine if args.engine is not None else args.preset
+        run_cutlist(engine_path, args.out)
+    elif args.command == "selfcheck":
+        sys.exit(run_selfcheck(args.expectations, args.out))
+
+
+if __name__ == "__main__":
+    main()
