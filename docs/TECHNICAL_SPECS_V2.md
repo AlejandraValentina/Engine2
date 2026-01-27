@@ -101,6 +101,8 @@ are read from `simulation_settings`. Wall thermal and shock CFL settings are als
 | `phase_deg_intake` | `0.0` | Cam phasing offset for intake (degrees). |
 | `phase_deg_exhaust` | `0.0` | Cam phasing offset for exhaust (degrees). |
 
+ALL optional features are no-ops unless explicitly enabled.
+
 #### Minimal JSON snippets (opt-in)
 Throttle:
 ```json
@@ -511,6 +513,7 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
   \(f = 1/(1 + k\,s)\), where \(s\) is a cheap pressure/velocity jump sensor.
   If `shock_cfl.substeps.enabled`, the solver may substep the 1D update so the
   total step length is preserved while each substep respects the reduced CFL.
+- Disabled by default. When `shock_cfl.enabled` is false, behavior is identical to the baseline solver (no runtime behavior changes).
 
 ### 2.8 Outlet Boundary (Phase 1)
 - Default outlet uses a copy/Neumann condition (legacy behavior).
@@ -528,6 +531,7 @@ F^* = 0.5\,(F_L + F_R) - 0.5\,\alpha\,(U_R - U_L)
 - `use_numba_1d = True` selects the Numba kernel when available; otherwise it falls back
   to the Python path without altering results.
 - Extensions should remain outside the Numba kernel to keep the optimized path stable.
+- Disabled by default. When `use_numba_1d` is false, behavior is identical to the baseline solver (no runtime behavior changes).
 
 ## 3) 0D Thermodynamics (Open Control Volume Cylinder)
 ### 3.1 State Tracking (Minimum)
@@ -940,6 +944,7 @@ Example JSON:
   and applies `h_min`/`h_max` clamps with an optional `h_mult`.
 - `mu_model="sutherland"` provides a temperature-dependent viscosity when desired;
   otherwise `mu_const`, `k_th_const`, and `pr_const` act as fallbacks.
+- Disabled by default. When `wall_thermal.enabled` is false, behavior is identical to the baseline solver (no runtime behavior changes).
 
 Example JSON:
 ```json
@@ -1040,10 +1045,17 @@ Provide histories for:
 
 ## 7) Testing & Verification Requirements
 ### Validation Commands
+Windows (py launcher):
 ```bash
 py -3 -m pytest -q
 py -3 -m pytest -q -W error::RuntimeWarning
 py -3 -m pytest -q -W error::RuntimeWarning -k pro_dyno
+```
+Linux/macOS:
+```bash
+python3 -m pytest -q
+python3 -m pytest -q -W error::RuntimeWarning
+python3 -m pytest -q -W error::RuntimeWarning -k pro_dyno
 ```
 `-m "integration or legacy"` runs expected-to-fail band tests under current legacy calibration.
 
