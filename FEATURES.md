@@ -2,6 +2,10 @@
 
 **Status:** `Implemented` | `Partial` | `Planned` (this file is the single source of truth; implemented items require runnable evidence).
 
+
+## Release v2.0 scope
+Ver `docs/RELEASE_V2_SCOPE.md` (unico scope congelado v2.0).
+
 ## 1) Dyno 0D (thermo)
 - [x] Virtual dyno 0D (Otto con Wiebe/Woschni, knock, FMEP) — Evidencia: `core/thermo.py`, presets canónicos en `presets/` (`honda_k20.json`, `chevy_350.json`, `ferrari_f1.json`), contratos en `tests/test_contract_0d.py`, identidades/trends/sanity en `tests/test_identities.py`, `tests/test_trends.py`, `tests/test_sanity_bands.py`. Run: `python -m pytest -q tests/test_contract_0d.py`.
 
@@ -9,23 +13,23 @@
 - [x] Solver 1D de escape (Euler + Lax–Wendroff + celdas fantasma + colector) — Evidencia: `core/simulator.py`, `core/numerics.py`, `gui/widgets/scope_widget.py`. Run: `python -m pytest -m integration -q tests/test_contract_1d_bc.py`.
 - [x] Área real de válvula (cortina + Cd) en 1D — Evidencia: `core/simulator.py`, `tests/test_valve_area_curtain.py`. Run: `python -m pytest -q tests/test_valve_area_curtain.py`.
 - [x] Acople 0D→1D unidireccional (escape) — Evidencia: `tests/integration/test_0d_to_1d_scope.py` (marcado integration). Run: `python -m pytest -m integration -q tests/integration/test_0d_to_1d_scope.py`.
-- [ ] Acople 0D→1D bidireccional — Criterio de aceptación: test de integración que compare backpressure dinámica del 1D con la heurística 0D y afecte el ciclo.
+- [x] Acople 0D→1D bidireccional — Evidencia: `tests/integration/test_0d_1d_bidirectional_backpressure_affects_cycle.py` (marcado integration). Run: `python -m pytest -m integration -q tests/integration/test_0d_1d_bidirectional_backpressure_affects_cycle.py`.
 
 ## 3) Audio (acoustics)
-- [ ] Síntesis multi-cilindro verificada — Criterio de aceptación: comando o test que genere un WAV no vacío mezclando firing order desde `acoustics/audio_generator.py` sin depender de GUI.
+- [x] Síntesis multi-cilindro verificada — Evidencia: `tests/test_audio_multicyl_wav_nonempty.py`. Run: `python -m pytest -q tests/test_audio_multicyl_wav_nonempty.py`.
 
 ## 4) Optimización
-- [ ] Barridos automáticos sin GUI — Criterio de aceptación: test headless que ejecute un sweep (p. ej., runner length) y produzca curva de potencia/HP.
+- [x] Barridos automáticos sin GUI — Evidencia: `tests/test_headless_sweep_runner_length.py`. Run: `python -m pytest -q tests/test_headless_sweep_runner_length.py`.
 
 ## 5) Fabricación
-- [ ] Reporte/cut-list reproducible por CLI — Criterio de aceptación: comando que genere listado de cortes/diámetros desde presets sin GUI.
+- [x] Reporte/cut-list reproducible por CLI — Evidencia: `tests/test_cutlist_cli_generates_expected_keys.py`. Run: `python -m pytest -q tests/test_cutlist_cli_generates_expected_keys.py`.
 
 ## 6) QA / Validación
 - [x] Identidades físicas y bandas de sanidad — Evidencia: `tests/test_identities.py`, `tests/test_sanity_bands.py`. Run: `python -m pytest -q tests/test_identities.py tests/test_sanity_bands.py`.
 - [x] Tendencias verificables (boost, restricciones, fricción) — Evidencia: `tests/test_trends.py`. Run: `python -m pytest -q tests/test_trends.py`.
 - [x] Contratos básicos 0D/1D — Evidencia: `tests/test_contract_0d.py`, `tests/test_contract_1d_bc.py` (integration). Run: `python -m pytest -q tests/test_contract_0d.py` (y opt-in `python -m pytest -m integration -q tests/test_contract_1d_bc.py`).
 - [x] Presets legacy movidos a `presets/legacy/` — Evidencia: `AUDIT_REPORT.md`.
-- [ ] Cobertura de regresión para presets legacy — Criterio: tests marcados `legacy` que carguen presets legacy y validen no-NaN/no-negatividad.
+- [x] Cobertura de regresión para presets legacy — Evidencia: `tests/legacy/test_legacy_presets_load_and_run_0d.py` (marker `legacy`). Run: `python -m pytest -q -m legacy`.
 
 ## 7) CLI Headless
 - [x] CLI dyno/scope reproducible — Evidencia: `pywavedyn/cli.py`, `tests/test_cli_outputs.py`. Run: `python -m pytest -q tests/test_cli_outputs.py`.
@@ -53,3 +57,4 @@
 - [x] Exhaust plenum CV (opt-in) - Evidencia: `tests/unit/test_exhaust_plenum_damps_blowdown_peak.py`, `tests/unit/test_exhaust_plenum_defaults_no_change.py`, `tests/unit/test_exhaust_plenum_mass_scalar_invariants.py`.
 - [x] Junction capacitance v2 reservoir + per-leg K-loss hooks (opt-in) - Evidencia: `tests/unit/test_junction_capacitance.py`, `tests/unit/test_junction_capacitance_conserves_mass_scalar.py`, `tests/unit/test_junction_leg_k_loss_reduces_mdot_bidirectional.py`, `tests/unit/test_junction_leg_k_manual_reduces_mdot_no_flip.py`.
 - [x] Junction capacitance wired into network runner path (opt-in) - Evidencia: `tests/unit/test_network_runner_junction_capacitance_wiring.py`.
+
