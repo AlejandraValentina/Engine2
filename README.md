@@ -10,23 +10,20 @@ See: FEATURES.md and VALIDATION_GUIDE.md.
 - 0D virtual dyno with verification-focused tests.
 - 1D exhaust scope solver available as an opt-in integration contract.
 - Physics identities/trends/sanity test suite and canonical presets audit.
+- Multi-cylinder audio synthesis via headless CLI/tests.
+- Headless parameter sweeps via CLI/tests.
+- Reproducible cut-list generation via CLI/tests.
 
-### Prototype (may exist in GUI, not guaranteed by CLI/tests)
-- Audio tooling wired to simulated pressure traces (coverage may be incomplete).
-- GUI-driven parameter sweeps/optimizer workflows.
-- Fabrication UI/planner utilities (if present).
-
-### Not implemented yet (per checklist)
-- Verified multi-cylinder polyphonic audio via CLI/tests.
-- Headless (no-GUI) parameter sweeps via CLI/tests.
-- Reproducible cut-list/BOM generation via CLI/tests.
+### Prototype (GUI-first)
+- GUI-driven parameter sweeps/optimizer workflows (CLI is the source of truth for validated features).
+- Fabrication UI/planner utilities (CLI cut-list is the validated path).
 
 ## Key Features
 - **Virtual Dyno (0D)** – Otto-cycle solver with explicit combustion/loss models and verification tests to predict brake torque/HP across RPM.
 - **Wave Scope (1D)** - Pressure-wave visualization for exhaust networks (current scope: exhaust only; intake handled in 0D). Legacy scope is one-way; the advanced core provides an opt-in coupled 0D↔1D path (see `docs/TECHNICAL_SPECS_V2.md`).
-- **Acoustics (prototype)** – Audio utilities driven by simulated pressure traces; verification/CLI coverage may be incomplete (see FEATURES.md).
-- **Optimizer (prototype)** – GUI-first parameter sweeps; headless CLI sweeps are not yet part of the validated toolchain (see FEATURES.md).
-- **Fabrication (planned/prototype)** – Cut-list/BOM style outputs are not yet guaranteed reproducible by CLI/tests (see FEATURES.md).
+- **Acoustics** - Multi-cylinder WAV synthesis via headless CLI/tests.
+- **Optimizer** - Headless CLI sweeps for parameter studies (runner length grid).
+- **Fabrication** - Reproducible cut-list output via CLI/tests.
 - **Verification & Presets** – Canonical presets and regression/contract tests with a validation guide for reproducible runs.
 
 ## Installation & Quickstart
@@ -44,23 +41,42 @@ See: FEATURES.md and VALIDATION_GUIDE.md.
    python main.py
    ```
 4. **Load a preset:** From the GUI, open an example JSON from `presets/` (e.g., K20/V8/V12).
-5. **Run a dyno sweep:** Use the Dyno tab to generate HP/Torque curves.
-6. **Wave scope:** Run a wave calculation on the exhaust network and scrub the results.
-7. **Export audio (optional):** If present in your build, use the Wave tab to save a WAV from simulated exhaust pressure traces (verification coverage may be incomplete; see FEATURES.md).
-8. **Run tests:**
+5. **Run a dyno sweep (CLI):**
+   ```bash
+   python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:9000:250 --out out_dyno.json
+   ```
+6. **Wave scope (CLI):**
+   ```bash
+   python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2500 --cycles 1 --out out_scope.json
+   ```
+7. **Export audio (CLI):**
+   ```bash
+   python -m pywavedyn.cli audio --engine presets/honda_k20.json --rpm 2500 --duration 0.5 --sample-rate 44100 --out out.wav
+   ```
+8. **Headless sweep (CLI):**
+   ```bash
+   python -m pywavedyn.cli sweep --engine presets/honda_k20.json --rpm 3000 --points 5 --out out_sweep.json
+   ```
+9. **Cut-list (CLI):**
+   ```bash
+   python -m pywavedyn.cli cutlist --engine presets/honda_k20.json --out cutlist.json
+   ```
+10. **Run tests:**
    ```bash
    python -m pytest
    ```
-9. **Run selfcheck (validation cases):**
+11. **Run selfcheck (validation cases):**
    ```bash
    python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json
    ```
 
-## Quick Validation Commands
+## Verificacion
 ```bash
-py -3 -m pytest -q
-py -3 -m pytest -q -W error::RuntimeWarning
-py -3 -m pytest -q -W error::RuntimeWarning -k pro_dyno
+python -m pytest -q -W error::RuntimeWarning
+python -m pytest -q -m integration
+python -m pytest -q -m legacy
+python -m pytest -q
+python -m pywavedyn.cli --help
 ```
 
 ## Run Demo
@@ -83,7 +99,8 @@ Writes `out_v2_demo.json`.
 - Dependencias de desarrollo/tests: `python -m pip install -r requirements-dev.txt`
 - Suite completa: `python -m pytest`
 - Unit tests: `python -m pytest tests/unit`
-- Integración (opt-in): `python -m pytest tests/integration` o `python -m pytest -m integration`
+- Integracion (opt-in): `python -m pytest -m integration -q`
+- Legacy (opt-in): `python -m pytest -m legacy -q`
 - Contratos rápidos: `python -m pytest -q tests/test_contract_*.py`
 - Identidades/Tendencias/Sanidad: `python -m pytest -q tests/test_identities.py` | `tests/test_trends.py` | `tests/test_sanity_bands.py`
 

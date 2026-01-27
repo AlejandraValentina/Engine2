@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 .pytest_cache/
 out_v2_demo.json
+*.egg-info/
+_scope_test.json

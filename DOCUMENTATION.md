@@ -79,11 +79,17 @@ PyWaveDyn exposes a minimal headless CLI for reproducible runs without the GUI:
 
 - **Dyno sweep:** `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:9000:250 --out out_dyno.json`
 - **Wave scope:** `python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2500 --cycles 1 --out out_scope.json`
+- **Audio:** `python -m pywavedyn.cli audio --engine presets/honda_k20.json --rpm 2500 --duration 0.5 --sample-rate 44100 --out out.wav`
+- **Sweep:** `python -m pywavedyn.cli sweep --engine presets/honda_k20.json --rpm 3000 --points 5 --out out_sweep.json`
+- **Cut-list:** `python -m pywavedyn.cli cutlist --engine presets/honda_k20.json --out cutlist.json`
 
-The CLI outputs JSON with metadata (`input_hash`, `timestamp`, `settings`, `coupling_mode`) plus results for each command.
+The CLI outputs JSON with metadata (input_hash, timestamp, settings, coupling_mode) plus results for each command.
 
 ### Recording Audio
-Note: This is a GUI-first workflow and may not be present in every build. It does not count as “implemented” unless covered by a reproducible CLI command/test (see FEATURES.md).
+Audio can be generated headless via CLI or recorded in the GUI if enabled.
+
+- **CLI:** `python -m pywavedyn.cli audio --engine presets/honda_k20.json --rpm 2500 --duration 0.5 --sample-rate 44100 --out out.wav`
+- **GUI:** The scope view can buffer tailpipe pressure samples and export a WAV.
 
 1. During a transient pipe simulation (scope view), enable the **Record Audio** toggle on the toolbar (if present in your build). If the toggle is off, the audio buffer stays empty and **Save Audio** remains disabled.
 2. When recording is enabled, each simulation step appends the tailpipe pressure sample via `AudioSynthesizer.add_sample`.
@@ -95,12 +101,21 @@ Note: This is a GUI-first workflow and may not be present in every build. It doe
 - **Load:** Use File → Load to restore an existing configuration; the tree and property editors refresh automatically. The window title and overview header show the loaded filename.
 
 ### Running Optimization Sweeps
-Note: This is a GUI-first workflow. Headless/CLI sweeps do not count as “implemented” until there is a reproducible command/test (see FEATURES.md).
+Headless sweeps are available via CLI (runner length grid). GUI sweeps remain available for exploratory workflows.
 
 1. Open the **Optimizer** tab.
 2. Choose a target parameter (e.g., intake runner length, cam intake duration, compression ratio) and set start/end/step values.
 3. Click **Run Optimization Sweep**. The optimizer temporarily adjusts the selected parameter, runs dyno simulations over the RPM range, records peak horsepower, updates a progress bar, and plots Parameter Value vs. Peak HP.
 4. When finished, the original engine settings are restored automatically, so you can adopt the best value manually.
+
+## Verificacion
+```bash
+python -m pytest -q -W error::RuntimeWarning
+python -m pytest -q -m integration
+python -m pytest -q -m legacy
+python -m pytest -q
+python -m pywavedyn.cli --help
+```
 
 ### Notes on Physics Models
 - **Gas Dynamics:** Pipes advance with a Lax–Wendroff finite-volume scheme, ghost cells for boundary reflection, ambient static-pressure outlets (P_amb imposed in the ghost cell), and stability clamps (density/energy, CFL timestep).
