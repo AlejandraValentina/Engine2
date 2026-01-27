@@ -225,7 +225,11 @@ class CylinderSimulator:
             return ve, mach_index, base_curve, choke_factor, flow_loss_factor
         return ve, mach_index
 
-    def run_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
+    def run_cycle(
+        self,
+        rpm: float,
+        exhaust_backpressure_trace: dict[str, np.ndarray] | None = None,
+    ) -> Dict[str, np.ndarray]:
         """Run a 720° four-stroke cycle and return pressure/torque traces."""
         # Explicit phasing: 0-180 intake, 180-360 compression, 360-540 power,
         # 540-720 exhaust (angles always within one 720° four-stroke cycle).
@@ -407,7 +411,31 @@ class CylinderSimulator:
         pressure = np.zeros_like(volume)
         pressure[mask_intake] = P_manifold
         backpressure_factor = getattr(settings, "exhaust_backpressure_factor", 1.05)
-        pressure[mask_exhaust] = backpressure_factor * ambient_pressure_pa
+        default_backpressure = backpressure_factor * ambient_pressure_pa
+
+        backpressure_trace = None
+        if exhaust_backpressure_trace is not None:
+            angle_bp = np.asarray(exhaust_backpressure_trace.get("angle", []), dtype=float)
+            pressure_bp = np.asarray(exhaust_backpressure_trace.get("pressure", []), dtype=float)
+            finite = np.isfinite(angle_bp) & np.isfinite(pressure_bp)
+            if np.any(finite):
+                angle_bp = angle_bp[finite]
+                pressure_bp = pressure_bp[finite]
+                order = np.argsort(angle_bp)
+                angle_bp = angle_bp[order]
+                pressure_bp = pressure_bp[order]
+                if angle_bp.size >= 2:
+                    backpressure_trace = np.interp(angle_arr, angle_bp, pressure_bp)
+                else:
+                    backpressure_trace = np.full_like(angle_arr, float(pressure_bp[0]))
+                bp_min = getattr(settings, "clamp_p_min", 1e-6)
+                bp_max = getattr(settings, "clamp_p_max", 1e9)
+                backpressure_trace = np.clip(backpressure_trace, bp_min, bp_max)
+
+        if backpressure_trace is None:
+            backpressure_trace = np.full_like(angle_arr, default_backpressure)
+
+        pressure[mask_exhaust] = backpressure_trace[mask_exhaust]
 
         deg_step = angle_arr[1] - angle_arr[0]
         dt = deg_step / 360.0 * 60.0 / max(rpm, 1e-3)

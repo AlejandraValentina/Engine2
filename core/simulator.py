@@ -588,6 +588,27 @@ class Engine1DSolver:
 
         self._tail_atmosphere()
 
+    def get_exhaust_backpressure_by_cyl(self) -> Dict[int, float]:
+        """Return the local pipe pressure at each exhaust valve interface.
+
+        Uses the first interior cell (index 1) to match the downstream pressure
+        used during boundary mass-flow calculations.
+        """
+
+        backpressure: Dict[int, float] = {}
+        for idx, state in enumerate(self.primary_states):
+            p_local = float(
+                _pressure_from_state(
+                    state["U"][1:2],
+                    self.settings.clamp_p_min,
+                    self.settings.clamp_p_max,
+                    self.gamma,
+                    self.settings.clamp_rho_min,
+                )[0]
+            )
+            backpressure[idx + 1] = p_local
+        return backpressure
+
     def _pipe_dt(self, state: Dict) -> float:
         rho = state["U"][:, 0]
         rho_safe = np.maximum(rho, self.settings.clamp_rho_min)
