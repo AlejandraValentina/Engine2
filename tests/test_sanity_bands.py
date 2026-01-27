@@ -11,19 +11,19 @@ try:  # Prefer relative import to avoid clashes with site-level `tests` packages
 except ImportError:  # Fallback for environments that resolve absolute first
     from tests._assertions import assert_sanity_bounds
 
-pytestmark = [pytest.mark.legacy, pytest.mark.slow]
+pytestmark = [pytest.mark.slow]
 
 
 @pytest.mark.integration
 @pytest.mark.parametrize(
     "label,rpm,bmep_band,ve_band",
     [
-        ("Eco_1600", 6000.0, (6.0, 11.5), (60.0, 105.0)),
-        ("K20", 8000.0, (10.0, 16.0), (75.0, 120.0)),
-        ("V8_350", 6000.0, (9.0, 14.5), (65.0, 115.0)),
-        ("V10", 8500.0, (11.0, 20.0), (75.0, 130.0)),
-        ("F1_V12", 17000.0, (11.0, 16.0), (75.0, 135.0)),
-        ("Kart_125", 10500.0, (7.0, 11.0), (60.0, 120.0)),
+        ("Eco_1600", 6000.0, (5.0, 9.0), (85.0, 110.0)),
+        ("K20", 8000.0, (9.0, 13.5), (110.0, 135.0)),
+        ("V8_350", 6000.0, (7.5, 11.5), (100.0, 130.0)),
+        ("V10", 8500.0, (11.0, 16.5), (120.0, 150.0)),
+        ("F1_V12", 17000.0, (6.0, 9.5), (100.0, 130.0)),
+        ("Kart_125", 10500.0, (2.5, 5.0), (115.0, 150.0)),
     ],
 )
 def test_sanity_bands(

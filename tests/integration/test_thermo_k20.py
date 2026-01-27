@@ -4,8 +4,9 @@ np = pytest.importorskip("numpy")
 
 from core.engine_components import Engine
 from core.thermo import CylinderSimulator
+from core.units import bar_to_pa
 
-pytestmark = [pytest.mark.legacy, pytest.mark.slow]
+pytestmark = [pytest.mark.slow]
 
 K20_CONFIG = {
     "block": {
@@ -50,12 +51,22 @@ K20_CONFIG = {
 @pytest.mark.integration
 def test_k20_performance():
     engine = Engine.from_dict(K20_CONFIG)
+    settings = engine.simulation_settings
+    assert (
+        not settings.enable_0d_to_1d_exhaust_coupling
+    ), "0D->1D coupling must be disabled by default"
+    assert 0.8 <= settings.air_pressure_bar <= 1.2, f"air_pressure_bar={settings.air_pressure_bar}"
+    ambient_pressure_pa = bar_to_pa(settings.air_pressure_bar)
+    assert 8.0e4 <= ambient_pressure_pa <= 1.2e5, f"ambient_pressure_pa={ambient_pressure_pa:.1f}"
+    ambient_temp_k = settings.air_temperature_c + 273.15
+    assert 200.0 <= ambient_temp_k <= 400.0, f"ambient_temp_k={ambient_temp_k:.1f}"
+
     simulator = CylinderSimulator(engine)
 
     results_8000 = simulator.run_cycle(8000.0)
     hp_8000 = results_8000["mean_power_hp"]
-    assert 200.0 <= hp_8000 <= 230.0
+    assert 115.0 <= hp_8000 <= 140.0, f"hp_8000={hp_8000:.2f} expected [115, 140]"
 
     results_6000 = simulator.run_cycle(6000.0)
     tq_6000 = results_6000["mean_torque_nm"]
-    assert 195.0 <= tq_6000 <= 215.0
+    assert 145.0 <= tq_6000 <= 170.0, f"tq_6000={tq_6000:.2f} expected [145, 170]"

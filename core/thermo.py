@@ -196,14 +196,25 @@ class CylinderSimulator:
 
         head = self.engine.head
         valve_mm = getattr(head, "intake_valve_diameter_mm", None)
+        legacy_mm = getattr(head, "intake_valve_diameter", None)
+        if legacy_mm is not None:
+            if valve_mm is None or not math.isclose(float(valve_mm), float(legacy_mm), abs_tol=1e-6):
+                valve_mm = legacy_mm
         if valve_mm is None:
-            valve_mm = getattr(head, "intake_valve_diameter", 35.0)
-        valve_diameter_m = valve_mm * 1e-3
+            valve_mm = 35.0
+        valve_diameter_m = float(valve_mm) * 1e-3
 
         eff = min(max(getattr(head, "port_flow_efficiency", 0.7), 0.1), 1.0)
         Av_geom = max(1e-9, head.intake_valves * math.pi * (valve_diameter_m / 2.0) ** 2)
         Av = Av_geom * eff
         Ap = max(1e-9, math.pi * (bore_m / 2.0) ** 2)
+        area_ratio = Av / Ap
+        area_threshold = float(getattr(head, "valve_area_ratio_threshold", 0.15))
+        if area_threshold <= 0.0:
+            area_threshold = 0.15
+        area_penalty = 1.0
+        if area_ratio < area_threshold:
+            area_penalty = max(0.3, area_ratio / area_threshold)
         V_gas = piston_speed * (Ap / Av)
         c_sound = math.sqrt(max(gamma_air * gas_constant * ambient_temp_k, 1e-9))
         mach_index = V_gas / max(c_sound, 1e-9)
@@ -215,7 +226,7 @@ class CylinderSimulator:
             choke_factor = 1.0 - 1.2 * (mach_index - mach_limit) ** 2
             choke_factor = max(0.4, choke_factor)
 
-        ve = max(0.2, base_curve * choke_factor)
+        ve = max(0.2, base_curve * choke_factor * area_penalty)
 
         flow_loss = getattr(self.engine.intake, "flow_loss_coefficient", 0.0)
         flow_loss_factor = max(0.0, 1.0 - flow_loss)
@@ -336,9 +347,6 @@ class CylinderSimulator:
 
         total_boost = (tuning_boost + exhaust_boost) * tuning_sensitivity
         tuning_factor = 1.0 + total_boost
-
-        if eff < 0.7:
-            tuning_factor *= 0.5
 
         ivc_abdc = max(0.0, IVC - 180.0)
         rpm_ratio = min(max(rpm / 7000.0, 0.0), 1.0)
@@ -504,9 +512,11 @@ class CylinderSimulator:
 
         be_type = (getattr(f_cfg, "bottom_end_type", "Standard") or "Standard").lower()
         if be_type == "performance":
-            fmep_kpa *= 0.9
+            fmep_kpa *= 0.85
         elif be_type == "race":
-            fmep_kpa *= 0.72
+            fmep_kpa *= 0.65
+        else:
+            fmep_kpa *= 1.05
         fmep_pa = fmep_kpa * 1000.0
         fmep_pa *= getattr(f_cfg, "global_scaling_factor", 1.0)
 
@@ -605,3 +615,4 @@ class CylinderSimulator:
     def run_pro_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
         """Pro dyno path currently reuses the calibrated quick cycle."""
         return self.run_cycle(rpm)
+

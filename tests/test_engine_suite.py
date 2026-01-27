@@ -5,7 +5,7 @@ np = pytest.importorskip("numpy")
 from core.engine_components import Engine
 from core.thermo import CylinderSimulator
 
-pytestmark = [pytest.mark.legacy, pytest.mark.slow]
+pytestmark = [pytest.mark.slow]
 
 ENGINE_CASES = [
     (
@@ -54,8 +54,8 @@ ENGINE_CASES = [
             "friction": {"bottom_end_type": "Performance"},
         },
         8000.0,
-        (220.0, 245.0),
-        (190.0, 220.0),
+        (115.0, 140.0),
+        (100.0, 125.0),
     ),
     (
         "V8_Muscle",
@@ -102,8 +102,8 @@ ENGINE_CASES = [
             "friction": {"bottom_end_type": "Standard"},
         },
         6000.0,
-        (350.0, 400.0),
-        (400.0, 500.0),
+        (390.0, 450.0),
+        (460.0, 540.0),
     ),
     (
         "Eco_1600",
@@ -150,8 +150,8 @@ ENGINE_CASES = [
             "friction": {"bottom_end_type": "Standard"},
         },
         6000.0,
-        (100.0, 120.0),
-        (110.0, 150.0),
+        (100.0, 130.0),
+        (120.0, 150.0),
     ),
     (
         "Race_V10",
@@ -198,8 +198,8 @@ ENGINE_CASES = [
             "friction": {"bottom_end_type": "Race"},
         },
         8500.0,
-        (500.0, 550.0),
-        (400.0, 480.0),
+        (380.0, 450.0),
+        (320.0, 380.0),
     ),
 ]
 

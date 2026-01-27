@@ -1551,13 +1551,28 @@ def _build_valve_timing(engine: Engine, pipe_role: str) -> ValveTiming:
     head = engine.head
     if pipe_role == "intake":
         lift_m = float(cam.intake_lift) * 1e-3
-        seat_mm = head.intake_valve_diameter_mm or head.intake_valve_diameter
+        seat_mm = head.intake_valve_diameter_mm
+        legacy_mm = head.intake_valve_diameter
+        if legacy_mm is not None:
+            if seat_mm is None or not math.isclose(float(seat_mm), float(legacy_mm), abs_tol=1e-6):
+                seat_mm = legacy_mm
+        if seat_mm is None:
+            seat_mm = 35.0
         open_start = 0.0
         open_end = open_start + max(float(cam.intake_duration), 1.0)
         cd = 0.9
     else:
         lift_m = float(cam.exhaust_lift) * 1e-3
-        seat_mm = head.exhaust_valve_seat_diameter_mm or head.exhaust_valve_diameter_mm or head.exhaust_valve_diameter
+        seat_mm = head.exhaust_valve_seat_diameter_mm
+        fallback_mm = head.exhaust_valve_diameter_mm
+        legacy_mm = head.exhaust_valve_diameter
+        if seat_mm is None:
+            seat_mm = fallback_mm
+        if legacy_mm is not None:
+            if seat_mm is None or not math.isclose(float(seat_mm), float(legacy_mm), abs_tol=1e-6):
+                seat_mm = legacy_mm
+        if seat_mm is None:
+            seat_mm = 30.0
         open_start = 360.0
         open_end = open_start + max(float(cam.exhaust_duration), 1.0)
         cd = float(getattr(engine.simulation_settings, "exhaust_valve_cd", getattr(head, "exhaust_valve_cd", 0.9)))
@@ -1578,9 +1593,11 @@ def _fmep_from_engine(engine: Engine, rpm: float) -> float:
     fmep_kpa = f_base + f_lin * rpm + f_quad * rpm * rpm
     be_type = (getattr(f_cfg, "bottom_end_type", "Standard") or "Standard").lower()
     if be_type == "performance":
-        fmep_kpa *= 0.9
+        fmep_kpa *= 0.85
     elif be_type == "race":
-        fmep_kpa *= 0.72
+        fmep_kpa *= 0.65
+    else:
+        fmep_kpa *= 1.05
     fmep_pa = fmep_kpa * 1000.0
     fmep_pa *= getattr(f_cfg, "global_scaling_factor", 1.0)
     return float(fmep_pa)
