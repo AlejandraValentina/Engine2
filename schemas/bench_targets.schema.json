@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bench_targets.schema.json",
+  "type": "object",
+  "required": ["points"],
+  "properties": {
+    "engine_id": {"type": ["string", "null"]},
+    "points": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rpm"],
+        "properties": {
+          "rpm": {"type": "number"},
+          "power_hp": {"type": "number"},
+          "torque_nm": {"type": "number"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

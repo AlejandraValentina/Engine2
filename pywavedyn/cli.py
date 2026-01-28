@@ -22,6 +22,7 @@ from core.map_runner import run_partload_map
 from core.auto_calibration import calibrate_engine
 from core.optimize_runner import load_target_points, optimize_runner_length
 from pywavedyn.bench import evaluate as evaluate_benchmark
+from pywavedyn.bench_import import import_csv as import_bench_csv, write_targets as write_bench_targets
 from core.full_network import run_full_scope as run_full_scope_sim
 from core.units import cc_to_m3
 from core.wave_utils import build_exhaust_coupling, compute_pressure_matrix
@@ -511,6 +512,23 @@ def run_benchmark(engine_path: Path, dataset_dir: Path, out_path: Path) -> None:
     _write_json(out_path, output)
 
 
+def run_bench_import(
+    csv_path: Path,
+    out_path: Path,
+    *,
+    engine_id: str,
+    torque_units: str,
+    power_units: str,
+) -> None:
+    payload = import_bench_csv(
+        csv_path,
+        torque_units=torque_units,
+        power_units=power_units,
+        engine_id=engine_id,
+    )
+    write_bench_targets(payload, out_path)
+
+
 def _cutlist_text_path(out_path: Path) -> Path:
     if out_path.suffix:
         return out_path.with_suffix(".txt")
@@ -813,6 +831,13 @@ def _build_parser() -> argparse.ArgumentParser:
     intake_scope.add_argument("--max-steps", type=int, default=None)
     intake_scope.add_argument("--out", required=True, type=Path)
 
+    bench_import = sub.add_parser("bench-import", help="Import CSV data into benchmark targets")
+    bench_import.add_argument("--csv", required=True, type=Path)
+    bench_import.add_argument("--out", required=True, type=Path)
+    bench_import.add_argument("--engine-id", default="unknown")
+    bench_import.add_argument("--torque-units", choices=["lbft", "nm"], default="lbft")
+    bench_import.add_argument("--power-units", choices=["hp", "kw"], default="hp")
+
     audio = sub.add_parser("audio", help="Render multi-cylinder audio WAV (headless)")
     audio.add_argument("--engine", required=True, type=Path)
     audio.add_argument("--rpm", required=True, type=float)
@@ -965,6 +990,14 @@ def main(argv: Iterable[str] | None = None) -> None:
         sys.exit(run_selfcheck(args.expectations, args.out))
     elif args.command == "benchmark":
         run_benchmark(args.engine, args.dataset, args.out)
+    elif args.command == "bench-import":
+        run_bench_import(
+            args.csv,
+            args.out,
+            engine_id=str(args.engine_id),
+            torque_units=str(args.torque_units),
+            power_units=str(args.power_units),
+        )
 
 
 if __name__ == "__main__":
