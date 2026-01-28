@@ -19,6 +19,18 @@
       "power_hp_max": [200.0, 200.0]
     },
     {
+      "file": "benchmark_mono_na.json",
+      "rpm": [3000, 6000],
+      "power_hp_min": [0.0, 0.0],
+      "power_hp_max": [200.0, 200.0]
+    },
+    {
+      "file": "benchmark_turbo_small.json",
+      "rpm": [2500, 5000],
+      "power_hp_min": [0.0, 0.0],
+      "power_hp_max": [600.0, 600.0]
+    },
+    {
       "file": "scope_tube_pulse.json",
       "scope": {
         "rpm": 2000.0,
