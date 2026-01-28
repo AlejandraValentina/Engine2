@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass
 from typing import Optional
 
@@ -129,6 +130,7 @@ def run_full_scope(
     max_steps: Optional[int] = None,
     target_dx: Optional[float] = None,
     use_numba: bool = False,
+    time_budget_ms: Optional[float] = None,
     rpm: Optional[float] = None,
 ) -> FullScopeResult:
     if duration_s <= 0.0:
@@ -238,7 +240,12 @@ def run_full_scope(
     decimate = 5
 
     stepper = step_soa_numba if use_numba else step_soa_python
+    start_time = time.perf_counter()
     for step in range(max_steps):
+        if time_budget_ms is not None:
+            elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+            if elapsed_ms > float(time_budget_ms):
+                raise RuntimeError("full-scope exceeded time_budget_ms")
         if time >= duration_s:
             status = "complete"
             break

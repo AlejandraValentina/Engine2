@@ -475,6 +475,7 @@ def run_full_scope(
     max_steps: int | None = None,
     target_dx: float | None = None,
     use_numba: bool = False,
+    time_budget_ms: float | None = None,
 ) -> None:
     engine, raw = _load_engine(engine_path)
     result = run_full_scope_sim(
@@ -483,6 +484,7 @@ def run_full_scope(
         max_steps=max_steps,
         target_dx=target_dx,
         use_numba=use_numba,
+        time_budget_ms=time_budget_ms,
     )
     output = {
         "metadata": _metadata(engine, raw, coupling_mode="full_network"),
@@ -755,6 +757,7 @@ def _build_parser() -> argparse.ArgumentParser:
     full_scope.add_argument("--max-steps", type=int, default=None)
     full_scope.add_argument("--target-dx", type=float, default=None)
     full_scope.add_argument("--fast-numba", action="store_true", help="Enable Numba fast path (if available)")
+    full_scope.add_argument("--time-budget-ms", type=float, default=None)
 
     cutlist = sub.add_parser("cutlist", help="Generate cut-list report (JSON + text)")
     cutlist_group = cutlist.add_mutually_exclusive_group(required=True)
@@ -852,6 +855,7 @@ def main(argv: Iterable[str] | None = None) -> None:
             max_steps=args.max_steps,
             target_dx=args.target_dx,
             use_numba=bool(args.fast_numba),
+            time_budget_ms=args.time_budget_ms,
         )
     elif args.command == "cutlist":
         engine_path = args.engine if args.engine is not None else args.preset
