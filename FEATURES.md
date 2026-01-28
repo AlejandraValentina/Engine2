@@ -6,6 +6,9 @@
 ## Release v2.0 scope
 Ver `docs/RELEASE_V2_SCOPE.md` (unico scope congelado v2.0).
 
+## Release v2.1 scope
+Ver `docs/RELEASE_V2_1_SCOPE.md` (unico scope congelado v2.1).
+
 ## 1) Dyno 0D (thermo)
 - [x] Virtual dyno 0D (Otto con Wiebe/Woschni, knock, FMEP) — Evidencia: `core/thermo.py`, presets canónicos en `presets/` (`honda_k20.json`, `chevy_350.json`, `ferrari_f1.json`), contratos en `tests/test_contract_0d.py`, identidades/trends/sanity en `tests/test_identities.py`, `tests/test_trends.py`, `tests/test_sanity_bands.py`. Run: `python -m pytest -q tests/test_contract_0d.py`.
 
@@ -57,4 +60,3 @@ Ver `docs/RELEASE_V2_SCOPE.md` (unico scope congelado v2.0).
 - [x] Exhaust plenum CV (opt-in) - Evidencia: `tests/unit/test_exhaust_plenum_damps_blowdown_peak.py`, `tests/unit/test_exhaust_plenum_defaults_no_change.py`, `tests/unit/test_exhaust_plenum_mass_scalar_invariants.py`.
 - [x] Junction capacitance v2 reservoir + per-leg K-loss hooks (opt-in) - Evidencia: `tests/unit/test_junction_capacitance.py`, `tests/unit/test_junction_capacitance_conserves_mass_scalar.py`, `tests/unit/test_junction_leg_k_loss_reduces_mdot_bidirectional.py`, `tests/unit/test_junction_leg_k_manual_reduces_mdot_no_flip.py`.
 - [x] Junction capacitance wired into network runner path (opt-in) - Evidencia: `tests/unit/test_network_runner_junction_capacitance_wiring.py`.
-
