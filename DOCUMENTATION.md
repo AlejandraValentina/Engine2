@@ -111,16 +111,16 @@ Headless sweeps are available via CLI (runner length grid). GUI sweeps remain av
 3. Click **Run Optimization Sweep**. The optimizer temporarily adjusts the selected parameter, runs dyno simulations over the RPM range, records peak horsepower, updates a progress bar, and plots Parameter Value vs. Peak HP.
 4. When finished, the original engine settings are restored automatically, so you can adopt the best value manually.
 
-## Verificacion v2.1
+## Verificacion v2.2
 ```bash
-python -m pytest -q
 python -m pytest -q -W error::RuntimeWarning
+python -m pytest -q
 python -m pytest -q -m integration
 python -m pytest -q -m legacy
+python -m pytest -q -m perf
 python -m pywavedyn.cli --help
-python -m pywavedyn.cli intake-scope --help
-python -m pywavedyn.cli map --help
-python -m pywavedyn.cli calibrate --help
+python -m pywavedyn.cli full-scope --help
+python -m pywavedyn.cli optimize --help
 ```
 
 ### Notes on Physics Models

@@ -73,25 +73,33 @@ See: FEATURES.md and VALIDATION_GUIDE.md.
    ```bash
    python -m pywavedyn.cli calibrate --engine presets/honda_k20.json --target target.json --out calib_report.json --max-evals 40 --params ve_scale,friction_scale,burn_scale
    ```
-11. **Run tests:**
+11. **Full network scope (CLI):**
+   ```bash
+   python -m pywavedyn.cli full-scope --engine presets/legacy/custom_twin_230cc.json --duration 0.02 --target-dx 0.05 --max-steps 200 --out full_scope.json
+   ```
+12. **Optimize runner length (CLI):**
+   ```bash
+   python -m pywavedyn.cli optimize --engine presets/legacy/custom_twin_230cc.json --target target.json --param intake.runner_length --bounds 0.20,0.60 --seed 123 --max-evals 30 --out opt_report.json
+   ```
+13. **Run tests:**
    ```bash
    python -m pytest
    ```
-12. **Run selfcheck (validation cases):**
+14. **Run selfcheck (validation cases):**
    ```bash
    python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json
    ```
 
-## Verificacion v2.1
+## Verificacion v2.2
 ```bash
-python -m pytest -q
 python -m pytest -q -W error::RuntimeWarning
+python -m pytest -q
 python -m pytest -q -m integration
 python -m pytest -q -m legacy
+python -m pytest -q -m perf
 python -m pywavedyn.cli --help
-python -m pywavedyn.cli intake-scope --help
-python -m pywavedyn.cli map --help
-python -m pywavedyn.cli calibrate --help
+python -m pywavedyn.cli full-scope --help
+python -m pywavedyn.cli optimize --help
 ```
 
 ## Run Demo
