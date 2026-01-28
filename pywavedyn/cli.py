@@ -17,6 +17,9 @@ from core.engine_components import Engine, Pipe
 from core.pro_dyno_v2 import ProDynoV2Runner
 from core.thermo import CylinderSimulator
 from core.simulator import Engine1DSolver
+from core.intake_scope import run_intake_scope as run_intake_scope_sim
+from core.map_runner import run_partload_map
+from core.auto_calibration import calibrate_engine
 from core.units import cc_to_m3
 from core.wave_utils import build_exhaust_coupling, compute_pressure_matrix
 
@@ -269,6 +272,25 @@ def run_scope(
         "time": list(time_vector),
         "tail_pressure_pa": list(audio),
         "pressure_matrix_pa": matrix.tolist(),
+    }
+    _write_json(out_path, output)
+
+
+def run_intake_scope(
+    engine_path: Path,
+    out_path: Path,
+    *,
+    max_steps: int | None = None,
+    target_dx: float | None = None,
+) -> None:
+    engine, raw = _load_engine(engine_path)
+    result = run_intake_scope_sim(engine, max_steps=max_steps, target_dx=target_dx)
+    output = {
+        "metadata": _metadata(engine, raw, coupling_mode="intake_scope"),
+        "time": result.time_s,
+        "plenum_pressure_pa": result.plenum_pressure_pa,
+        "runner_pressure_pa": result.runner_pressure_pa,
+        "valve_area_m2": result.valve_area_m2,
     }
     _write_json(out_path, output)
 
@@ -532,6 +554,12 @@ def _build_parser() -> argparse.ArgumentParser:
     scope.add_argument("--max-steps", type=int, default=None)
     scope.add_argument("--out", required=True, type=Path)
 
+    intake_scope = sub.add_parser("intake-scope", help="Run a headless intake 1D scope")
+    intake_scope.add_argument("--engine", required=True, type=Path)
+    intake_scope.add_argument("--target-dx", type=float, default=None)
+    intake_scope.add_argument("--max-steps", type=int, default=None)
+    intake_scope.add_argument("--out", required=True, type=Path)
+
     audio = sub.add_parser("audio", help="Render multi-cylinder audio WAV (headless)")
     audio.add_argument("--engine", required=True, type=Path)
     audio.add_argument("--rpm", required=True, type=float)
@@ -580,6 +608,13 @@ def main(argv: Iterable[str] | None = None) -> None:
             args.out,
             target_dx=args.target_dx,
             max_steps=args.max_steps,
+        )
+    elif args.command == "intake-scope":
+        run_intake_scope(
+            args.engine,
+            args.out,
+            max_steps=args.max_steps,
+            target_dx=args.target_dx,
         )
     elif args.command == "audio":
         run_audio(
