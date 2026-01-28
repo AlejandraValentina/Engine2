@@ -30,7 +30,11 @@
           "map_est_kpa": {"type": "number"},
           "overlap_flow_kg": {"type": "number"},
           "residual_fraction_est": {"type": "number"},
-          "scavenging_index": {"type": "number"}
+          "scavenging_index": {"type": "number"},
+          "boost_kpa": {"type": "number"},
+          "pr_comp": {"type": "number"},
+          "pr_turb": {"type": "number"},
+          "wg_duty": {"type": "number"}
         },
         "additionalProperties": true
       }

@@ -166,7 +166,16 @@ def _dyno_results_v1(engine: Engine, rpm_values: list[float]) -> list[dict]:
             "bmep_bar": float(cycle["bmep_bar"]),
             "ve_actual": float(cycle["ve_actual"]),
         }
-        for key in ("map_est_kpa", "overlap_flow_kg", "residual_fraction_est", "scavenging_index"):
+        for key in (
+            "map_est_kpa",
+            "overlap_flow_kg",
+            "residual_fraction_est",
+            "scavenging_index",
+            "boost_kpa",
+            "pr_comp",
+            "pr_turb",
+            "wg_duty",
+        ):
             if key in cycle:
                 entry[key] = float(cycle[key])
         results.append(entry)
@@ -197,8 +206,17 @@ def _dyno_results_v2(engine: Engine, rpm_values: list[float]) -> list[dict]:
     return results
 
 
-def run_dyno(engine_path: Path, rpm_spec: str, out_path: Path, mode: str = "v1") -> None:
+def run_dyno(
+    engine_path: Path,
+    rpm_spec: str,
+    out_path: Path,
+    mode: str = "v1",
+    turbo_path: Path | None = None,
+) -> None:
     engine, raw = _load_engine(engine_path)
+    if turbo_path is not None:
+        turbo_raw = json.loads(turbo_path.read_text(encoding="utf-8"))
+        engine.turbo = engine.turbo.from_dict(turbo_raw)
     rpm_values = _parse_rpm_range(rpm_spec)
     if mode == "v1":
         results = _dyno_results_v1(engine, rpm_values)
@@ -675,6 +693,7 @@ def _build_parser() -> argparse.ArgumentParser:
     dyno.add_argument("--engine", required=True, type=Path)
     dyno.add_argument("--rpm", required=True, help="RPM or range start:end:step")
     dyno.add_argument("--mode", choices=["v1", "v2"], default="v1")
+    dyno.add_argument("--turbo", type=Path, default=None)
     dyno.add_argument("--out", required=True, type=Path)
 
     scope = sub.add_parser("scope", help="Run a 1D wave scope")
@@ -765,7 +784,7 @@ def main(argv: Iterable[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     if args.command == "dyno":
-        run_dyno(args.engine, args.rpm, args.out, mode=args.mode)
+        run_dyno(args.engine, args.rpm, args.out, mode=args.mode, turbo_path=args.turbo)
     elif args.command == "scope":
         run_scope(
             args.engine,

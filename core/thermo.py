@@ -368,6 +368,77 @@ class CylinderSimulator:
         ve_mach_factor = float(ve_mach_factor)
         ve_flow_loss_factor = float(ve_flow_loss_factor)
 
+        disp_cid = self.engine.block.displacement_cc * 0.0610237
+        required_cfm = (disp_cid * rpm) / 3456.0 * ve_prelim
+
+        turbo_cfg = getattr(self.engine, "turbo", None)
+        turbo_enabled = turbo_cfg is not None and bool(getattr(turbo_cfg, "enabled", False))
+        turbo_outputs: dict[str, float] = {}
+        if turbo_enabled:
+            max_iters = int(getattr(turbo_cfg, "max_iters", 8))
+            if max_iters < 1:
+                raise ValueError("turbo.max_iters must be >= 1")
+
+            def _interp_pr(points: list[dict], flow_kg_s: float) -> float | None:
+                if not points:
+                    return None
+                pairs = [
+                    (float(p.get("flow_kg_s", 0.0)), float(p.get("pr", 1.0)))
+                    for p in points
+                    if "flow_kg_s" in p and "pr" in p
+                ]
+                if not pairs:
+                    return None
+                pairs.sort(key=lambda x: x[0])
+                flows = [p[0] for p in pairs]
+                prs = [p[1] for p in pairs]
+                return float(np.interp(flow_kg_s, flows, prs))
+
+            flow_m3_s = required_cfm * 0.0283168 / 60.0
+            rho_amb = ambient_pressure_pa / max(gas_constant * ambient_temp_k, 1e-9)
+            m_dot_air = rho_amb * flow_m3_s
+
+            pr_map = _interp_pr(getattr(turbo_cfg, "compressor_map", []), m_dot_air)
+            pr_target = getattr(turbo_cfg, "target_pr", None)
+            if pr_target is None:
+                target_boost_kpa = getattr(turbo_cfg, "target_boost_kpa", None)
+                if target_boost_kpa is not None:
+                    pr_target = 1.0 + float(target_boost_kpa) / max(ambient_pressure_pa / 1000.0, 1e-6)
+            pr_target = float(pr_target) if pr_target is not None else None
+            if pr_target is not None:
+                pr_target = max(pr_target, 1.0)
+
+            pr_raw = pr_map if pr_map is not None else (pr_target if pr_target is not None else 1.0)
+            pr_raw = max(float(pr_raw), 1.0)
+            pr_comp = pr_raw
+            if bool(getattr(turbo_cfg, "wastegate_enabled", True)) and pr_target is not None:
+                gain = float(getattr(turbo_cfg, "wastegate_gain", 0.5))
+                for _ in range(max_iters):
+                    if abs(pr_comp - pr_target) <= 1e-3:
+                        break
+                    pr_comp = pr_comp + gain * (pr_target - pr_comp)
+                pr_comp = max(pr_comp, 1.0)
+
+            wg_duty = 0.0
+            if pr_raw > pr_comp and pr_raw > 1.0:
+                wg_duty = min(max((pr_raw - pr_comp) / (pr_raw - 1.0), 0.0), 1.0)
+
+            pr_turb = _interp_pr(getattr(turbo_cfg, "turbine_map", []), m_dot_air)
+            if pr_turb is None:
+                pr_turb = max(pr_comp * 0.9, 1.0)
+            pr_turb = float(max(pr_turb, 1.0))
+
+            P_manifold = ambient_pressure_pa * pr_comp
+            intercooler_eff = float(getattr(turbo_cfg, "intercooler_efficiency", intercooler_eff))
+            T_boost = ambient_temp_k * (P_manifold / ambient_pressure_pa) ** 0.28
+            T_charge = ambient_temp_k + (T_boost - ambient_temp_k) * (1.0 - intercooler_eff)
+            turbo_outputs = {
+                "boost_kpa": float((P_manifold - ambient_pressure_pa) / 1000.0),
+                "pr_comp": float(pr_comp),
+                "pr_turb": float(pr_turb),
+                "wg_duty": float(wg_duty),
+            }
+
         bmep_est_bar = (P_manifold / 1e5) * ve_prelim * 10.0
         burn_duration = getattr(comb, "burn_duration", 50.0)
         if getattr(comb, "use_dynamic_burn_duration", False):
@@ -383,7 +454,6 @@ class CylinderSimulator:
             k_load = getattr(comb, "ca50_load_factor", 0.0)
             target_ca50 = base_ca50 + k_rpm * (rpm / 1000.0) + k_load * bmep_est_bar
 
-        disp_cid = self.engine.block.displacement_cc * 0.0610237
         required_cfm = (disp_cid * rpm) / 3456.0 * ve_prelim
         head_supply_cfm = self.engine.head.port_flow_cfm * self.engine.head.intake_valves * self.engine.block.num_cylinders
         throttle_capacity = getattr(self.engine.intake, "throttle_cfm", None)
@@ -610,7 +680,7 @@ class CylinderSimulator:
             trace["residual_fraction_est"] = float(residual_fraction_est)
             trace["residual_coupling_factor"] = float(residual_factor)
 
-        return {
+        result = {
             "angle": angle_arr,
             "pressure": pressure,
             "volume": volume,
@@ -641,6 +711,9 @@ class CylinderSimulator:
             "target_ca50_deg_atdc": target_ca50,
             "trace": trace,
         }
+        if turbo_enabled:
+            result.update(turbo_outputs)
+        return result
     def run_pro_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
         """Pro dyno path currently reuses the calibrated quick cycle."""
         return self.run_cycle(rpm)

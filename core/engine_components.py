@@ -739,6 +739,52 @@ class Supercharger:
 
 
 @dataclass
+class Turbo:
+    enabled: bool = False
+    compressor_map: list[dict] = field(default_factory=list)
+    turbine_map: list[dict] = field(default_factory=list)
+    compressor_efficiency: float = 0.7
+    turbine_efficiency: float = 0.7
+    target_boost_kpa: float | None = None
+    target_pr: float | None = None
+    wastegate_enabled: bool = True
+    wastegate_gain: float = 0.5
+    max_iters: int = 8
+    intercooler_efficiency: float = 0.6
+
+    def to_dict(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "compressor_map": self.compressor_map,
+            "turbine_map": self.turbine_map,
+            "compressor_efficiency": self.compressor_efficiency,
+            "turbine_efficiency": self.turbine_efficiency,
+            "target_boost_kpa": self.target_boost_kpa,
+            "target_pr": self.target_pr,
+            "wastegate_enabled": self.wastegate_enabled,
+            "wastegate_gain": self.wastegate_gain,
+            "max_iters": self.max_iters,
+            "intercooler_efficiency": self.intercooler_efficiency,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Turbo":
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            compressor_map=list(data.get("compressor_map", [])),
+            turbine_map=list(data.get("turbine_map", [])),
+            compressor_efficiency=float(data.get("compressor_efficiency", 0.7)),
+            turbine_efficiency=float(data.get("turbine_efficiency", 0.7)),
+            target_boost_kpa=data.get("target_boost_kpa"),
+            target_pr=data.get("target_pr"),
+            wastegate_enabled=bool(data.get("wastegate_enabled", True)),
+            wastegate_gain=float(data.get("wastegate_gain", 0.5)),
+            max_iters=int(data.get("max_iters", 8)),
+            intercooler_efficiency=float(data.get("intercooler_efficiency", 0.6)),
+        )
+
+
+@dataclass
 class Engine:
     schema_version: int = 1
     model_name: str = "Custom Engine"
@@ -749,6 +795,7 @@ class Engine:
     exhaust: ExhaustSystem = field(default_factory=ExhaustSystem)
     throttle: Throttle = field(default_factory=Throttle)
     supercharger: Supercharger = field(default_factory=Supercharger)
+    turbo: Turbo = field(default_factory=Turbo)
     simulation_settings: SimulationSettings = field(default_factory=SimulationSettings)
     friction: Friction = field(default_factory=Friction)
     fuel: Fuel = field(default_factory=Fuel)
@@ -765,6 +812,7 @@ class Engine:
             "exhaust": self.exhaust.to_dict(),
             "throttle": self.throttle.to_dict(),
             "supercharger": self.supercharger.to_dict(),
+            "turbo": self.turbo.to_dict(),
             "simulation_settings": self.simulation_settings.to_dict(),
             "friction": self.friction.to_dict(),
             "fuel": self.fuel.to_dict(),
@@ -785,6 +833,7 @@ class Engine:
             exhaust=ExhaustSystem.from_dict(migrated.get("exhaust", {})),
             throttle=Throttle.from_dict(migrated.get("throttle", {})),
             supercharger=Supercharger.from_dict(migrated.get("supercharger", {})),
+            turbo=Turbo.from_dict(migrated.get("turbo", {})),
             simulation_settings=SimulationSettings.from_dict(migrated.get("simulation_settings", {})),
             friction=Friction.from_dict(migrated.get("friction", {})),
             fuel=Fuel.from_dict(migrated.get("fuel", {})),
