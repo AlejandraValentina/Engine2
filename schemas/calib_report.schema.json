@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "calib_report.schema.json",
+  "type": "object",
+  "required": [
+    "metadata",
+    "params_initial",
+    "params_final",
+    "error_initial",
+    "error_final",
+    "evals_used",
+    "status"
+  ],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "params_initial": {"type": "object"},
+    "params_final": {"type": "object"},
+    "error_initial": {"type": "number"},
+    "error_final": {"type": "number"},
+    "evals_used": {"type": "integer"},
+    "status": {"type": "string"}
+  },
+  "additionalProperties": true
+}

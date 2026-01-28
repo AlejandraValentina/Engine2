@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "dyno.schema.json",
+  "$id": "map.schema.json",
   "type": "object",
-  "required": ["metadata", "results"],
+  "required": ["metadata", "grid", "points"],
   "properties": {
     "metadata": {
       "type": "object",
@@ -16,21 +16,30 @@
       },
       "additionalProperties": true
     },
-    "results": {
+    "grid": {
+      "type": "object",
+      "required": ["rpm", "throttle"],
+      "properties": {
+        "rpm": {"type": "array", "items": {"type": "number"}},
+        "throttle": {"type": "array", "items": {"type": "number"}}
+      },
+      "additionalProperties": true
+    },
+    "points": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["rpm", "mean_power_hp", "mean_torque_nm", "bmep_bar", "ve_actual"],
+        "required": ["rpm", "throttle", "torque_nm", "power_hp", "bmep_bar", "ve_actual", "map_est_kpa"],
         "properties": {
           "rpm": {"type": "number"},
-          "mean_power_hp": {"type": "number"},
-          "mean_torque_nm": {"type": "number"},
+          "throttle": {"type": "number"},
+          "torque_nm": {"type": "number"},
+          "power_hp": {"type": "number"},
           "bmep_bar": {"type": "number"},
           "ve_actual": {"type": "number"},
-          "map_est_kpa": {"type": "number"},
-          "overlap_flow_kg": {"type": "number"},
-          "residual_fraction_est": {"type": "number"},
-          "scavenging_index": {"type": "number"}
+          "map_est_kpa": {"type": ["number", "null"]},
+          "fuel_gps": {"type": "number"},
+          "bsfc_gpkwh": {"type": "number"}
         },
         "additionalProperties": true
       }
