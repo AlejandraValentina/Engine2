@@ -15,3 +15,7 @@ The benchmark report is generated via:
 ```
 python -m pywavedyn.cli benchmark --engine <engine.json> --dataset benchmarks/datasets/<engine_id> --out bench_report.json
 ```
+
+Sources:
+- `regression_golden`: generated from current simulator outputs for stability/regression.
+- `real_data`: external datasets imported via `bench-import` (not stored in repo).

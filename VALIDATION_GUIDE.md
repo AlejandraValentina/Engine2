@@ -25,9 +25,20 @@ F) Verificacion v2.3 FINAL
 - `python -m pytest -q -m integration`
 - `python -m pytest -q -m legacy`
 - `python -m pytest -q -m system`
+- `python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json`
 
 G) Benchmarks
 - `python -m pywavedyn.cli benchmark --engine presets/honda_k20.json --dataset benchmarks/datasets/honda_k20_na --out bench_report.json`
+- Regression-golden datasets:
+  - `python -m pywavedyn.cli benchmark --engine presets/chevy_350.json --dataset benchmarks/datasets/chevy_350_na --out bench_report.json`
+  - `python -m pywavedyn.cli benchmark --engine presets/ferrari_f1.json --dataset benchmarks/datasets/ferrari_f1_na --out bench_report.json`
+  - `python -m pywavedyn.cli benchmark --engine validation_cases/single_cyl_moto_like.json --dataset benchmarks/datasets/single_cyl_moto_na --out bench_report.json`
+- Importador (CSV -> targets):
+  - `python -m pywavedyn.cli bench-import --csv curve.csv --out benchmarks/datasets/<name>/target_curve.json --engine-id <id> --torque-units lbft --power-units hp`
+
+Notes
+- `regression_golden` datasets are generated from current simulator outputs and used for stability/regression.
+- `real_data` datasets (not included in repo) should be stored externally and imported via `bench-import`.
 
 H) Scavenging metrics (intake_coupling)
 - `overlap_flow_kg`: estimacion de masa intercambiada durante overlap, derivada de fraccion de overlap y caudal.

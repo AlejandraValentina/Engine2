@@ -11,8 +11,16 @@
 
 ## Validation Cases
 - `validation_cases/k20_like.json`, `validation_cases/v8_like.json`, `validation_cases/single_cyl_moto_like.json`
+- `validation_cases/throttle_part_load_k20_like.json`, `validation_cases/intake_plenum_effect.json`, `validation_cases/wall_thermal_effect.json`
 - `validation_cases/scope_tube_pulse.json`, `validation_cases/scope_simple_header.json`
 - Expectativas: `validation_cases/expectations.json` (usado por `pywavedyn.cli selfcheck`).
+
+## Benchmarks datasets
+- `benchmarks/datasets/honda_k20_na/` (reference toy)
+- `benchmarks/datasets/custom_twin_230cc/` (reference toy)
+- `benchmarks/datasets/chevy_350_na/` (regression_golden)
+- `benchmarks/datasets/ferrari_f1_na/` (regression_golden)
+- `benchmarks/datasets/single_cyl_moto_na/` (regression_golden)
 
 ## Tests
 - **Unit/contratos (por defecto)**:
