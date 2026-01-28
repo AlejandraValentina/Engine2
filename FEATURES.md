@@ -9,6 +9,9 @@ Ver `docs/RELEASE_V2_SCOPE.md` (unico scope congelado v2.0).
 ## Release v2.1 scope
 Ver `docs/RELEASE_V2_1_SCOPE.md` (unico scope congelado v2.1).
 
+## Release v2.2 scope
+Ver `docs/RELEASE_V2_2_SCOPE.md` (unico scope congelado v2.2).
+
 ## Release v2.1 scope (INTAKE+SCAVENGING+MAP+THERMAL+CALIBRATION)
 - [x] Intake 1D headless (plenum -> runner -> valvula) + CLI + schema — Evidencia: `core/intake_scope.py`, `pywavedyn/cli.py`, `schemas/intake_scope.schema.json`, `tests/test_intake_scope_smoke.py`, `tests/test_output_schema_intake_scope.py`. Run: `python -m pywavedyn.cli intake-scope --engine presets/legacy/custom_twin_230cc.json --target-dx 0.05 --max-steps 30 --out intake_scope.json`.
 - [x] Acople 0D<->1D en admision + scavenging/overlap (opt-in) — Evidencia: `core/intake_coupling.py`, `core/thermo.py`, `tests/test_intake_coupling_noop_when_disabled.py`, `tests/test_scavenging_metrics_present_when_enabled.py`, `tests/integration/test_intake_coupling_affects_map_ve.py`. Run: `python -m pytest -q tests/test_intake_coupling_noop_when_disabled.py tests/test_scavenging_metrics_present_when_enabled.py` (+ integration: `python -m pytest -m integration -q tests/integration/test_intake_coupling_affects_map_ve.py`).
