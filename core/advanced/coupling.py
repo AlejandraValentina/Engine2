@@ -265,9 +265,13 @@ def ghost_state_from_nozzle(
                 )
             )
         if mdot_hi < target:
-            raise ValueError(
-                f"Ghost inversion bracket failed: target={target:.3e} mdot_hi={mdot_hi:.3e}"
-            )
+            rel_gap = (target - mdot_hi) / max(target, 1e-12)
+            if rel_gap <= 1e-6:
+                target = mdot_hi
+            else:
+                raise ValueError(
+                    f"Ghost inversion bracket failed: target={target:.3e} mdot_hi={mdot_hi:.3e}"
+                )
     for _ in range(60):
         mid = 0.5 * (lo + hi)
         mdot_mid = abs(

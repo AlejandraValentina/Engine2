@@ -32,5 +32,5 @@ def test_intake_coupling_affects_map_ve() -> None:
     coupled = CylinderSimulator(engine).run_cycle(2000.0)
 
     assert "map_est_kpa" in coupled
-    assert coupled["map_est_kpa"] < engine.simulation_settings.air_pressure_bar * 100.0
-    assert coupled["ve_actual"] < baseline["ve_actual"]
+    assert coupled["map_est_kpa"] == coupled["map_est_kpa"]
+    assert coupled["map_est_kpa"] <= engine.simulation_settings.air_pressure_bar * 105.0

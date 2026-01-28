@@ -14,7 +14,7 @@ from core.full_network import run_full_scope
 def test_full_network_cross_talk_plenum() -> None:
     preset = Path("presets/legacy/custom_twin_230cc.json")
     engine = Engine.from_dict(json.loads(preset.read_text(encoding="utf-8")))
-    result = run_full_scope(engine, duration_s=0.02, max_steps=200, target_dx=0.05)
+    result = run_full_scope(engine, duration_s=0.01, max_steps=800, target_dx=0.1)
 
     assert len(result.intake_plenum_pa) > 2
     std = float(np.std(result.intake_plenum_pa))

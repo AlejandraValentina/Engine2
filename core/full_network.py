@@ -234,7 +234,7 @@ def run_full_scope(
         for idx in range(n_cyl)
     ]
 
-    time = 0.0
+    t_now = 0.0
     dt_min = float("inf")
     dt_max = 0.0
     decimate = 5
@@ -246,7 +246,7 @@ def run_full_scope(
             elapsed_ms = (time.perf_counter() - start_time) * 1000.0
             if elapsed_ms > float(time_budget_ms):
                 raise RuntimeError("full-scope exceeded time_budget_ms")
-        if time >= duration_s:
+        if t_now >= duration_s:
             status = "complete"
             break
 
@@ -264,7 +264,7 @@ def run_full_scope(
         for idx in range(n_cyl):
             cyl_id = idx + 1
             phase_deg = phase_map.get(cyl_id, 0.0)
-            angle_deg = (time * rpm * 6.0 + phase_deg) % 720.0
+            angle_deg = (t_now * rpm * 6.0 + phase_deg) % 720.0
             p_cyl = max(_interp_cycle(angle_deg, angle_arr, cyl_pressure), 1e3)
             T_cyl = max(_interp_cycle(angle_deg, angle_arr, cyl_temp), 200.0)
 
@@ -532,7 +532,7 @@ def run_full_scope(
             U_exh[-1] = exhaust_ghost_right[idx]
             dt_candidates.append(cfl_dt(U_exh, dx_exhaust, gamma, gas_constant, 0.5, 1e-3, 1, 1))
         dt = min(dt_candidates) if dt_candidates else 1e-4
-        dt = max(min(dt, duration_s - time), 1e-6)
+        dt = max(min(dt, duration_s - t_now), 1e-6)
 
         intake_plenum.update(
             dt,
@@ -587,12 +587,12 @@ def run_full_scope(
             stats[idx]["exhaust_sum_sq"] += float(np.sum(p_exh ** 2))
             stats[idx]["exhaust_count"] += p_exh.size
 
-        time += dt
+        t_now += dt
         dt_min = min(dt_min, dt)
         dt_max = max(dt_max, dt)
 
         if step % decimate == 0:
-            time_s.append(float(time))
+            time_s.append(float(t_now))
             intake_plenum_pa.append(float(intake_plenum.p))
             exhaust_plenum_pa.append(float(exhaust_plenum.p))
     else:

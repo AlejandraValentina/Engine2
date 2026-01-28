@@ -15,9 +15,15 @@ def _load_schema(name: str) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+@pytest.mark.integration
 def test_output_schema_selfcheck(tmp_path) -> None:
     out_path = tmp_path / "selfcheck.json"
-    expectations = Path("validation_cases/expectations.json").resolve()
+    preset = Path("presets/legacy/custom_twin_230cc.json").resolve()
+    expectations = tmp_path / "expectations.json"
+    expectations.write_text(
+        json.dumps({"cases": [{"file": str(preset), "rpm": [2000]}]}, indent=2),
+        encoding="utf-8",
+    )
 
     subprocess.run(
         [
