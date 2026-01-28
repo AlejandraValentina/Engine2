@@ -12,5 +12,10 @@ C) Fast dev loop
 D) Pro dyno focus
 - `python -m pytest -q -W error::RuntimeWarning -k pro_dyno`
 
+E) Scavenging metrics (intake_coupling)
+- `overlap_flow_kg`: estimacion de masa intercambiada durante overlap, derivada de fraccion de overlap y caudal.
+- `residual_fraction_est`: fraccion residual estimada = overlap_flow_kg / masa fresca por ciclo.
+- `scavenging_index`: 1 - residual_fraction_est (mayor es mejor).
+
 Notes
 - 2026-01-27: Updated integration baseline bands (BMEP/VE/HP) to reflect current 0D calibration with valve-area penalty and revised friction scaling. Adjusted expectations document the new steady-state outputs without changing default feature flags.

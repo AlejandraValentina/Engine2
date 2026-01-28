@@ -79,9 +79,12 @@ PyWaveDyn exposes a minimal headless CLI for reproducible runs without the GUI:
 
 - **Dyno sweep:** `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:9000:250 --out out_dyno.json`
 - **Wave scope:** `python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2500 --cycles 1 --out out_scope.json`
+- **Intake scope:** `python -m pywavedyn.cli intake-scope --engine presets/honda_k20.json --target-dx 0.05 --max-steps 200 --out intake_scope.json`
 - **Audio:** `python -m pywavedyn.cli audio --engine presets/honda_k20.json --rpm 2500 --duration 0.5 --sample-rate 44100 --out out.wav`
 - **Sweep:** `python -m pywavedyn.cli sweep --engine presets/honda_k20.json --rpm 3000 --points 5 --out out_sweep.json`
+- **Part-load map:** `python -m pywavedyn.cli map --engine presets/honda_k20.json --rpm-grid 2000,3000 --throttle-grid 0.2,0.6,1.0 --out map.json`
 - **Cut-list:** `python -m pywavedyn.cli cutlist --engine presets/honda_k20.json --out cutlist.json`
+- **Auto-calibration:** `python -m pywavedyn.cli calibrate --engine presets/honda_k20.json --target target.json --out calib_report.json --max-evals 40 --params ve_scale,friction_scale,burn_scale`
 
 The CLI outputs JSON with metadata (input_hash, timestamp, settings, coupling_mode) plus results for each command.
 
@@ -108,13 +111,16 @@ Headless sweeps are available via CLI (runner length grid). GUI sweeps remain av
 3. Click **Run Optimization Sweep**. The optimizer temporarily adjusts the selected parameter, runs dyno simulations over the RPM range, records peak horsepower, updates a progress bar, and plots Parameter Value vs. Peak HP.
 4. When finished, the original engine settings are restored automatically, so you can adopt the best value manually.
 
-## Verificacion
+## Verificacion v2.1
 ```bash
+python -m pytest -q
 python -m pytest -q -W error::RuntimeWarning
 python -m pytest -q -m integration
 python -m pytest -q -m legacy
-python -m pytest -q
 python -m pywavedyn.cli --help
+python -m pywavedyn.cli intake-scope --help
+python -m pywavedyn.cli map --help
+python -m pywavedyn.cli calibrate --help
 ```
 
 ### Notes on Physics Models

@@ -49,6 +49,10 @@ See: FEATURES.md and VALIDATION_GUIDE.md.
    ```bash
    python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2500 --cycles 1 --out out_scope.json
    ```
+7. **Intake scope (CLI):**
+   ```bash
+   python -m pywavedyn.cli intake-scope --engine presets/honda_k20.json --target-dx 0.05 --max-steps 200 --out intake_scope.json
+   ```
 7. **Export audio (CLI):**
    ```bash
    python -m pywavedyn.cli audio --engine presets/honda_k20.json --rpm 2500 --duration 0.5 --sample-rate 44100 --out out.wav
@@ -57,26 +61,37 @@ See: FEATURES.md and VALIDATION_GUIDE.md.
    ```bash
    python -m pywavedyn.cli sweep --engine presets/honda_k20.json --rpm 3000 --points 5 --out out_sweep.json
    ```
+9. **Part-load map (CLI):**
+   ```bash
+   python -m pywavedyn.cli map --engine presets/honda_k20.json --rpm-grid 2000,3000 --throttle-grid 0.2,0.6,1.0 --out map.json
+   ```
 9. **Cut-list (CLI):**
    ```bash
    python -m pywavedyn.cli cutlist --engine presets/honda_k20.json --out cutlist.json
    ```
-10. **Run tests:**
+10. **Auto-calibration (CLI):**
+   ```bash
+   python -m pywavedyn.cli calibrate --engine presets/honda_k20.json --target target.json --out calib_report.json --max-evals 40 --params ve_scale,friction_scale,burn_scale
+   ```
+11. **Run tests:**
    ```bash
    python -m pytest
    ```
-11. **Run selfcheck (validation cases):**
+12. **Run selfcheck (validation cases):**
    ```bash
    python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json
    ```
 
-## Verificacion
+## Verificacion v2.1
 ```bash
+python -m pytest -q
 python -m pytest -q -W error::RuntimeWarning
 python -m pytest -q -m integration
 python -m pytest -q -m legacy
-python -m pytest -q
 python -m pywavedyn.cli --help
+python -m pywavedyn.cli intake-scope --help
+python -m pywavedyn.cli map --help
+python -m pywavedyn.cli calibrate --help
 ```
 
 ## Run Demo
