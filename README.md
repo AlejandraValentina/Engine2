@@ -81,24 +81,35 @@ See: FEATURES.md and VALIDATION_GUIDE.md.
    ```bash
    python -m pywavedyn.cli optimize --engine presets/legacy/custom_twin_230cc.json --target target.json --param intake.runner_length --bounds 0.20,0.60 --seed 123 --max-evals 30 --out opt_report.json
    ```
-13. **Run tests:**
+13. **Benchmark report (CLI):**
+   ```bash
+   python -m pywavedyn.cli benchmark --engine presets/honda_k20.json --dataset benchmarks/datasets/honda_k20_na --out bench_report.json
+   ```
+14. **Turbo dyno (CLI):**
+   ```bash
+   python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 4000 --turbo presets/turbo_simple.json --out dyno.json
+   ```
+15. **Run tests:**
    ```bash
    python -m pytest
    ```
-14. **Run selfcheck (validation cases):**
+16. **Run selfcheck (validation cases):**
    ```bash
    python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json
    ```
 
-## Verificacion v2.2
+## Verificacion v2.3 FINAL
 ```bash
 python -m pytest -q -W error::RuntimeWarning
 python -m pytest -q
 python -m pytest -q -m integration
 python -m pytest -q -m legacy
 python -m pytest -q -m perf
+python -m pytest -q -m system
 python -m pywavedyn.cli --help
 python -m pywavedyn.cli full-scope --help
+python -m pywavedyn.cli benchmark --help
+python -m pywavedyn.cli dyno --help
 python -m pywavedyn.cli optimize --help
 ```
 
