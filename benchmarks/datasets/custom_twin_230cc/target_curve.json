@@ -1,0 +1,7 @@
+{
+  "engine_id": "custom_twin_230cc",
+  "points": [
+    {"rpm": 2500, "torque_nm": 50.0, "power_hp": 17.6},
+    {"rpm": 5000, "torque_nm": 70.0, "power_hp": 49.1}
+  ]
+}

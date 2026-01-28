@@ -21,6 +21,7 @@ from core.intake_scope import run_intake_scope as run_intake_scope_sim
 from core.map_runner import run_partload_map
 from core.auto_calibration import calibrate_engine
 from core.optimize_runner import load_target_points, optimize_runner_length
+from pywavedyn.bench import evaluate as evaluate_benchmark
 from core.full_network import run_full_scope as run_full_scope_sim
 from core.units import cc_to_m3
 from core.wave_utils import build_exhaust_coupling, compute_pressure_matrix
@@ -483,6 +484,13 @@ def run_full_scope(
     _write_json(out_path, output)
 
 
+def run_benchmark(engine_path: Path, dataset_dir: Path, out_path: Path) -> None:
+    report = evaluate_benchmark(engine_path, dataset_dir)
+    report.metadata["version"] = _git_version()
+    output = report.to_dict()
+    _write_json(out_path, output)
+
+
 def _cutlist_text_path(out_path: Path) -> Path:
     if out_path.suffix:
         return out_path.with_suffix(".txt")
@@ -744,6 +752,11 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     selfcheck.add_argument("--out", type=Path, default=Path("selfcheck_report.json"))
 
+    benchmark = sub.add_parser("benchmark", help="Run benchmark evaluation against dataset")
+    benchmark.add_argument("--engine", required=True, type=Path)
+    benchmark.add_argument("--dataset", required=True, type=Path)
+    benchmark.add_argument("--out", required=True, type=Path)
+
     return parser
 
 
@@ -826,6 +839,8 @@ def main(argv: Iterable[str] | None = None) -> None:
         run_cutlist(engine_path, args.out)
     elif args.command == "selfcheck":
         sys.exit(run_selfcheck(args.expectations, args.out))
+    elif args.command == "benchmark":
+        run_benchmark(args.engine, args.dataset, args.out)
 
 
 if __name__ == "__main__":

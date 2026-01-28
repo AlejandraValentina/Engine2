@@ -1,0 +1,9 @@
+{
+  "engine_id": "custom_twin_230cc",
+  "source": "reference_toy",
+  "notes": "Minimal dataset for quick benchmark runs.",
+  "error_contract": {
+    "torque_mape_max": 2.0,
+    "power_mape_max": 2.0
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "engine_id": "honda_k20_na",
+  "points": [
+    {"rpm": 3000, "torque_nm": 200.0, "power_hp": 84.1},
+    {"rpm": 6000, "torque_nm": 210.0, "power_hp": 176.8}
+  ]
+}

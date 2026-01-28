@@ -1,0 +1,9 @@
+{
+  "engine_id": "honda_k20_na",
+  "source": "reference_toy",
+  "notes": "Minimal external-style dataset for validation contract.",
+  "error_contract": {
+    "torque_mape_max": 2.0,
+    "power_mape_max": 2.0
+  }
+}

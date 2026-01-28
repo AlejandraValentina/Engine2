@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bench_report.schema.json",
+  "type": "object",
+  "required": ["metadata", "dataset", "points", "errors", "contract"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "dataset": {
+      "type": "object",
+      "required": ["id", "path", "metadata"],
+      "properties": {
+        "id": {"type": ["string", "null"]},
+        "path": {"type": "string"},
+        "metadata": {"type": "object"}
+      },
+      "additionalProperties": true
+    },
+    "points": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rpm", "target", "predicted"],
+        "properties": {
+          "rpm": {"type": "number"},
+          "target": {"type": "object"},
+          "predicted": {"type": "object"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "errors": {
+      "type": "object",
+      "required": ["torque_nm", "power_hp", "total_mape"],
+      "properties": {
+        "torque_nm": {
+          "type": "object",
+          "required": ["mae", "mape"],
+          "properties": {
+            "mae": {"type": "number"},
+            "mape": {"type": "number"}
+          }
+        },
+        "power_hp": {
+          "type": "object",
+          "required": ["mae", "mape"],
+          "properties": {
+            "mae": {"type": "number"},
+            "mape": {"type": "number"}
+          }
+        },
+        "total_mape": {"type": "number"}
+      },
+      "additionalProperties": true
+    },
+    "contract": {
+      "type": "object",
+      "required": ["torque_mape_max", "power_mape_max", "pass"],
+      "properties": {
+        "torque_mape_max": {"type": "number"},
+        "power_mape_max": {"type": "number"},
+        "pass": {"type": "boolean"}
+      }
+    }
+  },
+  "additionalProperties": true
+}
