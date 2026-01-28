@@ -240,6 +240,8 @@ class CylinderSimulator:
         self,
         rpm: float,
         exhaust_backpressure_trace: dict[str, np.ndarray] | None = None,
+        intake_map_pa: float | None = None,
+        _disable_intake_coupling: bool = False,
     ) -> Dict[str, np.ndarray]:
         """Run a 720° four-stroke cycle and return pressure/torque traces."""
         # Explicit phasing: 0-180 intake, 180-360 compression, 360-540 power,
@@ -247,6 +249,12 @@ class CylinderSimulator:
         angle_arr = np.arange(0.0, 720.0 + 0.5, 0.5)
 
         settings = getattr(self.engine, "simulation_settings", None)
+        if not _disable_intake_coupling:
+            coupling_cfg = getattr(settings, "intake_coupling", {}) or {}
+            if bool(coupling_cfg.get("enabled", False)):
+                from core.intake_coupling import run_intake_coupled_cycle
+
+                return run_intake_coupled_cycle(self, rpm, coupling_cfg)
         heat_loss_factor = getattr(settings, "heat_loss_factor", 1.0)
         tuning_sensitivity = getattr(settings, "tuning_sensitivity", 1.0)
         ambient_temp_k = (getattr(settings, "air_temperature_c", 25.0) + 273.15)
@@ -308,7 +316,10 @@ class CylinderSimulator:
         boost_bar = getattr(self.engine.supercharger, "boost_pressure_bar", 0.0)
         boost_pa = bar_to_pa(float(boost_bar))
         # Manifold pressure is always absolute: ambient + boost (boost may be zero for NA).
-        P_manifold = ambient_pressure_pa + boost_pa
+        if intake_map_pa is None:
+            P_manifold = ambient_pressure_pa + boost_pa
+        else:
+            P_manifold = max(float(intake_map_pa), 1e3)
         T_boost = ambient_temp_k * (P_manifold / ambient_pressure_pa) ** 0.28
         intercooler_eff = getattr(self.engine.supercharger, "intercooler_efficiency", 0.70)
         T_charge = ambient_temp_k + (T_boost - ambient_temp_k) * (1.0 - intercooler_eff)
@@ -615,4 +626,3 @@ class CylinderSimulator:
     def run_pro_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
         """Pro dyno path currently reuses the calibrated quick cycle."""
         return self.run_cycle(rpm)
-

@@ -361,6 +361,7 @@ class SimulationSettings:
     junction_capacitance: dict[str, Any] = field(default_factory=dict)
     junction_losses: dict[str, Any] = field(default_factory=dict)
     shock_cfl: dict[str, Any] = field(default_factory=dict)
+    intake_coupling: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -394,6 +395,7 @@ class SimulationSettings:
             "junction_capacitance": self.junction_capacitance,
             "junction_losses": self.junction_losses,
             "shock_cfl": self.shock_cfl,
+            "intake_coupling": self.intake_coupling,
         }
 
     @classmethod
@@ -429,6 +431,7 @@ class SimulationSettings:
             junction_capacitance=data.get("junction_capacitance", {}),
             junction_losses=data.get("junction_losses", {}),
             shock_cfl=data.get("shock_cfl", {}),
+            intake_coupling=data.get("intake_coupling", {}),
         )
 
 

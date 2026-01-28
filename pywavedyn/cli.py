@@ -142,15 +142,17 @@ def _dyno_results_v1(engine: Engine, rpm_values: list[float]) -> list[dict]:
     results = []
     for rpm in rpm_values:
         cycle = simulator.run_cycle(rpm)
-        results.append(
-            {
-                "rpm": float(rpm),
-                "mean_power_hp": float(cycle["mean_power_hp"]),
-                "mean_torque_nm": float(cycle["mean_torque_nm"]),
-                "bmep_bar": float(cycle["bmep_bar"]),
-                "ve_actual": float(cycle["ve_actual"]),
-            }
-        )
+        entry = {
+            "rpm": float(rpm),
+            "mean_power_hp": float(cycle["mean_power_hp"]),
+            "mean_torque_nm": float(cycle["mean_torque_nm"]),
+            "bmep_bar": float(cycle["bmep_bar"]),
+            "ve_actual": float(cycle["ve_actual"]),
+        }
+        for key in ("map_est_kpa", "overlap_flow_kg", "residual_fraction_est", "scavenging_index"):
+            if key in cycle:
+                entry[key] = float(cycle[key])
+        results.append(entry)
     return results
 
 
