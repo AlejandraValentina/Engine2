@@ -453,6 +453,7 @@ class Combustion:
     chamber_type: str = "Modern Pentroof"
     wiebe_a: float = 5.0
     wiebe_m: float = 2.0
+    residual_coupling: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -472,6 +473,7 @@ class Combustion:
             "chamber_type": self.chamber_type,
             "wiebe_a": self.wiebe_a,
             "wiebe_m": self.wiebe_m,
+            "residual_coupling": self.residual_coupling,
         }
 
     @classmethod
@@ -493,6 +495,7 @@ class Combustion:
             chamber_type=data.get("chamber_type", "Modern Pentroof"),
             wiebe_a=data.get("wiebe_a", 5.0),
             wiebe_m=data.get("wiebe_m", 2.0),
+            residual_coupling=data.get("residual_coupling", {}),
         )
 
 

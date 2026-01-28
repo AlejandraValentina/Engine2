@@ -411,6 +411,21 @@ class CylinderSimulator:
         fuel_mass = m_air / fuel_stoich
         working_mass_kg = max(m_air + fuel_mass, 1e-12)
         eta_combustion = float(np.clip(getattr(self.engine.combustion, "thermal_efficiency", 0.95), 0.0, 1.0))
+        residual_cfg = getattr(self.engine.combustion, "residual_coupling", {}) or {}
+        residual_factor = 1.0
+        residual_fraction_est = 0.0
+        if bool(residual_cfg.get("enabled", False)):
+            k_residual = float(residual_cfg.get("k", 0.8))
+            min_factor = float(residual_cfg.get("min_factor", 0.4))
+            overlap_step = float(residual_cfg.get("overlap_step_deg", 0.5))
+            overlap_step = max(overlap_step, 0.1)
+            angles = np.arange(0.0, 720.0 + overlap_step, overlap_step)
+            intake_open = np.array([self.engine.camshaft.get_lift(a, intake=True) > 0.0 for a in angles])
+            exhaust_open = np.array([self.engine.camshaft.get_lift(a, intake=False) > 0.0 for a in angles])
+            overlap_deg = float(np.count_nonzero(intake_open & exhaust_open) * overlap_step)
+            residual_fraction_est = float(np.clip(overlap_deg / 720.0, 0.0, 1.0))
+            residual_factor = float(np.clip(1.0 - k_residual * residual_fraction_est, min_factor, 1.0))
+            eta_combustion = float(np.clip(eta_combustion * residual_factor, 0.0, 1.0))
         Q_total = fuel_mass * fuel_lhv
 
         if target_ca50 is not None:
@@ -591,6 +606,9 @@ class CylinderSimulator:
             "burn_duration_used": float(burn_duration),
             "ca50_target_used": None if target_ca50 is None else float(target_ca50),
         }
+        if bool(residual_cfg.get("enabled", False)):
+            trace["residual_fraction_est"] = float(residual_fraction_est)
+            trace["residual_coupling_factor"] = float(residual_factor)
 
         return {
             "angle": angle_arr,
