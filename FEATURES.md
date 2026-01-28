@@ -12,6 +12,9 @@ Ver `docs/RELEASE_V2_1_SCOPE.md` (unico scope congelado v2.1).
 ## Release v2.2 scope
 Ver `docs/RELEASE_V2_2_SCOPE.md` (unico scope congelado v2.2).
 
+## Release v2.3 FINAL scope
+Ver `docs/RELEASE_V2_3_FINAL_SCOPE.md` (unico scope congelado v2.3 FINAL).
+
 ## Release v2.2 scope (FULL-NETWORK + BENCHMARKS + RESIDUAL-COMBUSTION + OPTIMIZE + PERFORMANCE)
 - [x] Full multi-cilindro 1D network intake+exhaust + CLI + schema — Evidencia: `core/full_network.py`, `pywavedyn/cli.py`, `schemas/full_scope.schema.json`, `tests/test_network_build_smoke.py`, `tests/integration/test_full_network_cross_talk_plenum.py`, `tests/integration/test_full_network_runner_length_shifts_torque_peak.py`, `tests/test_output_schema_full_scope.py`. Run: `python -m pywavedyn.cli full-scope --engine presets/legacy/custom_twin_230cc.json --duration 0.02 --target-dx 0.05 --max-steps 200 --out full_scope.json`.
 - [x] Benchmarks externos (2 presets) + selfcheck + schema — Evidencia: `presets/benchmark_mono_na.json`, `presets/benchmark_turbo_small.json`, `validation_cases/benchmark_mono_na.json`, `validation_cases/benchmark_turbo_small.json`, `tests/test_selfcheck_schema_validates.py`, `tests/integration/test_new_presets_smoke.py`. Run: `python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json`.
