@@ -592,6 +592,34 @@ def _check_finite(name: str, array: np.ndarray, issues: list[str]) -> None:
         issues.append(f"{name} contains NaN/inf")
 
 
+def _monotonic_non_decreasing(values: Sequence[float]) -> bool:
+    if len(values) < 2:
+        return True
+    return all(values[idx] >= values[idx - 1] - 1e-9 for idx in range(1, len(values)))
+
+
+def _metric_from_cycle(metric: str, cycle: dict) -> float:
+    if metric == "mean_torque_nm":
+        return float(cycle.get("mean_torque_nm", 0.0))
+    if metric == "mean_power_hp":
+        return float(cycle.get("mean_power_hp", 0.0))
+    if metric == "mean_temperature_k":
+        temps = np.asarray(cycle.get("temperature", []), dtype=float)
+        if temps.size == 0:
+            return float("nan")
+        return float(np.mean(temps))
+    raise ValueError(f"Unknown metric '{metric}'")
+
+
+def _metric_from_full_scope(metric: str, result) -> float:
+    if metric == "intake_plenum_std":
+        values = np.asarray(result.intake_plenum_pa, dtype=float)
+        if values.size == 0:
+            return float("nan")
+        return float(np.std(values))
+    raise ValueError(f"Unknown full_scope metric '{metric}'")
+
+
 def _write_json(path: Path, payload: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -636,6 +664,79 @@ def run_selfcheck(expectations_path: Path, out_path: Path) -> int:
                     power = float(cycle["mean_power_hp"])
                     if power < power_min[idx] or power > power_max[idx]:
                         issues.append(f"power_hp out of range at idx={idx}")
+
+            throttle_grid = case.get("throttle_grid", [])
+            throttle_metric = case.get("throttle_metric")
+            throttle_rpm = case.get("throttle_rpm")
+            if throttle_grid and throttle_metric and throttle_rpm is not None:
+                map_points = run_partload_map(engine, [float(throttle_rpm)], throttle_grid)
+                values = [_metric_from_cycle(throttle_metric, {"mean_torque_nm": p.torque_nm, "mean_power_hp": p.power_hp})
+                          for p in map_points]
+                case_entry["checks"]["throttle_grid"] = {
+                    "rpm": float(throttle_rpm),
+                    "values": [float(v) for v in values],
+                }
+                if not _monotonic_non_decreasing(values):
+                    issues.append("throttle_metric not monotonic with throttle")
+
+            compare_to = case.get("compare_to")
+            if compare_to:
+                base_path = _case_engine_path(expectations_path, compare_to.get("file", ""))
+                metric = compare_to.get("metric")
+                relation = compare_to.get("relation")
+                mode = compare_to.get("mode", "dyno")
+                rpm = float(compare_to.get("rpm", 0.0))
+                if rpm <= 0.0:
+                    rpm_list = case.get("rpm", [])
+                    rpm = float(rpm_list[0]) if rpm_list else 0.0
+                if not metric or not relation:
+                    issues.append("compare_to missing metric or relation")
+                else:
+                    if mode == "full_scope":
+                        full_scope_cfg = case.get("full_scope", {})
+                        duration_s = float(full_scope_cfg.get("duration_s", compare_to.get("duration_s", 0.01)))
+                        max_steps = full_scope_cfg.get("max_steps", compare_to.get("max_steps"))
+                        target_dx = full_scope_cfg.get("target_dx", compare_to.get("target_dx"))
+                        base_engine, _ = _load_engine(base_path)
+                        base_result = run_full_scope_sim(
+                            base_engine,
+                            duration_s=duration_s,
+                            max_steps=max_steps,
+                            target_dx=target_dx,
+                            rpm=rpm if rpm > 0 else None,
+                        )
+                        base_value = _metric_from_full_scope(metric, base_result)
+                        result = run_full_scope_sim(
+                            engine,
+                            duration_s=duration_s,
+                            max_steps=max_steps,
+                            target_dx=target_dx,
+                            rpm=rpm if rpm > 0 else None,
+                        )
+                        value = _metric_from_full_scope(metric, result)
+                    else:
+                        if rpm <= 0.0:
+                            issues.append("compare_to rpm missing")
+                            base_value = float("nan")
+                            value = float("nan")
+                        else:
+                            base_engine, _ = _load_engine(base_path)
+                            base_cycle = CylinderSimulator(base_engine).run_cycle(rpm)
+                            base_value = _metric_from_cycle(metric, base_cycle)
+                            value = _metric_from_cycle(metric, simulator.run_cycle(rpm))
+
+                    case_entry["checks"]["compare_to"] = {
+                        "metric": metric,
+                        "value": float(value),
+                        "baseline": float(base_value),
+                        "relation": relation,
+                        "mode": mode,
+                    }
+                    if np.isfinite(value) and np.isfinite(base_value):
+                        if relation == "less" and not value < base_value:
+                            issues.append("compare_to metric not less than baseline")
+                        if relation == "greater" and not value > base_value:
+                            issues.append("compare_to metric not greater than baseline")
 
             scope_cfg = case.get("scope")
             if scope_cfg:
