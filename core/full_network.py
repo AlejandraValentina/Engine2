@@ -9,7 +9,7 @@ import numpy as np
 from core.advanced.coupling import ghost_state_from_nozzle
 from core.advanced.nozzle import nozzle_mass_flow
 from core.advanced.plenum_cv import IntakePlenumConfig, ExhaustPlenumConfig, PlenumControlVolume
-from core.advanced.solver_1d import cfl_dt, step_soa_python, conserved_to_primitive
+from core.advanced.solver_1d import cfl_dt, step_soa_python, step_soa_numba, conserved_to_primitive
 from core.advanced.state import Primitive1D, primitive_to_conserved, stagnation_from_static
 from core.engine_components import Engine
 from core.intake_coupling import _scavenging_metrics
@@ -128,6 +128,7 @@ def run_full_scope(
     duration_s: float,
     max_steps: Optional[int] = None,
     target_dx: Optional[float] = None,
+    use_numba: bool = False,
     rpm: Optional[float] = None,
 ) -> FullScopeResult:
     if duration_s <= 0.0:
@@ -236,6 +237,7 @@ def run_full_scope(
     dt_max = 0.0
     decimate = 5
 
+    stepper = step_soa_numba if use_numba else step_soa_python
     for step in range(max_steps):
         if time >= duration_s:
             status = "complete"
@@ -546,7 +548,7 @@ def run_full_scope(
         )
 
         for idx in range(n_cyl):
-            intake_runners[idx] = step_soa_python(
+            intake_runners[idx] = stepper(
                 intake_runners[idx],
                 dx_intake,
                 dt,
@@ -556,7 +558,7 @@ def run_full_scope(
                 diameter=dia_intake_m,
                 outlet_mode="copy",
             )
-            exhaust_runners[idx] = step_soa_python(
+            exhaust_runners[idx] = stepper(
                 exhaust_runners[idx],
                 dx_exhaust,
                 dt,
