@@ -20,6 +20,7 @@ from core.simulator import Engine1DSolver
 from core.intake_scope import run_intake_scope as run_intake_scope_sim
 from core.map_runner import run_partload_map
 from core.auto_calibration import calibrate_engine
+from core.full_network import run_full_scope as run_full_scope_sim
 from core.units import cc_to_m3
 from core.wave_utils import build_exhaust_coupling, compute_pressure_matrix
 
@@ -413,6 +414,34 @@ def run_calibrate(
     _write_json(out_path, output)
 
 
+def run_full_scope(
+    engine_path: Path,
+    duration: float,
+    out_path: Path,
+    *,
+    max_steps: int | None = None,
+    target_dx: float | None = None,
+) -> None:
+    engine, raw = _load_engine(engine_path)
+    result = run_full_scope_sim(engine, duration_s=float(duration), max_steps=max_steps, target_dx=target_dx)
+    output = {
+        "metadata": _metadata(engine, raw, coupling_mode="full_network"),
+        "duration_s": float(duration),
+        "dt_min": float(result.dt_min),
+        "dt_max": float(result.dt_max),
+        "steps_used": int(result.steps_used),
+        "status": result.status,
+        "per_cyl": result.per_cyl,
+        "traces": {
+            "time": result.time_s,
+            "intake_plenum_pa": result.intake_plenum_pa,
+            "exhaust_plenum_pa": result.exhaust_plenum_pa,
+            "runner_stats": result.runner_stats,
+        },
+    }
+    _write_json(out_path, output)
+
+
 def _cutlist_text_path(out_path: Path) -> Path:
     if out_path.suffix:
         return out_path.with_suffix(".txt")
@@ -642,6 +671,13 @@ def _build_parser() -> argparse.ArgumentParser:
     calibrate.add_argument("--max-evals", type=int, default=40)
     calibrate.add_argument("--params", type=str, default="ve_scale,friction_scale,burn_scale")
 
+    full_scope = sub.add_parser("full-scope", help="Run full intake+exhaust network scope")
+    full_scope.add_argument("--engine", required=True, type=Path)
+    full_scope.add_argument("--duration", required=True, type=float)
+    full_scope.add_argument("--out", required=True, type=Path)
+    full_scope.add_argument("--max-steps", type=int, default=None)
+    full_scope.add_argument("--target-dx", type=float, default=None)
+
     cutlist = sub.add_parser("cutlist", help="Generate cut-list report (JSON + text)")
     cutlist_group = cutlist.add_mutually_exclusive_group(required=True)
     cutlist_group.add_argument("--engine", type=Path)
@@ -714,6 +750,14 @@ def main(argv: Iterable[str] | None = None) -> None:
             args.out,
             [p.strip() for p in str(args.params).split(",") if p.strip()],
             int(args.max_evals),
+        )
+    elif args.command == "full-scope":
+        run_full_scope(
+            args.engine,
+            args.duration,
+            args.out,
+            max_steps=args.max_steps,
+            target_dx=args.target_dx,
         )
     elif args.command == "cutlist":
         engine_path = args.engine if args.engine is not None else args.preset
