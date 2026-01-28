@@ -392,6 +392,27 @@ def run_map(
     _write_json(out_path, output)
 
 
+def run_calibrate(
+    engine_path: Path,
+    target_path: Path,
+    out_path: Path,
+    params: list[str],
+    max_evals: int,
+) -> None:
+    engine, raw = _load_engine(engine_path)
+    target = json.loads(target_path.read_text(encoding="utf-8"))
+    points = target.get("points") or target.get("targets") or []
+    if not isinstance(points, list) or not points:
+        raise ValueError("target file must include non-empty 'points' list")
+
+    report = calibrate_engine(engine, points, params, max_evals)
+    output = {
+        "metadata": _metadata(engine, raw, coupling_mode="calibrate"),
+        **report.to_dict(),
+    }
+    _write_json(out_path, output)
+
+
 def _cutlist_text_path(out_path: Path) -> Path:
     if out_path.suffix:
         return out_path.with_suffix(".txt")
@@ -614,6 +635,13 @@ def _build_parser() -> argparse.ArgumentParser:
     map_cmd.add_argument("--throttle-grid", required=True, type=str)
     map_cmd.add_argument("--out", required=True, type=Path)
 
+    calibrate = sub.add_parser("calibrate", help="Run bounded auto-calibration against target curve")
+    calibrate.add_argument("--engine", required=True, type=Path)
+    calibrate.add_argument("--target", required=True, type=Path)
+    calibrate.add_argument("--out", required=True, type=Path)
+    calibrate.add_argument("--max-evals", type=int, default=40)
+    calibrate.add_argument("--params", type=str, default="ve_scale,friction_scale,burn_scale")
+
     cutlist = sub.add_parser("cutlist", help="Generate cut-list report (JSON + text)")
     cutlist_group = cutlist.add_mutually_exclusive_group(required=True)
     cutlist_group.add_argument("--engine", type=Path)
@@ -678,6 +706,14 @@ def main(argv: Iterable[str] | None = None) -> None:
             _parse_float_list(args.rpm_grid),
             _parse_float_list(args.throttle_grid),
             args.out,
+        )
+    elif args.command == "calibrate":
+        run_calibrate(
+            args.engine,
+            args.target,
+            args.out,
+            [p.strip() for p in str(args.params).split(",") if p.strip()],
+            int(args.max_evals),
         )
     elif args.command == "cutlist":
         engine_path = args.engine if args.engine is not None else args.preset
