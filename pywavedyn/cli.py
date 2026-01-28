@@ -73,6 +73,13 @@ def _parse_length_list(value: str) -> list[float]:
     return [float(p) for p in parts]
 
 
+def _parse_float_list(value: str) -> list[float]:
+    if not value:
+        return []
+    parts = [p.strip() for p in value.split(",") if p.strip()]
+    return [float(p) for p in parts]
+
+
 def _runner_length_grid(base_mm: float, points: int, span_mm: float) -> list[float]:
     points = max(int(points), 1)
     span_mm = max(float(span_mm), 0.0)
@@ -362,6 +369,29 @@ def run_sweep(
     _write_json(out_path, output)
 
 
+def run_map(
+    engine_path: Path,
+    rpm_grid: list[float],
+    throttle_grid: list[float],
+    out_path: Path,
+) -> None:
+    if not rpm_grid:
+        raise ValueError("rpm_grid must be non-empty")
+    if not throttle_grid:
+        raise ValueError("throttle_grid must be non-empty")
+    engine, raw = _load_engine(engine_path)
+    points = run_partload_map(engine, rpm_grid, throttle_grid)
+    output = {
+        "metadata": _metadata(engine, raw, coupling_mode="map_runner"),
+        "grid": {
+            "rpm": [float(v) for v in rpm_grid],
+            "throttle": [float(v) for v in throttle_grid],
+        },
+        "points": [p.to_dict() for p in points],
+    }
+    _write_json(out_path, output)
+
+
 def _cutlist_text_path(out_path: Path) -> Path:
     if out_path.suffix:
         return out_path.with_suffix(".txt")
@@ -578,6 +608,12 @@ def _build_parser() -> argparse.ArgumentParser:
     sweep.add_argument("--span-mm", type=float, default=200.0)
     sweep.add_argument("--out", required=True, type=Path)
 
+    map_cmd = sub.add_parser("map", help="Run a headless part-load map")
+    map_cmd.add_argument("--engine", required=True, type=Path)
+    map_cmd.add_argument("--rpm-grid", required=True, type=str)
+    map_cmd.add_argument("--throttle-grid", required=True, type=str)
+    map_cmd.add_argument("--out", required=True, type=Path)
+
     cutlist = sub.add_parser("cutlist", help="Generate cut-list report (JSON + text)")
     cutlist_group = cutlist.add_mutually_exclusive_group(required=True)
     cutlist_group.add_argument("--engine", type=Path)
@@ -635,6 +671,13 @@ def main(argv: Iterable[str] | None = None) -> None:
             runner_lengths=_parse_length_list(args.runner_lengths),
             points=args.points,
             span_mm=args.span_mm,
+        )
+    elif args.command == "map":
+        run_map(
+            args.engine,
+            _parse_float_list(args.rpm_grid),
+            _parse_float_list(args.throttle_grid),
+            args.out,
         )
     elif args.command == "cutlist":
         engine_path = args.engine if args.engine is not None else args.preset
