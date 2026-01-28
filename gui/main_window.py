@@ -64,7 +64,9 @@ from core.model import Pipe
 from core.pro_dyno_v2 import ProDynoV2Runner
 from core.simulator import Engine1DSolver
 from core.thermo import CylinderSimulator
+from core.units import cc_to_m3
 from core.wave_utils import compute_image_levels, compute_pressure_matrix
+from pywavedyn.cli import _metadata as cli_metadata
 from gui.widgets.scope_widget import ScopeWidget
 
 
@@ -109,6 +111,9 @@ class MainWindow(QMainWindow):
         self.dyno_plot = pg.PlotWidget()
         self.power_curve = None
         self.torque_curve = None
+        self.dyno_mode_combo = QComboBox()
+        self.dyno_export_btn = QPushButton("Export Dyno JSON...")
+        self.last_dyno_payload: Optional[dict[str, Any]] = None
         self.pro_dyno_plot = pg.PlotWidget()
         self.pro_power_curve = None
         self.pro_torque_curve = None
@@ -210,9 +215,18 @@ class MainWindow(QMainWindow):
 
         dyno_tab = QWidget()
         dyno_layout = QVBoxLayout()
+        dyno_controls = QHBoxLayout()
         run_button = QPushButton("Run Power Sweep")
         run_button.clicked.connect(self.run_dyno_sweep)
-        dyno_layout.addWidget(run_button)
+        self.dyno_mode_combo.addItem("v1 (Quick 0D)", "v1")
+        self.dyno_mode_combo.addItem("v2 (Pro Coupled)", "v2")
+        self.dyno_export_btn.clicked.connect(self.export_dyno_json)
+        dyno_controls.addWidget(QLabel("Mode"))
+        dyno_controls.addWidget(self.dyno_mode_combo)
+        dyno_controls.addWidget(run_button)
+        dyno_controls.addWidget(self.dyno_export_btn)
+        dyno_controls.addStretch()
+        dyno_layout.addLayout(dyno_controls)
 
         self.dyno_plot.showGrid(x=True, y=True, alpha=0.2)
         self.dyno_plot.addLegend()
@@ -1421,8 +1435,64 @@ class MainWindow(QMainWindow):
         )
 
     # -------------------------- Dyno Sweep --------------------------------
+    def _dyno_mode(self) -> str:
+        mode = self.dyno_mode_combo.currentData()
+        return str(mode) if mode in ("v1", "v2") else "v1"
+
+    def _dyno_results_from_cycles(self, rpm_values: list[int], cycles: list[dict[str, Any]]) -> list[dict[str, float]]:
+        results: list[dict[str, float]] = []
+        for rpm, cycle in zip(rpm_values, cycles):
+            entry = {
+                "rpm": float(rpm),
+                "mean_power_hp": float(cycle["mean_power_hp"]),
+                "mean_torque_nm": float(cycle["mean_torque_nm"]),
+                "bmep_bar": float(cycle["bmep_bar"]),
+                "ve_actual": float(cycle["ve_actual"]),
+            }
+            for key in (
+                "map_est_kpa",
+                "overlap_flow_kg",
+                "residual_fraction_est",
+                "scavenging_index",
+                "boost_kpa",
+                "pr_comp",
+                "pr_turb",
+                "wg_duty",
+            ):
+                if key in cycle:
+                    entry[key] = float(cycle[key])
+            results.append(entry)
+        return results
+
+    def _dyno_results_from_sweep(self, rpm_values: list[int], sweep: dict[str, list[float]]) -> list[dict[str, float]]:
+        displacement_m3 = max(cc_to_m3(self.engine.block.displacement_cc), 1e-9)
+        results: list[dict[str, float]] = []
+        for idx, rpm in enumerate(rpm_values):
+            mean_power_hp = float(sweep["mean_power_hp"][idx])
+            mean_torque_nm = float(sweep["mean_torque_nm"][idx])
+            bmep_bar = mean_torque_nm * 4.0 * math.pi / displacement_m3 / 100000.0
+            ve_actual = float(sweep["ve_real"][idx])
+            results.append(
+                {
+                    "rpm": float(rpm),
+                    "mean_power_hp": mean_power_hp,
+                    "mean_torque_nm": mean_torque_nm,
+                    "bmep_bar": float(bmep_bar),
+                    "ve_actual": ve_actual,
+                }
+            )
+        return results
+
+    def _build_dyno_payload(self, mode: str, results: list[dict[str, float]]) -> dict[str, Any]:
+        raw = self.engine.to_dict()
+        coupling_mode = "v2_orchestrator" if mode == "v2" else "none"
+        return {
+            "metadata": cli_metadata(self.engine, raw, coupling_mode=coupling_mode),
+            "results": results,
+        }
+
     def run_dyno_sweep(self) -> None:
-        simulator = CylinderSimulator(self.engine)
+        mode = self._dyno_mode()
         max_rpm = int(self.engine.block.redline_rpm)
         rpm_values = list(range(1000, max_rpm + 500, 500))
         power_hp: list[float] = []
@@ -1438,28 +1508,44 @@ class MainWindow(QMainWindow):
         self.analysis_table.setRowCount(0)
         self.dyno_plot.setTitle("")
 
-        for rpm in rpm_values:
-            result = simulator.run_cycle(rpm)
-            hp_val = result["mean_power_hp"]
-            power_hp.append(hp_val)
-            torque = result.get("mean_torque_nm", 0.0)
-            torque_nm.append(torque)
+        if mode == "v1":
+            simulator = CylinderSimulator(self.engine)
+            cycles: list[dict[str, Any]] = []
+            for rpm in rpm_values:
+                result = simulator.run_cycle(rpm)
+                cycles.append(result)
+                hp_val = result["mean_power_hp"]
+                power_hp.append(hp_val)
+                torque = result.get("mean_torque_nm", 0.0)
+                torque_nm.append(torque)
 
-            if hp_val > max_hp_value:
-                max_hp_value = hp_val
-                max_hp_rpm = rpm
-                max_hp_row = self.analysis_table.rowCount()
+                if hp_val > max_hp_value:
+                    max_hp_value = hp_val
+                    max_hp_rpm = rpm
+                    max_hp_row = self.analysis_table.rowCount()
 
-            if torque > max_tq_value:
-                max_tq_value = torque
-                max_tq_rpm = rpm
-                max_tq_row = self.analysis_table.rowCount()
+                if torque > max_tq_value:
+                    max_tq_value = torque
+                    max_tq_rpm = rpm
+                    max_tq_row = self.analysis_table.rowCount()
 
-            knock_present = self.update_analysis_table(rpm, result)
-            knock_detected = knock_detected or knock_present
+                knock_present = self.update_analysis_table(rpm, result)
+                knock_detected = knock_detected or knock_present
+
+            results = self._dyno_results_from_cycles(rpm_values, cycles)
+            self.last_dyno_payload = self._build_dyno_payload(mode, results)
+        else:
+            runner = ProDynoV2Runner(self.engine)
+            sweep = runner.run_sweep(rpm_values)
+            rpm_values = [int(v) for v in sweep.get("rpm", rpm_values)]
+            power_hp = [float(v) for v in sweep.get("mean_power_hp", [])]
+            torque_nm = [float(v) for v in sweep.get("mean_torque_nm", [])]
+            results = self._dyno_results_from_sweep(rpm_values, sweep)
+            self.last_dyno_payload = self._build_dyno_payload(mode, results)
+            self.analysis_summary_label.setText("Pro Dyno mode selected (analysis table uses v1 data).")
 
         warning_html = ""
-        if rpm_values and max_hp_row >= 0 and max_tq_row >= 0:
+        if mode == "v1" and rpm_values and max_hp_row >= 0 and max_tq_row >= 0:
             summary = (
                 f"🏆 Max Power: {max_hp_value:.1f} HP @ {max_hp_rpm} RPM | 🚀 Max Torque: {max_tq_value:.1f} Nm @ {max_tq_rpm} RPM"
             )
@@ -1490,7 +1576,7 @@ class MainWindow(QMainWindow):
                 font = QFont(tq_item.font())
                 font.setBold(True)
                 tq_item.setFont(font)
-        else:
+        elif mode == "v1":
             self.analysis_summary_label.setText("No dyno data yet")
             self.statusBar().clearMessage()
 
@@ -1504,6 +1590,34 @@ class MainWindow(QMainWindow):
             self.dyno_plot.setXRange(min(rpm_values), max(rpm_values), padding=0.05)
         if not knock_detected:
             self.dyno_plot.setTitle("")
+
+    def export_dyno_json(self) -> None:
+        if not self.last_dyno_payload:
+            QMessageBox.information(self, "Export Dyno JSON", "Run a dyno sweep first.")
+            return
+
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Export Dyno JSON", "dyno.json", "JSON Files (*.json)"
+        )
+        if not filename:
+            return
+
+        payload = self.last_dyno_payload
+        try:
+            try:
+                import jsonschema
+            except Exception:
+                jsonschema = None
+            if jsonschema is not None:
+                schema_path = Path("schemas/dyno.schema.json")
+                schema = json.loads(schema_path.read_text(encoding="utf-8"))
+                jsonschema.validate(instance=payload, schema=schema)
+        except Exception as exc:
+            QMessageBox.critical(self, "Schema validation failed", str(exc))
+            return
+
+        Path(filename).write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self.statusBar().showMessage(f"Dyno JSON exported to {filename}", 3000)
 
     def update_analysis_table(self, rpm: float, result: dict[str, float]) -> bool:
         row = self.analysis_table.rowCount()
@@ -1627,6 +1741,8 @@ class MainWindow(QMainWindow):
         torque_nm = results.get("mean_torque_nm", [])
         convergence_history = results.get("convergence_history", [])
         convergence_tol = results.get("convergence_tol")
+        payload_results = self._dyno_results_from_sweep([int(v) for v in rpm_values], results)
+        self.last_dyno_payload = self._build_dyno_payload("v2", payload_results)
 
         self.pro_dyno_plot.clear()
         self.pro_dyno_plot.addLegend(clear=True)
