@@ -20,6 +20,7 @@ from core.simulator import Engine1DSolver
 from core.intake_scope import run_intake_scope as run_intake_scope_sim
 from core.map_runner import run_partload_map
 from core.auto_calibration import calibrate_engine
+from core.optimize_runner import load_target_points, optimize_runner_length
 from core.full_network import run_full_scope as run_full_scope_sim
 from core.units import cc_to_m3
 from core.wave_utils import build_exhaust_coupling, compute_pressure_matrix
@@ -79,6 +80,13 @@ def _parse_float_list(value: str) -> list[float]:
         return []
     parts = [p.strip() for p in value.split(",") if p.strip()]
     return [float(p) for p in parts]
+
+
+def _parse_bounds(value: str) -> tuple[float, float]:
+    parts = [p.strip() for p in value.split(",") if p.strip()]
+    if len(parts) != 2:
+        raise ValueError("bounds must be formatted as low,high")
+    return float(parts[0]), float(parts[1])
 
 
 def _runner_length_grid(base_mm: float, points: int, span_mm: float) -> list[float]:
@@ -414,6 +422,32 @@ def run_calibrate(
     _write_json(out_path, output)
 
 
+def run_optimize(
+    engine_path: Path,
+    target_path: Path,
+    out_path: Path,
+    param: str,
+    bounds_m: tuple[float, float],
+    seed: int,
+    max_evals: int,
+) -> None:
+    engine, raw = _load_engine(engine_path)
+    points = load_target_points(str(target_path))
+    report = optimize_runner_length(
+        engine,
+        points,
+        bounds_m=bounds_m,
+        seed=seed,
+        max_evals=max_evals,
+        param=param,
+    )
+    output = {
+        "metadata": _metadata(engine, raw, coupling_mode="optimize"),
+        **report.to_dict(),
+    }
+    _write_json(out_path, output)
+
+
 def run_full_scope(
     engine_path: Path,
     duration: float,
@@ -671,6 +705,15 @@ def _build_parser() -> argparse.ArgumentParser:
     calibrate.add_argument("--max-evals", type=int, default=40)
     calibrate.add_argument("--params", type=str, default="ve_scale,friction_scale,burn_scale")
 
+    optimize = sub.add_parser("optimize", help="Optimize runner length against target curve")
+    optimize.add_argument("--engine", required=True, type=Path)
+    optimize.add_argument("--target", required=True, type=Path)
+    optimize.add_argument("--param", required=True, type=str)
+    optimize.add_argument("--bounds", required=True, type=str, help="Bounds in meters: low,high")
+    optimize.add_argument("--seed", type=int, default=123)
+    optimize.add_argument("--max-evals", type=int, default=30)
+    optimize.add_argument("--out", required=True, type=Path)
+
     full_scope = sub.add_parser("full-scope", help="Run full intake+exhaust network scope")
     full_scope.add_argument("--engine", required=True, type=Path)
     full_scope.add_argument("--duration", required=True, type=float)
@@ -749,6 +792,16 @@ def main(argv: Iterable[str] | None = None) -> None:
             args.target,
             args.out,
             [p.strip() for p in str(args.params).split(",") if p.strip()],
+            int(args.max_evals),
+        )
+    elif args.command == "optimize":
+        run_optimize(
+            args.engine,
+            args.target,
+            args.out,
+            args.param,
+            _parse_bounds(args.bounds),
+            int(args.seed),
             int(args.max_evals),
         )
     elif args.command == "full-scope":
