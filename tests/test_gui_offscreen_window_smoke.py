@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-import pytest
+def test_gui_offscreen_window_smoke(monkeypatch) -> None:
+    import pytest
 
-pytest.importorskip("PySide6")
-pytest.importorskip("pyqtgraph")
-
-
-def test_gui_offscreen_window_smoke(monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("PySide6")
+    pytest.importorskip("pyqtgraph")
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
 
     from PySide6.QtWidgets import QApplication
