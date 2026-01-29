@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import time
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -741,6 +742,8 @@ class Engine1DSolver:
         rpm: float,
         cycles: int = 2,
         coupling_data: Optional[Dict[int, Dict[str, np.ndarray]]] = None,
+        max_steps: Optional[int] = None,
+        time_budget_ms: Optional[float] = None,
     ):
         """Simulate several cycles and record state history for visualization."""
 
@@ -758,7 +761,15 @@ class Engine1DSolver:
         audio: List[float] = []
         time_vector: List[float] = []
 
+        step_count = 0
+        start_time = time.perf_counter()
         while self.time < total_time:
+            if max_steps is not None and step_count >= int(max_steps):
+                break
+            if time_budget_ms is not None:
+                elapsed_ms = (time.perf_counter() - start_time) * 1000.0
+                if elapsed_ms > float(time_budget_ms):
+                    break
             dt = self.get_time_step()
             p_stag_by_cyl = None
             t_stag_by_cyl = None
@@ -780,6 +791,7 @@ class Engine1DSolver:
                     t_stag_by_cyl[cyl_id] = float(np.interp(cyl_angle, angle_arr, t_arr))
 
             self.step(rpm=rpm, dt=dt, p_stag_by_cyl=p_stag_by_cyl, T_stag_by_cyl=t_stag_by_cyl)
+            step_count += 1
             while self.time >= next_sample and next_sample <= total_time:
                 # record first primary for visualization
                 history.append(self.primary_states[0]["U"].copy())

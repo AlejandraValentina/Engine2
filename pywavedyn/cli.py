@@ -760,6 +760,8 @@ def run_selfcheck(expectations_path: Path, out_path: Path) -> int:
             if scope_cfg:
                 rpm = float(scope_cfg.get("rpm", 2000.0))
                 cycles = int(scope_cfg.get("cycles", 1))
+                max_steps = scope_cfg.get("max_steps")
+                time_budget_ms = scope_cfg.get("time_budget_ms")
                 coupling_mode = "none"
                 coupling_data = None
                 if engine.simulation_settings.enable_0d_to_1d_exhaust_coupling:
@@ -776,6 +778,8 @@ def run_selfcheck(expectations_path: Path, out_path: Path) -> int:
                     rpm,
                     cycles=cycles,
                     coupling_data=coupling_data,
+                    max_steps=max_steps,
+                    time_budget_ms=time_budget_ms,
                 )
                 matrix = compute_pressure_matrix(history, solver.gamma)
                 _check_finite("scope_pressure", matrix, issues)
