@@ -99,6 +99,16 @@ PyWaveDyn exposes a minimal headless CLI for reproducible runs without the GUI:
 
 The CLI outputs JSON with metadata (input_hash, timestamp, settings, coupling_mode) plus results for each command.
 
+### Como comparar fidelidad
+Para comparar fidelidad de manera reproducible, usar estos flujos (headless):
+
+- **Selfcheck (tendencias/rangos):**
+  - `python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json`
+- **Benchmark (regression_golden / real_data):**
+  - `python -m pywavedyn.cli benchmark --engine presets/honda_k20.json --dataset benchmarks/datasets/honda_k20_na --out bench_report.json`
+- **Import CSV (datos externos):**
+  - `python -m pywavedyn.cli bench-import --csv curve.csv --out benchmarks/datasets/<name>/target_curve.json --engine-id <id> --torque-units lbft --power-units hp`
+
 ### Recording Audio
 Audio can be generated headless via CLI or recorded in the GUI if enabled.
 

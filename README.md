@@ -1,10 +1,27 @@
 # PyWaveDyn – Professional 1D Gas Dynamics & Engine Simulator
 
-PyWaveDyn is a verification-focused open-source tool for simulating internal combustion engines. It combines a 0D thermodynamic virtual dyno, a 1D wave solver (Euler 1D, finite-volume Lax–Wendroff + ghost cells), and planned/prototype optimizer/fabrication utilities for rapid iteration from concept to shop floor (see FEATURES.md).
+PyWaveDyn is a verification-focused open-source tool for simulating internal combustion engines. It combines a 0D thermodynamic virtual dyno, a 1D wave solver (Euler 1D, finite-volume Lax–Wendroff + ghost cells), and headless tooling for sweeps, benchmarks, and reproducible outputs (see FEATURES.md).
 
 ## Project Status (source of truth)
 “Implemented” means reproducible via a command and/or covered by green tests.
 See: FEATURES.md and VALIDATION_GUIDE.md.
+
+## Estado actual verificado
+Capacidades reales (resumen corto):
+- Dyno 0D (CLI + GUI) con export JSON validado por schema.
+- Scope 1D (intake/exhaust) y full-scope headless.
+- Benchmarks, selfcheck y suites de validacion con schemas.
+- Audio multicilindro por CLI (opt-in).
+- Sweeps/map/cutlist/calibrate headless reproducibles.
+
+Comandos reales (ejemplos):
+```bash
+python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:9000:250 --out out_dyno.json
+python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2500 --cycles 1 --out out_scope.json
+python -m pywavedyn.cli benchmark --engine presets/honda_k20.json --dataset benchmarks/datasets/honda_k20_na --out bench_report.json
+python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json
+```
+Checklist y evidencia: ver FEATURES.md y VALIDATION_GUIDE.md.
 
 ### Implemented & validated
 - 0D virtual dyno with verification-focused tests.
@@ -14,8 +31,8 @@ See: FEATURES.md and VALIDATION_GUIDE.md.
 - Headless parameter sweeps via CLI/tests.
 - Reproducible cut-list generation via CLI/tests.
 
-### Prototype (GUI-first)
-- GUI-driven parameter sweeps/optimizer workflows (CLI is the source of truth for validated features).
+### GUI workflows
+- GUI-driven parameter sweeps/optimizer workflows (CLI/tests are the source of truth for validated features).
 - Fabrication UI/planner utilities (CLI cut-list is the validated path).
 
 ## Key Features

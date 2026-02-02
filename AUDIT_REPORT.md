@@ -21,6 +21,12 @@
 - `benchmarks/datasets/chevy_350_na/` (regression_golden)
 - `benchmarks/datasets/ferrari_f1_na/` (regression_golden)
 - `benchmarks/datasets/single_cyl_moto_na/` (regression_golden)
+- `benchmarks/datasets/k20_like_regression_golden/` (regression_golden)
+- `benchmarks/datasets/v8_like_regression_golden/` (regression_golden)
+- `benchmarks/datasets/f1_like_regression_golden/` (regression_golden)
+- `benchmarks/datasets/k20_like_real/` (real_data placeholder)
+- `benchmarks/datasets/v8_like_real/` (real_data placeholder)
+- `benchmarks/datasets/f1_like_real/` (real_data placeholder)
 
 ## Tests
 - **Unit/contratos (por defecto)**:
@@ -36,7 +42,14 @@
   - `tests/integration/test_thermo_k20.py`
   - `tests/integration/test_0d_to_1d_scope.py`
   - `tests/test_contract_1d_bc.py` (marcado integration)
-- **Legacy/Frozen**: ninguno actualmente (marker `legacy` disponible).
+- **System (opt-in)**:
+  - CLI end-to-end + schemas: `tests/system/test_all_cli_outputs_validate_schemas.py`
+  - Benchmarks regression suites: `tests/system/test_benchmark_*_schema_and_metrics.py`
+  - GUI export schema: `tests/system/test_gui_export_dyno_schema.py`
+- **Perf/Stress (opt-in)**:
+  - `tests/perf/test_fast_path_parity_small_case.py`
+  - `tests/stress/test_network_adversarial_no_hang.py` (si aplica)
+- **Legacy/Frozen**: marker `legacy` disponible.
 
 ## Comandos de validación
 - Completo por defecto: `python -m pytest -q`

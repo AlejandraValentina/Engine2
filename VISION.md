@@ -28,9 +28,9 @@ Construir una plataforma abierta, reproducible y auditable para diseñar, simula
 
 ## Estado actual (lo que el repositorio garantiza hoy)
 - Dyno 0D autónomo validado por suite de pruebas.
-- Solver 1D de escape disponible para Scope (contrato de integración opt-in).
-- Acoplamiento 0D↔1D bidireccional: no implementado (hoy es unidireccional hacia el 1D para visualización/acústica).
-- Prototipos GUI pueden existir, pero no cuentan como “implementado” sin comando/test reproducible.
+- Solver 1D disponible para Scope (intake/exhaust) y full-scope headless (opt-in).
+- Acoplamiento 0D↔1D bidireccional disponible en el core avanzado (opt-in, validado por tests).
+- GUI existe para workflows exploratorios; lo “implementado” es lo que tiene comando/test reproducible.
 
 ## Roadmap por hitos
 - **M1:** Acoplamiento 0D→1D escape unidireccional con área de válvula real (cortina + Cd) y CLI headless validado por tests.
