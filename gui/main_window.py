@@ -10,7 +10,7 @@ from typing import Any, Optional
 import numpy as np
 
 import pyqtgraph as pg
-from PySide6.QtCore import Qt, QTimer, QRectF
+from PySide6.QtCore import Qt, QTimer, QRectF, QThread, QElapsedTimer
 from PySide6.QtGui import QAction, QColor, QBrush, QFont
 from PySide6.QtWidgets import (
     QApplication,
@@ -62,6 +62,7 @@ from core.engine_components import (
 from core.junctions import Junction
 from core.model import Pipe
 from core.pro_dyno_v2 import ProDynoV2Runner
+from gui.workers.dyno_worker import DynoWorker
 from core.simulator import Engine1DSolver
 from core.thermo import CylinderSimulator
 from core.units import cc_to_m3
@@ -112,8 +113,27 @@ class MainWindow(QMainWindow):
         self.power_curve = None
         self.torque_curve = None
         self.dyno_mode_combo = QComboBox()
+        self.dyno_run_btn = QPushButton("Run Power Sweep")
+        self.dyno_cancel_btn = QPushButton("Cancel")
+        self.dyno_progress = QProgressBar()
+        self.dyno_status_label = QLabel("")
         self.dyno_export_btn = QPushButton("Export Dyno JSON...")
         self.last_dyno_payload: Optional[dict[str, Any]] = None
+        self.dyno_thread: Optional[QThread] = None
+        self.dyno_worker: Optional[DynoWorker] = None
+        self.dyno_elapsed = QElapsedTimer()
+        self._dyno_progress_count = 0
+        self._dyno_point_count = 0
+        self._dyno_mode_running: Optional[str] = None
+        self._dyno_rpm_values: list[int] = []
+        self._dyno_power_hp: list[float] = []
+        self._dyno_torque_nm: list[float] = []
+        self._dyno_results: list[dict[str, float]] = []
+        self._dyno_max_hp_value = -float("inf")
+        self._dyno_max_hp_rpm = 0
+        self._dyno_max_tq_value = -float("inf")
+        self._dyno_max_tq_rpm = 0
+        self._dyno_knock_detected = False
         self.pro_dyno_plot = pg.PlotWidget()
         self.pro_power_curve = None
         self.pro_torque_curve = None
@@ -216,15 +236,21 @@ class MainWindow(QMainWindow):
         dyno_tab = QWidget()
         dyno_layout = QVBoxLayout()
         dyno_controls = QHBoxLayout()
-        run_button = QPushButton("Run Power Sweep")
-        run_button.clicked.connect(self.run_dyno_sweep)
+        self.dyno_run_btn.clicked.connect(self.run_dyno_sweep)
+        self.dyno_cancel_btn.clicked.connect(self.cancel_dyno_sweep)
+        self.dyno_cancel_btn.setEnabled(False)
+        self.dyno_progress.setRange(0, 100)
+        self.dyno_progress.setVisible(False)
         self.dyno_mode_combo.addItem("v1 (Quick 0D)", "v1")
         self.dyno_mode_combo.addItem("v2 (Pro Coupled)", "v2")
         self.dyno_export_btn.clicked.connect(self.export_dyno_json)
         dyno_controls.addWidget(QLabel("Mode"))
         dyno_controls.addWidget(self.dyno_mode_combo)
-        dyno_controls.addWidget(run_button)
+        dyno_controls.addWidget(self.dyno_run_btn)
+        dyno_controls.addWidget(self.dyno_cancel_btn)
         dyno_controls.addWidget(self.dyno_export_btn)
+        dyno_controls.addWidget(self.dyno_progress)
+        dyno_controls.addWidget(self.dyno_status_label)
         dyno_controls.addStretch()
         dyno_layout.addLayout(dyno_controls)
 
@@ -1492,64 +1518,117 @@ class MainWindow(QMainWindow):
         }
 
     def run_dyno_sweep(self) -> None:
+        if self.dyno_thread and self.dyno_thread.isRunning():
+            return
+
         mode = self._dyno_mode()
         max_rpm = int(self.engine.block.redline_rpm)
         rpm_values = list(range(1000, max_rpm + 500, 500))
-        power_hp: list[float] = []
-        torque_nm: list[float] = []
-        max_hp_value = -float("inf")
-        max_hp_rpm = 0
-        max_hp_row = -1
-        max_tq_value = -float("inf")
-        max_tq_rpm = 0
-        max_tq_row = -1
-        knock_detected = False
+        if not rpm_values:
+            QMessageBox.information(self, "Dyno", "No RPM values available.")
+            return
+
+        self._dyno_mode_running = mode
+        self._dyno_rpm_values = rpm_values
+        self._dyno_power_hp = []
+        self._dyno_torque_nm = []
+        self._dyno_results = []
+        self._dyno_progress_count = 0
+        self._dyno_point_count = 0
+        self._dyno_max_hp_value = -float("inf")
+        self._dyno_max_hp_rpm = 0
+        self._dyno_max_tq_value = -float("inf")
+        self._dyno_max_tq_rpm = 0
+        self._dyno_knock_detected = False
 
         self.analysis_table.setRowCount(0)
+        self.analysis_summary_label.setText("Running dyno...")
+        self.dyno_plot.clear()
+        self.dyno_plot.addLegend(clear=True)
+        self.power_curve = self.dyno_plot.plot([], [], pen=pg.mkPen("r", width=2), name="Power (HP)", symbol="o")
+        self.torque_curve = self.dyno_plot.plot([], [], pen=pg.mkPen("b", width=2), name="Torque (Nm)", symbol="o")
+        self.dyno_plot.setLabel("bottom", "RPM")
+        self.dyno_plot.setLabel("left", "Power (HP) / Torque (Nm)")
         self.dyno_plot.setTitle("")
 
-        if mode == "v1":
-            simulator = CylinderSimulator(self.engine)
-            cycles: list[dict[str, Any]] = []
-            for rpm in rpm_values:
-                result = simulator.run_cycle(rpm)
-                cycles.append(result)
-                hp_val = result["mean_power_hp"]
-                power_hp.append(hp_val)
-                torque = result.get("mean_torque_nm", 0.0)
-                torque_nm.append(torque)
+        self.last_dyno_payload = None
+        self._set_dyno_ui_running(True)
+        self.dyno_elapsed.restart()
 
-                if hp_val > max_hp_value:
-                    max_hp_value = hp_val
-                    max_hp_rpm = rpm
-                    max_hp_row = self.analysis_table.rowCount()
+        engine_data = self.engine.to_dict()
+        self.dyno_worker = DynoWorker(engine_data, mode, rpm_values)
+        self.dyno_thread = QThread(self)
+        self.dyno_worker.moveToThread(self.dyno_thread)
+        self.dyno_thread.started.connect(self.dyno_worker.run)
+        self.dyno_worker.progress.connect(self._on_dyno_progress)
+        self.dyno_worker.point.connect(self._on_dyno_point)
+        self.dyno_worker.finished.connect(self._on_dyno_finished)
+        self.dyno_worker.cancelled.connect(self._on_dyno_cancelled)
+        self.dyno_worker.error.connect(self._on_dyno_error)
+        self.dyno_thread.start()
 
-                if torque > max_tq_value:
-                    max_tq_value = torque
-                    max_tq_rpm = rpm
-                    max_tq_row = self.analysis_table.rowCount()
+    def cancel_dyno_sweep(self) -> None:
+        if self.dyno_worker:
+            self.dyno_status_label.setText("Cancelling...")
+            self.dyno_worker.request_cancel()
 
-                knock_present = self.update_analysis_table(rpm, result)
-                knock_detected = knock_detected or knock_present
+    def _set_dyno_ui_running(self, running: bool) -> None:
+        self.dyno_run_btn.setEnabled(not running)
+        self.dyno_export_btn.setEnabled(not running)
+        self.dyno_mode_combo.setEnabled(not running)
+        self.dyno_cancel_btn.setEnabled(running)
+        self.dyno_progress.setVisible(running)
+        if not running:
+            self.dyno_progress.setValue(0)
+            self.dyno_status_label.setText("")
 
-            results = self._dyno_results_from_cycles(rpm_values, cycles)
-            self.last_dyno_payload = self._build_dyno_payload(mode, results)
-        else:
-            runner = ProDynoV2Runner(self.engine)
-            sweep = runner.run_sweep(rpm_values)
-            rpm_values = [int(v) for v in sweep.get("rpm", rpm_values)]
-            power_hp = [float(v) for v in sweep.get("mean_power_hp", [])]
-            torque_nm = [float(v) for v in sweep.get("mean_torque_nm", [])]
-            results = self._dyno_results_from_sweep(rpm_values, sweep)
-            self.last_dyno_payload = self._build_dyno_payload(mode, results)
-            self.analysis_summary_label.setText("Pro Dyno mode selected (analysis table uses v1 data).")
+    def _update_dyno_plot(self) -> None:
+        if not self._dyno_rpm_values:
+            return
+        self.power_curve.setData(self._dyno_rpm_values[: len(self._dyno_power_hp)], self._dyno_power_hp)
+        self.torque_curve.setData(self._dyno_rpm_values[: len(self._dyno_torque_nm)], self._dyno_torque_nm)
+        if len(self._dyno_rpm_values) >= 2:
+            self.dyno_plot.setXRange(min(self._dyno_rpm_values), max(self._dyno_rpm_values), padding=0.05)
 
-        warning_html = ""
-        if mode == "v1" and rpm_values and max_hp_row >= 0 and max_tq_row >= 0:
+    def _on_dyno_progress(self, percent: int, msg: str) -> None:
+        self._dyno_progress_count += 1
+        elapsed_ms = self.dyno_elapsed.elapsed()
+        self.dyno_progress.setValue(percent)
+        self.dyno_status_label.setText(f"{msg} | {elapsed_ms / 1000.0:.1f}s")
+
+    def _on_dyno_point(self, payload: dict[str, Any]) -> None:
+        self._dyno_point_count += 1
+        self._dyno_results.append({k: float(v) for k, v in payload.items() if isinstance(v, (int, float))})
+        self._dyno_power_hp.append(float(payload.get("mean_power_hp", 0.0)))
+        self._dyno_torque_nm.append(float(payload.get("mean_torque_nm", 0.0)))
+        self._update_dyno_plot()
+
+        cycle = payload.get("cycle")
+        if cycle is not None:
+            rpm = float(payload.get("rpm", 0.0))
+            hp_val = float(cycle.get("mean_power_hp", 0.0))
+            torque_val = float(cycle.get("mean_torque_nm", 0.0))
+            if hp_val > self._dyno_max_hp_value:
+                self._dyno_max_hp_value = hp_val
+                self._dyno_max_hp_rpm = int(rpm)
+            if torque_val > self._dyno_max_tq_value:
+                self._dyno_max_tq_value = torque_val
+                self._dyno_max_tq_rpm = int(rpm)
+            knock_present = self.update_analysis_table(rpm, cycle)
+            self._dyno_knock_detected = self._dyno_knock_detected or knock_present
+
+    def _on_dyno_finished(self, payload: dict[str, Any]) -> None:
+        mode = payload.get("mode", "v1")
+        results = payload.get("results", [])
+        self.last_dyno_payload = self._build_dyno_payload(mode, results)
+
+        if mode == "v1" and results:
             summary = (
-                f"🏆 Max Power: {max_hp_value:.1f} HP @ {max_hp_rpm} RPM | 🚀 Max Torque: {max_tq_value:.1f} Nm @ {max_tq_rpm} RPM"
+                f"🏆 Max Power: {self._dyno_max_hp_value:.1f} HP @ {self._dyno_max_hp_rpm} RPM | "
+                f"🚀 Max Torque: {self._dyno_max_tq_value:.1f} Nm @ {self._dyno_max_tq_rpm} RPM"
             )
-            if knock_detected:
+            warning_html = ""
+            if self._dyno_knock_detected:
                 warning_html = (
                     "<br><span style='color:red; font-weight:bold;'>WARNING: ENGINE KNOCK DETECTED - Low Octane for this Compression</span>"
                 )
@@ -1561,35 +1640,35 @@ class MainWindow(QMainWindow):
                 )
             else:
                 self.statusBar().clearMessage()
-
             self.analysis_summary_label.setText(summary + warning_html)
-            hp_item = self.analysis_table.item(max_hp_row, 2)
-            if hp_item:
-                hp_item.setBackground(QBrush(QColor(255, 200, 200)))
-                font = QFont(hp_item.font())
-                font.setBold(True)
-                hp_item.setFont(font)
+        else:
+            self.analysis_summary_label.setText("Pro Dyno mode selected (analysis table uses v1 data).")
 
-            tq_item = self.analysis_table.item(max_tq_row, 1)
-            if tq_item:
-                tq_item.setBackground(QBrush(QColor(200, 200, 255)))
-                font = QFont(tq_item.font())
-                font.setBold(True)
-                tq_item.setFont(font)
-        elif mode == "v1":
-            self.analysis_summary_label.setText("No dyno data yet")
-            self.statusBar().clearMessage()
+        self._set_dyno_ui_running(False)
+        self._cleanup_dyno_thread()
 
-        self.dyno_plot.clear()
-        self.dyno_plot.addLegend(clear=True)
-        self.power_curve = self.dyno_plot.plot(rpm_values, power_hp, pen=pg.mkPen("r", width=2), name="Power (HP)")
-        self.torque_curve = self.dyno_plot.plot(rpm_values, torque_nm, pen=pg.mkPen("b", width=2), name="Torque (Nm)")
-        self.dyno_plot.setLabel("bottom", "RPM")
-        self.dyno_plot.setLabel("left", "Power (HP) / Torque (Nm)")
-        if rpm_values:
-            self.dyno_plot.setXRange(min(rpm_values), max(rpm_values), padding=0.05)
-        if not knock_detected:
-            self.dyno_plot.setTitle("")
+    def _on_dyno_cancelled(self) -> None:
+        self.last_dyno_payload = None
+        self.analysis_summary_label.setText("Dyno cancelled.")
+        self._set_dyno_ui_running(False)
+        self._cleanup_dyno_thread()
+
+    def _on_dyno_error(self, message: str) -> None:
+        self.last_dyno_payload = None
+        self._set_dyno_ui_running(False)
+        self._cleanup_dyno_thread()
+        QMessageBox.critical(self, "Dyno error", message)
+
+    def _cleanup_dyno_thread(self) -> None:
+        if self.dyno_thread:
+            self.dyno_thread.quit()
+            self.dyno_thread.wait()
+        if self.dyno_worker:
+            self.dyno_worker.deleteLater()
+        if self.dyno_thread:
+            self.dyno_thread.deleteLater()
+        self.dyno_worker = None
+        self.dyno_thread = None
 
     def export_dyno_json(self) -> None:
         if not self.last_dyno_payload:
