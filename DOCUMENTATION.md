@@ -77,7 +77,8 @@ PyWaveDyn is a verification-focused 0D virtual dyno plus a 1D exhaust wave-scope
    - **v1 (Quick 0D):** fast sweep using the 0D thermodynamic model.
    - **v2 (Pro Coupled):** slower coupled sweep using the v2 orchestrator.
 4. Click **Run Power Sweep** to simulate; the plot overlays Power (HP) and Torque (Nm).
-5. Use **Export Dyno JSON…** to save the CLI-compatible dyno output (validated against `schemas/dyno.schema.json`).
+5. Progress is shown (RPM i/N + elapsed time) and the plot updates incrementally. You can cancel and the UI remains responsive.
+6. Use **Export Dyno JSON…** to save the CLI-compatible dyno output (validated against `schemas/dyno.schema.json`).
 
 ### Correr smoke tests GUI offscreen
 ```bash
