@@ -27,6 +27,13 @@ F) Verificacion v2.3 FINAL
 - `python -m pytest -q -m system`
 - `python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json`
 
+F.1) Verificacion v2.0
+- `python -m pytest -m integration -q tests/integration/test_0d_1d_bidirectional_backpressure_affects_cycle.py`
+- `python -m pytest -q tests/test_audio_multicyl_wav_nonempty.py`
+- `python -m pytest -q tests/test_headless_sweep_runner_length.py`
+- `python -m pytest -q tests/test_cutlist_cli_generates_expected_keys.py`
+- `python -m pytest -q -m legacy`
+
 G) Benchmarks
 - `python -m pywavedyn.cli benchmark --engine presets/honda_k20.json --dataset benchmarks/datasets/honda_k20_na --out bench_report.json`
 - Regression-golden datasets:

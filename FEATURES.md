@@ -6,6 +6,13 @@
 ## Release v2.0 scope
 Ver `docs/RELEASE_V2_SCOPE.md` (unico scope congelado v2.0).
 
+## Release v2.0 scope (Wave Scope + Audio + Sweep + Cutlist + Legacy)
+- [x] Acople 0D↔1D bidireccional — Evidencia: `core/simulator.py`, `core/thermo.py`, `tests/integration/test_0d_1d_bidirectional_backpressure_affects_cycle.py`. Run: `python -m pytest -m integration -q tests/integration/test_0d_1d_bidirectional_backpressure_affects_cycle.py`.
+- [x] Síntesis multi-cilindro verificada — Evidencia: `acoustics/audio_generator.py`, `tests/test_audio_multicyl_wav_nonempty.py`. Run: `python -m pytest -q tests/test_audio_multicyl_wav_nonempty.py`.
+- [x] Barridos automáticos sin GUI (sweep headless) — Evidencia: `pywavedyn/cli.py`, `tests/test_headless_sweep_runner_length.py`. Run: `python -m pytest -q tests/test_headless_sweep_runner_length.py`.
+- [x] Reporte/cut-list reproducible por CLI — Evidencia: `pywavedyn/cli.py`, `schemas/cutlist.schema.json`, `tests/test_cutlist_cli_generates_expected_keys.py`. Run: `python -m pytest -q tests/test_cutlist_cli_generates_expected_keys.py`.
+- [x] Cobertura de regresión para presets legacy — Evidencia: `tests/legacy/test_legacy_presets_load_and_run_0d.py`. Run: `python -m pytest -q -m legacy`.
+
 ## Release v2.1 scope
 Ver `docs/RELEASE_V2_1_SCOPE.md` (unico scope congelado v2.1).
 
