@@ -9,7 +9,7 @@ from core.thermo import CylinderSimulator
 def test_calibrate_unique_solution_recovers_params() -> None:
     engine = Engine()
     target_engine = Engine.from_dict(engine.to_dict())
-    target_params = {"ve_scale": 1.2}
+    target_params = {"friction_scale": 0.8}
     _apply_scales(target_engine, target_params)
 
     sim = CylinderSimulator(target_engine)
@@ -27,7 +27,7 @@ def test_calibrate_unique_solution_recovers_params() -> None:
     report = calibrate_engine_diagnostics(
         engine,
         points,
-        ["ve_scale"],
+        ["friction_scale"],
         max_evals=20,
         multi_start=1,
         top_k=5,
@@ -37,5 +37,5 @@ def test_calibrate_unique_solution_recovers_params() -> None:
     )
 
     best = report["best_solution"]["params"]
-    assert best["ve_scale"] == pytest.approx(1.2, rel=1e-6, abs=1e-6)
+    assert best["friction_scale"] == pytest.approx(0.8, rel=1e-6, abs=1e-6)
     assert report["uniqueness"]["unique"] is True
