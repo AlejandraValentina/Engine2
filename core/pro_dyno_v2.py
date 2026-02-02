@@ -4,8 +4,9 @@ import math
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from core.advanced.combustion import CombustionConfig
 from core.advanced.coupling import ValveTiming
-from core.advanced.orchestrator import Orchestrator, OrchestratorConfig
+from core.advanced.orchestrator import Orchestrator, OrchestratorConfig, _fmep_from_engine
 from core.engine_components import Engine
 
 
@@ -31,13 +32,16 @@ class ProDynoV2Runner:
         if warm_start:
             max_cycles = max(2, min(max_cycles, 3))
         cp_value = self.settings.get("cp") if "cp" in self.settings else None
+        combustion_cfg = self._combustion_from_engine()
         cfg = OrchestratorConfig(
             gamma=float(self.settings.get("gamma", 1.35)),
             gas_constant=float(self.settings.get("gas_constant", 287.0)),
             cp=float(cp_value) if cp_value is not None else None,
+            cp_model=str(self.engine.simulation_settings.cp_model),
             cfl=float(self.settings.get("cfl", 0.5)),
             dt_max=float(self.settings.get("dt_max", 5e-5)),
             max_cycles=max_cycles,
+            combustion=combustion_cfg,
         )
         return Orchestrator(cfg)
 
@@ -60,6 +64,30 @@ class ProDynoV2Runner:
             seat_diameter_m=seat_m,
             cd=float(self.settings.get("valve_cd", 0.9)),
         )
+
+    def _combustion_from_engine(self) -> CombustionConfig:
+        comb = self.engine.combustion
+        fuel_cfg = self.engine.simulation_settings.fuel
+        cfg = CombustionConfig(
+            enabled=True,
+            afr_stoich=float(comb.afr) if comb.afr > 0.0 else 14.7,
+            fuel_lhv=float(fuel_cfg.lhv_j_per_kg) if fuel_cfg.lhv_j_per_kg > 0.0 else 43e6,
+            eta_comb_base=float(min(max(comb.thermal_efficiency, 0.0), 1.0)),
+            wiebe_a=float(comb.wiebe_a),
+            wiebe_m=float(comb.wiebe_m),
+            start_angle_deg_atdc=-float(comb.ignition_advance),
+            duration_deg=float(comb.burn_duration),
+        )
+        residual = comb.residual_coupling or {}
+        if "eta_comb_residual_k" in residual:
+            cfg.eta_comb_residual_k = float(residual["eta_comb_residual_k"])
+        if "duration_residual_k" in residual:
+            cfg.duration_residual_k = float(residual["duration_residual_k"])
+        if "clamp_X_res" in residual and isinstance(residual["clamp_X_res"], (list, tuple)):
+            vals = residual["clamp_X_res"]
+            if len(vals) == 2:
+                cfg.clamp_X_res = (float(vals[0]), float(vals[1]))
+        return cfg
 
     def run_point(self, rpm: int, warm_start_state: Optional[dict[str, Any]] = None) -> tuple[dict[str, Any], dict[str, Any]]:
         warm_start = warm_start_state is not None
@@ -86,9 +114,15 @@ class ProDynoV2Runner:
         )
 
         indicated_work = result["indicated_work"][-1] if result["indicated_work"] else 0.0
-        mean_torque_nm = max(indicated_work / (2.0 * math.pi), 0.0)
+        disp_per_cyl_m3 = area * stroke_m
+        disp_total_m3 = disp_per_cyl_m3 * self.engine.block.num_cylinders
+        indicated_work_total = indicated_work * self.engine.block.num_cylinders
+        indicated_torque_nm = indicated_work_total / (2.0 * math.pi)
         omega = float(rpm) * 2.0 * math.pi / 60.0
-        mean_power_hp = max(mean_torque_nm * omega / 745.7, 0.0)
+        fmep_pa = _fmep_from_engine(self.engine, float(rpm))
+        friction_torque_nm = fmep_pa * disp_total_m3 / (4.0 * math.pi)
+        mean_torque_nm = indicated_torque_nm - friction_torque_nm
+        mean_power_hp = mean_torque_nm * omega / 745.7
 
         ve_real = max(result["ve"], default=0.0)
         trapped = result["trapped_mass"][-1] if result["trapped_mass"] else 0.0
