@@ -160,7 +160,7 @@ def test_all_cli_outputs_validate_schemas(tmp_path: Path) -> None:
         "--target-dx",
         "0.1",
         "--max-steps",
-        "300",
+        "800",
         "--out",
         str(full_scope_path),
     ])
