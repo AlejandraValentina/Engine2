@@ -22,6 +22,20 @@ python main.py
 python -m pywavedyn.cli --help
 ```
 
+## Plenum wall thermal (opt-in)
+Para evitar enfriamiento irreal por A/V, se puede habilitar masa térmica de pared en plenums:
+
+```
+\"intake_plenum\": {
+  \"wall_thermal\": {
+    \"enabled\": true,
+    \"material\": {\"rho\": 7800.0, \"cp\": 500.0},
+    \"thickness_m\": 0.003,
+    \"h_model\": \"dittus_boelter\"
+  }
+}
+```
+
 ## GUI smoke tests (offscreen)
 Use offscreen rendering for headless CI:
 ```bash

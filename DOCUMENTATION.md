@@ -99,6 +99,21 @@ PyWaveDyn exposes a minimal headless CLI for reproducible runs without the GUI:
 
 The CLI outputs JSON with metadata (input_hash, timestamp, settings, coupling_mode) plus results for each command.
 
+### Plenum wall thermal (opt-in)
+Los plenums 0D pueden habilitar masa térmica de pared para evitar enfriamientos irreales por A/V. Se activa en el bloque `intake_plenum.wall_thermal` o `exhaust_plenum.wall_thermal`:
+
+- `enabled`: false por defecto (no-op cuando está deshabilitado).
+- `material.rho`, `material.cp`, `thickness_m`: definen la masa térmica.
+- `h_model`: `"dittus_boelter"` (default) o `"constant"`.
+- `ambient_loss.enabled`: pérdidas a ambiente (off por defecto).
+
+### Calibración: diagnóstico de unicidad
+El comando `calibrate` soporta un modo diagnóstico opt-in para identificar soluciones no únicas:
+
+- `--diagnostics --multi-start N --top-k K --eps-obj X --eps-params Y --seed S`
+
+Cuando está habilitado genera un reporte extendido (schema `calibrate_report.schema.json`) con top-k soluciones y un flag `unique`.
+
 ### Como comparar fidelidad
 Para comparar fidelidad de manera reproducible, usar estos flujos (headless):
 
