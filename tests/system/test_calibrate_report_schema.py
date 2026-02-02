@@ -58,3 +58,5 @@ def test_calibrate_report_schema(tmp_path: Path) -> None:
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     schema = json.loads(Path("schemas/calibrate_report.schema.json").read_text(encoding="utf-8"))
     jsonschema.validate(instance=payload, schema=schema)
+    assert "uniqueness" in payload
+    assert "unique" in payload["uniqueness"]
