@@ -91,6 +91,7 @@ PyWaveDyn exposes a minimal headless CLI for reproducible runs without the GUI:
 - **Wave scope:** `python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2500 --cycles 1 --out out_scope.json`
 - **Intake scope:** `python -m pywavedyn.cli intake-scope --engine presets/honda_k20.json --target-dx 0.05 --max-steps 200 --out intake_scope.json`
 - **Audio:** `python -m pywavedyn.cli audio --engine presets/honda_k20.json --rpm 2500 --duration 0.5 --sample-rate 44100 --out out.wav`
+  - Fuente plenum (opcional): `python -m pywavedyn.cli audio --engine presets/honda_k20.json --rpm 2500 --duration 0.5 --sample-rate 44100 --source exhaust_plenum --out out.wav`
 - **Sweep:** `python -m pywavedyn.cli sweep --engine presets/honda_k20.json --rpm 3000 --points 5 --out out_sweep.json`
 - **Part-load map:** `python -m pywavedyn.cli map --engine presets/honda_k20.json --rpm-grid 2000,3000 --throttle-grid 0.2,0.6,1.0 --out map.json`
 - **Cut-list:** `python -m pywavedyn.cli cutlist --engine presets/honda_k20.json --out cutlist.json`

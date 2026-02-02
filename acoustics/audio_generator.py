@@ -195,3 +195,62 @@ def generate_full_engine_sound(
     if peak > 0:
         mixed = mixed / peak
     return mixed.astype(np.float32)
+
+
+def _soft_limiter(wave: np.ndarray, limit: float = 0.9) -> np.ndarray:
+    if wave.size == 0:
+        return wave.astype(np.float32)
+    limited = np.tanh(wave)
+    return (limited * float(limit)).astype(np.float32)
+
+
+def render_pressure_trace(
+    times: list[float] | np.ndarray,
+    pressures: list[float] | np.ndarray,
+    sample_rate: int,
+) -> Optional[np.ndarray]:
+    if len(times) < 2:
+        return None
+
+    times_arr = np.asarray(times, dtype=np.float64)
+    pressures_arr = np.asarray(pressures, dtype=np.float64)
+    sort_idx = np.argsort(times_arr)
+    times_arr = times_arr[sort_idx]
+    pressures_arr = pressures_arr[sort_idx]
+
+    duration = float(times_arr[-1] - times_arr[0])
+    if duration <= 0.0:
+        return None
+
+    sample_rate = max(int(sample_rate), 1000)
+    target_samples = int(np.ceil(duration * sample_rate)) + 1
+    target_times = np.linspace(times_arr[0], times_arr[-1], target_samples)
+    resampled = np.interp(target_times, times_arr, pressures_arr)
+
+    resampled = resampled - float(np.mean(resampled))
+    rms = float(np.sqrt(np.mean(resampled ** 2))) if resampled.size > 0 else 0.0
+    if rms > 0.0:
+        resampled = resampled / rms
+    else:
+        resampled = np.zeros_like(resampled, dtype=np.float64)
+
+    return _soft_limiter(resampled)
+
+
+def mix_multicylinder_from_trace(
+    base_wave: np.ndarray,
+    rpm: float,
+    firing_order: list[int] | None,
+    duration: float,
+    sample_rate: int,
+) -> np.ndarray:
+    if base_wave is None or len(base_wave) == 0:
+        return np.array([], dtype=np.float32)
+    mixed = generate_full_engine_sound(
+        base_wave,
+        rpm=rpm,
+        firing_order=list(firing_order or [1]),
+        sample_rate=sample_rate,
+        duration=duration,
+    )
+    return _soft_limiter(mixed)
