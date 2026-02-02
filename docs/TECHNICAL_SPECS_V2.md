@@ -322,6 +322,9 @@ The fuel/BSFC layer is **accounting only** and does not alter combustion physics
 heat release, or any Phase-2 coupling contract. When disabled (default), no fuel
 metrics are produced.
 
+For v2 dyno output, brake power/torque are derived from the physical cycle
+(indicated work minus friction) even when fuel accounting is disabled.
+
 **Fuel config (defaults off):**
 ```yaml
 fuel:
