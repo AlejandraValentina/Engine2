@@ -20,7 +20,12 @@ from core.advanced.plenum_cv import (
     PlenumControlVolume,
     validate_plenum_config,
 )
-from core.advanced.wall_thermal import init_wall_temperature, validate_wall_thermal_config, wall_thermal_step
+from core.advanced.wall_thermal import (
+    init_wall_temperature,
+    validate_wall_thermal_config,
+    wall_thermal_step,
+    _dittus_boelter_h_array,
+)
 from core.advanced.state import Primitive1D, primitive_to_conserved, stagnation_from_static
 from core.advanced.solver_1d import (
     ShockCFLConfig,
@@ -368,6 +373,30 @@ def _apply_pipe_wall_thermal(
     u_mean = float(np.sum(np.abs(u) * rho) / mass) if mass > 0.0 else 0.0
     cp = gamma * gas_constant / max(gamma - 1.0, 1e-9)
     diameter = 4.0 * pipe_volume / cfg.area_m2 if cfg.area_m2 > 0.0 else None
+    if cfg.h_model == "dittus_boelter":
+        if diameter is None or diameter <= 0.0:
+            return twall_k
+        h_vals = _dittus_boelter_h_array(prim[:, 3], rho, u, diameter, cfg, cp)
+        h_vals = np.maximum(h_vals * cfg.h_mult, 0.0)
+        area_per_vol = cfg.area_m2 / pipe_volume
+        qdot_cells = h_vals * area_per_vol * (prim[:, 3] - twall_k)
+        delta_e = -qdot_cells * dt
+        U[1:-1, 2] += delta_e
+        rho = U[1:-1, 0]
+        mom = U[1:-1, 1]
+        rho_safe = np.maximum(rho, 1e-12)
+        u = mom / rho_safe
+        kinetic = 0.5 * rho_safe * u * u
+        U[1:-1, 2] = np.maximum(U[1:-1, 2], kinetic + 1e-9)
+
+        qdot_total = float(np.sum(h_vals * (prim[:, 3] - twall_k))) * (cfg.area_m2 / max(len(h_vals), 1))
+        denom = cfg.m_wall_kg * cfg.cp_wall_j_per_kgk
+        if denom <= 0.0:
+            raise ValueError("wall_thermal m_wall_kg and cp_wall_j_per_kgk must be positive")
+        twall_new = twall_k + qdot_total * dt / denom
+        twall_new = min(max(twall_new, cfg.twall_min_k), cfg.twall_max_k)
+        return twall_new
+
     twall_k, qdot = wall_thermal_step(
         twall_k,
         T_gas,
