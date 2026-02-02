@@ -204,6 +204,17 @@ def _soft_limiter(wave: np.ndarray, limit: float = 0.9) -> np.ndarray:
     return (limited * float(limit)).astype(np.float32)
 
 
+def _smooth_waveform(wave: np.ndarray, window: int = 5) -> np.ndarray:
+    if wave is None or wave.size == 0:
+        return wave.astype(np.float32)
+    window = max(int(window), 1)
+    if window <= 1:
+        return wave.astype(np.float32)
+    kernel = np.ones(window, dtype=np.float64) / float(window)
+    smoothed = np.convolve(wave.astype(np.float64), kernel, mode="same")
+    return smoothed.astype(np.float32)
+
+
 def render_pressure_trace(
     times: list[float] | np.ndarray,
     pressures: list[float] | np.ndarray,

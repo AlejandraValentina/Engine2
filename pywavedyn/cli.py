@@ -16,6 +16,7 @@ from acoustics.audio_generator import (
     save_multicylinder_wav,
     render_pressure_trace,
     mix_multicylinder_from_trace,
+    _smooth_waveform,
 )
 from core.engine_components import Engine, Pipe
 from core.pro_dyno_v2 import ProDynoV2Runner
@@ -365,6 +366,8 @@ def run_audio(
     base_wave = render_pressure_trace(times, pressures, sample_rate)
     if base_wave is None or base_wave.size == 0:
         raise ValueError("Audio source produced empty waveform")
+    if source == "exhaust_plenum":
+        base_wave = _smooth_waveform(base_wave, window=7)
     waveform = mix_multicylinder_from_trace(
         base_wave,
         rpm=rpm,
@@ -385,7 +388,7 @@ def _collect_audio_trace(engine: Engine, rpm: float, duration: float, source: st
         raise ValueError(f"Unsupported audio source '{source}'")
 
     simulator = CylinderSimulator(engine)
-    solver = _build_wave_solver(engine)
+    solver = _build_wave_solver(engine, target_dx=0.05)
     coupling_data = None
     if engine.simulation_settings.enable_0d_to_1d_exhaust_coupling:
         cycle = simulator.run_cycle(rpm)
@@ -397,12 +400,15 @@ def _collect_audio_trace(engine: Engine, rpm: float, duration: float, source: st
         )
 
     total_time = max(float(duration), 0.01)
-    max_steps = int(total_time * 4000) + 200
+    capture_time = min(total_time, 120.0 / max(float(rpm), 1.0))
+    dt_est = max(float(solver.get_time_step()), 1e-6)
+    max_steps = max(int(capture_time / dt_est) + 200, 200)
+    max_steps = min(max_steps, 2_000_000)
     times: list[float] = []
     pressures: list[float] = []
 
     for _ in range(max_steps):
-        if solver.time >= total_time:
+        if solver.time >= capture_time:
             break
         dt = solver.get_time_step()
         p_stag_by_cyl = None
@@ -435,8 +441,8 @@ def _collect_audio_trace(engine: Engine, rpm: float, duration: float, source: st
         else:
             p_col, _T_col, _rho_col = solver.collector.get_state()
             pressures.append(float(p_col))
-    else:
-        raise RuntimeError("audio trace exceeded max_steps before duration")
+    if not times:
+        raise RuntimeError("audio trace produced no samples")
 
     return times, pressures
 

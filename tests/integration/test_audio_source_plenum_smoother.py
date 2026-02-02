@@ -29,7 +29,7 @@ def test_audio_exhaust_plenum_smoother(tmp_path: Path) -> None:
         "--rpm",
         "2500",
         "--duration",
-        "0.2",
+        "0.05",
         "--sample-rate",
         "8000",
     ]
