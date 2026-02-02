@@ -1391,9 +1391,23 @@ class Orchestrator:
                 else:
                     p_outlet = self.cfg.p_outlet if self.cfg.p_outlet is not None else p0
                     outlet_mode = self.cfg.outlet_mode
+                dt_cfl_est = cfl_dt(
+                    U,
+                    dx,
+                    self.cfg.gamma,
+                    self.cfg.gas_constant,
+                    self.cfg.cfl,
+                    self.cfg.dt_max,
+                    ghost_left=1,
+                    ghost_right=1,
+                )
                 max_substeps = max(
                     10,
                     int(math.ceil(dt_theta / max(self.cfg.dt_max, 1e-12))) * 10,
+                )
+                max_substeps = max(
+                    max_substeps,
+                    int(math.ceil(dt_theta / max(dt_cfl_est, 1e-12))) + 5,
                 )
                 for _ in range(max_substeps):
                     if t_elapsed >= dt_theta:
