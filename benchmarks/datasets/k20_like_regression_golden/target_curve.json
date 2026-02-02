@@ -1,0 +1,15 @@
+{
+  "engine_id": "k20_like_regression_golden",
+  "points": [
+    {
+      "rpm": 3000.0,
+      "torque_nm": 98.0347013597869,
+      "power_hp": 41.30147480069409
+    },
+    {
+      "rpm": 6000.0,
+      "torque_nm": 126.49229632379728,
+      "power_hp": 106.58100278035262
+    }
+  ]
+}

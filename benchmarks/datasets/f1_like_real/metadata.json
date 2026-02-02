@@ -1,0 +1,10 @@
+{
+  "engine_id": "f1_like_real",
+  "source": "real_data",
+  "notes": "PLACEHOLDER: no real data committed. Provide CSV in targets.csv.",
+  "units": {
+    "rpm": "rpm",
+    "torque_nm": "N*m",
+    "power_hp": "hp"
+  }
+}

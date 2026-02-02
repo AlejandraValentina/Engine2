@@ -19,3 +19,5 @@ python -m pywavedyn.cli benchmark --engine <engine.json> --dataset benchmarks/da
 Sources:
 - `regression_golden`: generated from current simulator outputs for stability/regression.
 - `real_data`: external datasets imported via `bench-import` (not stored in repo).
+
+See `docs/BENCHMARKS_METHOD.md` for the full error contract and dataset conventions.

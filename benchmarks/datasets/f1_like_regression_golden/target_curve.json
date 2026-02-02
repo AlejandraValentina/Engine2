@@ -1,0 +1,15 @@
+{
+  "engine_id": "f1_like_regression_golden",
+  "points": [
+    {
+      "rpm": 9000.0,
+      "torque_nm": 319.15284492889646,
+      "power_hp": 403.37195909919683
+    },
+    {
+      "rpm": 12000.0,
+      "torque_nm": 289.75715410993547,
+      "power_hp": 488.29231416218795
+    }
+  ]
+}
