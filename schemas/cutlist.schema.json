@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "cutlist.schema.json",
+  "type": "object",
+  "required": ["metadata", "engine", "intake", "exhaust", "cutlist"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "engine": {
+      "type": "object",
+      "required": ["model_name", "num_cylinders", "firing_order"],
+      "properties": {
+        "model_name": {"type": "string"},
+        "num_cylinders": {"type": "integer"},
+        "firing_order": {"type": "array", "items": {"type": "integer"}}
+      },
+      "additionalProperties": true
+    },
+    "intake": {
+      "type": "object",
+      "required": ["runner_length_mm", "runner_diameter_mm", "plenum_volume_l", "throttle_body_dia_mm"],
+      "properties": {
+        "runner_length_mm": {"type": "number"},
+        "runner_diameter_mm": {"type": "number"},
+        "plenum_volume_l": {"type": "number"},
+        "throttle_body_dia_mm": {"type": "number"}
+      },
+      "additionalProperties": true
+    },
+    "exhaust": {
+      "type": "object",
+      "required": ["primary_length_mm", "primary_diameter_mm", "collector_length_mm"],
+      "properties": {
+        "primary_length_mm": {"type": "number"},
+        "primary_diameter_mm": {"type": "number"},
+        "collector_length_mm": {"type": "number"}
+      },
+      "additionalProperties": true
+    },
+    "cutlist": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "count"],
+        "properties": {
+          "name": {"type": "string"},
+          "count": {"type": "integer"},
+          "length_mm": {"type": "number"},
+          "diameter_mm": {"type": "number"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}
