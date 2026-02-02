@@ -6,7 +6,12 @@ from typing import Any, Optional
 
 from core.advanced.combustion import CombustionConfig
 from core.advanced.coupling import ValveTiming
-from core.advanced.orchestrator import Orchestrator, OrchestratorConfig, _fmep_from_engine
+from core.advanced.orchestrator import (
+    Orchestrator,
+    OrchestratorConfig,
+    _build_valve_timing,
+    _fmep_from_engine,
+)
 from core.engine_components import Engine
 
 
@@ -32,16 +37,25 @@ class ProDynoV2Runner:
         if warm_start:
             max_cycles = max(2, min(max_cycles, 3))
         cp_value = self.settings.get("cp") if "cp" in self.settings else None
+        pipe_role = str(self.settings.get("pipe_role", "intake"))
+        if pipe_role not in ("intake", "exhaust"):
+            raise ValueError("pipe_role must be 'intake' or 'exhaust'")
         combustion_cfg = self._combustion_from_engine()
+        gamma_default = (
+            self.engine.simulation_settings.gamma_exhaust
+            if pipe_role == "exhaust"
+            else self.engine.simulation_settings.gamma_air
+        )
         cfg = OrchestratorConfig(
-            gamma=float(self.settings.get("gamma", 1.35)),
-            gas_constant=float(self.settings.get("gas_constant", 287.0)),
+            gamma=float(self.settings.get("gamma", gamma_default)),
+            gas_constant=float(self.settings.get("gas_constant", self.engine.simulation_settings.gas_constant_R)),
             cp=float(cp_value) if cp_value is not None else None,
             cp_model=str(self.engine.simulation_settings.cp_model),
             cfl=float(self.settings.get("cfl", 0.5)),
             dt_max=float(self.settings.get("dt_max", 5e-5)),
             max_cycles=max_cycles,
             combustion=combustion_cfg,
+            pipe_role=pipe_role,
         )
         return Orchestrator(cfg)
 
@@ -52,18 +66,11 @@ class ProDynoV2Runner:
         return cells, length_m, diameter_m
 
     def _default_valve(self) -> ValveTiming:
-        cam = self.engine.camshaft
-        head = self.engine.head
-        seat_mm = head.exhaust_valve_seat_diameter_mm or head.exhaust_valve_diameter_mm
-        seat_m = float(seat_mm) * 1e-3
-        lift_m = float(cam.exhaust_lift) * 1e-3
-        return ValveTiming(
-            open_start_deg=360.0,
-            open_end_deg=540.0,
-            max_lift_m=lift_m,
-            seat_diameter_m=seat_m,
-            cd=float(self.settings.get("valve_cd", 0.9)),
-        )
+        pipe_role = str(self.settings.get("pipe_role", "intake"))
+        valve = _build_valve_timing(self.engine, pipe_role)
+        if "valve_cd" in self.settings:
+            valve.cd = float(self.settings["valve_cd"])
+        return valve
 
     def _combustion_from_engine(self) -> CombustionConfig:
         comb = self.engine.combustion
