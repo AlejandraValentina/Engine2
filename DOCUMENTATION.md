@@ -79,6 +79,11 @@ PyWaveDyn is a verification-focused 0D virtual dyno plus a 1D exhaust wave-scope
 4. Click **Run Power Sweep** to simulate; the plot overlays Power (HP) and Torque (Nm).
 5. Use **Export Dyno JSON…** to save the CLI-compatible dyno output (validated against `schemas/dyno.schema.json`).
 
+### Correr smoke tests GUI offscreen
+```bash
+QT_QPA_PLATFORM=offscreen python3 -m pytest -q tests/test_gui_import_smoke.py tests/test_gui_offscreen_window_smoke.py
+```
+
 ### Running Headless (CLI)
 PyWaveDyn exposes a minimal headless CLI for reproducible runs without the GUI:
 
