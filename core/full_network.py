@@ -180,13 +180,12 @@ def run_full_scope(
         _init_runner_state(n_cells_exhaust, p_amb, T_amb, 0.0, gamma, gas_constant) for _ in range(n_cyl)
     ]
 
-    intake_plenum_cfg = IntakePlenumConfig(
-        enabled=True,
-        volume_m3=max(float(engine.intake.plenum_volume) * 1e-3, 1e-6),
-        p_init_pa=p_amb,
-        t_init_k=T_amb,
-        y_init=Y_air,
-    )
+    intake_plenum_cfg = IntakePlenumConfig.from_dict(engine.simulation_settings.intake_plenum or {})
+    intake_plenum_cfg.enabled = True
+    intake_plenum_cfg.volume_m3 = max(float(engine.intake.plenum_volume) * 1e-3, 1e-6)
+    intake_plenum_cfg.p_init_pa = p_amb
+    intake_plenum_cfg.t_init_k = T_amb
+    intake_plenum_cfg.y_init = Y_air
     intake_plenum = PlenumControlVolume(
         intake_plenum_cfg,
         gas_constant,
@@ -198,13 +197,12 @@ def run_full_scope(
     )
 
     exhaust_volume = area_exhaust * max(float(engine.exhaust.collector_length) * 1e-3, 0.05)
-    exhaust_plenum_cfg = ExhaustPlenumConfig(
-        enabled=True,
-        volume_m3=max(exhaust_volume, 1e-6),
-        p_init_pa=p_amb,
-        t_init_k=max(T_amb + 50.0, 300.0),
-        y_init=0.0,
-    )
+    exhaust_plenum_cfg = ExhaustPlenumConfig.from_dict(engine.simulation_settings.exhaust_plenum or {})
+    exhaust_plenum_cfg.enabled = True
+    exhaust_plenum_cfg.volume_m3 = max(exhaust_volume, 1e-6)
+    exhaust_plenum_cfg.p_init_pa = p_amb
+    exhaust_plenum_cfg.t_init_k = max(T_amb + 50.0, 300.0)
+    exhaust_plenum_cfg.y_init = 0.0
     exhaust_plenum = PlenumControlVolume(
         exhaust_plenum_cfg,
         gas_constant,

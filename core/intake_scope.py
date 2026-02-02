@@ -20,6 +20,7 @@ class IntakeScopeResult:
     plenum_pressure_pa: list[float]
     runner_pressure_pa: list[list[float]]
     valve_area_m2: list[float]
+    wall_temp_k: list[float]
 
 
 def _intake_valve_area(engine: Engine, angle_deg: float) -> float:
@@ -91,13 +92,12 @@ def run_intake_scope(
 
     U = _initial_runner_state(n_cells, p_amb, T_amb, Y_amb, gamma, gas_constant)
 
-    plenum_cfg = IntakePlenumConfig(
-        enabled=True,
-        volume_m3=max(float(engine.intake.plenum_volume) * 1e-3, 1e-6),
-        p_init_pa=p_amb,
-        t_init_k=T_amb,
-        y_init=Y_amb,
-    )
+    plenum_cfg = IntakePlenumConfig.from_dict(engine.simulation_settings.intake_plenum or {})
+    plenum_cfg.enabled = True
+    plenum_cfg.volume_m3 = max(float(engine.intake.plenum_volume) * 1e-3, 1e-6)
+    plenum_cfg.p_init_pa = p_amb
+    plenum_cfg.t_init_k = T_amb
+    plenum_cfg.y_init = Y_amb
     plenum = PlenumControlVolume(
         plenum_cfg,
         gas_constant,
@@ -112,6 +112,7 @@ def run_intake_scope(
     plenum_pressure_pa: list[float] = []
     runner_pressure_pa: list[list[float]] = []
     valve_area_m2: list[float] = []
+    wall_temp_k: list[float] = []
 
     time = 0.0
     cfl = 0.5
@@ -310,10 +311,13 @@ def run_intake_scope(
             [float(val) for val in conserved_to_primitive(U[1:-1], gamma, gas_constant)[:, 2]]
         )
         valve_area_m2.append(float(area_valve))
+        if plenum_cfg.wall_thermal.enabled:
+            wall_temp_k.append(float(plenum.state.T_wall))
 
     return IntakeScopeResult(
         time_s=time_s,
         plenum_pressure_pa=plenum_pressure_pa,
         runner_pressure_pa=runner_pressure_pa,
         valve_area_m2=valve_area_m2,
+        wall_temp_k=wall_temp_k,
     )
