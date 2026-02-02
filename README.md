@@ -146,6 +146,7 @@ Writes `out_v2_demo.json`.
 - [AUDIT_REPORT.md](AUDIT_REPORT.md) – inventario de presets y estado de pruebas.
 - [docs/BENCHMARKS_METHOD.md](docs/BENCHMARKS_METHOD.md) – contrato de benchmarks y tolerancias.
 - [docs/RUNBOOK.md](docs/RUNBOOK.md) – instalación y GUI/tests offscreen.
+- [docs/APP_SERIA_CHECKLIST.md](docs/APP_SERIA_CHECKLIST.md) – checklist end-to-end (GUI/CLI/core).
 
 ## Testing
 - Instalar dependencias base: `python -m pip install -r requirements.txt`
