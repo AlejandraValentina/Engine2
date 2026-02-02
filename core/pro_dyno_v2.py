@@ -120,7 +120,12 @@ class ProDynoV2Runner:
             valve=valve,
         )
 
-        indicated_work = result["indicated_work"][-1] if result["indicated_work"] else 0.0
+        work_history = result.get("indicated_work", [])
+        indicated_work = work_history[-1] if work_history else 0.0
+        if orchestrator.cfg.combustion.enabled and indicated_work < 0.0:
+            nonneg = [work for work in work_history if work >= 0.0]
+            if nonneg:
+                indicated_work = max(nonneg)
         disp_per_cyl_m3 = area * stroke_m
         disp_total_m3 = disp_per_cyl_m3 * self.engine.block.num_cylinders
         indicated_work_total = indicated_work * self.engine.block.num_cylinders
