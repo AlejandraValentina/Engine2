@@ -15,16 +15,7 @@ from core.units import cc_to_m3
 def test_pro_dyno_v2_positive_power() -> None:
     preset = Path("presets/honda_k20.json").read_text(encoding="utf-8")
     engine = Engine.from_dict(json.loads(preset))
-    runner = ProDynoV2Runner(
-        engine,
-        settings={
-            "max_cycles": 2,
-            "pipe_cells": 12,
-            "pipe_length_m": 0.4,
-            "pipe_diameter_m": 0.038,
-            "dt_max": 1e-4,
-        },
-    )
+    runner = ProDynoV2Runner(engine)
     results = runner.run_sweep([3000])
 
     power = float(results["mean_power_hp"][0])
