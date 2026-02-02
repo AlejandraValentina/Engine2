@@ -145,6 +145,7 @@ Writes `out_v2_demo.json`.
 - [VALIDATION_GUIDE.md](VALIDATION_GUIDE.md) – cómo ejecutar las validaciones y criterios de “implementado”.
 - [AUDIT_REPORT.md](AUDIT_REPORT.md) – inventario de presets y estado de pruebas.
 - [docs/BENCHMARKS_METHOD.md](docs/BENCHMARKS_METHOD.md) – contrato de benchmarks y tolerancias.
+- [docs/RUNBOOK.md](docs/RUNBOOK.md) – instalación y GUI/tests offscreen.
 
 ## Testing
 - Instalar dependencias base: `python -m pip install -r requirements.txt`
