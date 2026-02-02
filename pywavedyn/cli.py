@@ -24,7 +24,7 @@ from core.thermo import CylinderSimulator
 from core.simulator import Engine1DSolver
 from core.intake_scope import run_intake_scope as run_intake_scope_sim
 from core.map_runner import run_partload_map
-from core.auto_calibration import calibrate_engine
+from core.auto_calibration import calibrate_engine, calibrate_engine_diagnostics
 from core.optimize_runner import load_target_points, optimize_runner_length
 from pywavedyn.bench import evaluate as evaluate_benchmark
 from pywavedyn.bench_import import import_csv as import_bench_csv, write_targets as write_bench_targets
@@ -519,6 +519,13 @@ def run_calibrate(
     out_path: Path,
     params: list[str],
     max_evals: int,
+    *,
+    diagnostics: bool = False,
+    multi_start: int = 1,
+    eps_obj: float = 1e-3,
+    eps_params: float = 0.05,
+    top_k: int = 5,
+    seed: int = 0,
 ) -> None:
     engine, raw = _load_engine(engine_path)
     target = json.loads(target_path.read_text(encoding="utf-8"))
@@ -526,11 +533,35 @@ def run_calibrate(
     if not isinstance(points, list) or not points:
         raise ValueError("target file must include non-empty 'points' list")
 
-    report = calibrate_engine(engine, points, params, max_evals)
-    output = {
-        "metadata": _metadata(engine, raw, coupling_mode="calibrate"),
-        **report.to_dict(),
-    }
+    if diagnostics:
+        report = calibrate_engine_diagnostics(
+            engine,
+            points,
+            params,
+            max_evals,
+            multi_start=multi_start,
+            top_k=top_k,
+            seed=seed,
+            eps_obj=eps_obj,
+            eps_params=eps_params,
+        )
+        output = {
+            "metadata": {
+                **_metadata(engine, raw, coupling_mode="calibrate_diagnostics"),
+                **report["metadata"],
+            },
+            "best_solution": report["best_solution"],
+            "top_k": report["top_k"],
+            "uniqueness": report["uniqueness"],
+            "evals_used": report["evals_used"],
+            "status": report["status"],
+        }
+    else:
+        report = calibrate_engine(engine, points, params, max_evals)
+        output = {
+            "metadata": _metadata(engine, raw, coupling_mode="calibrate"),
+            **report.to_dict(),
+        }
     _write_json(out_path, output)
 
 
@@ -968,6 +999,12 @@ def _build_parser() -> argparse.ArgumentParser:
     calibrate.add_argument("--out", required=True, type=Path)
     calibrate.add_argument("--max-evals", type=int, default=40)
     calibrate.add_argument("--params", type=str, default="ve_scale,friction_scale,burn_scale")
+    calibrate.add_argument("--diagnostics", action="store_true", help="Enable diagnostics/uniqueness report")
+    calibrate.add_argument("--multi-start", type=int, default=1, help="Number of multi-start seeds")
+    calibrate.add_argument("--eps-obj", type=float, default=1e-3, help="Objective tolerance for non-uniqueness")
+    calibrate.add_argument("--eps-params", type=float, default=0.05, help="Param spread tolerance for non-uniqueness")
+    calibrate.add_argument("--top-k", type=int, default=5, help="Number of top solutions to retain")
+    calibrate.add_argument("--seed", type=int, default=0, help="Seed for diagnostics sampling")
 
     optimize = sub.add_parser("optimize", help="Optimize runner length against target curve")
     optimize.add_argument("--engine", required=True, type=Path)
@@ -1065,6 +1102,12 @@ def main(argv: Iterable[str] | None = None) -> None:
             args.out,
             [p.strip() for p in str(args.params).split(",") if p.strip()],
             int(args.max_evals),
+            diagnostics=bool(args.diagnostics),
+            multi_start=int(args.multi_start),
+            eps_obj=float(args.eps_obj),
+            eps_params=float(args.eps_params),
+            top_k=int(args.top_k),
+            seed=int(args.seed),
         )
     elif args.command == "optimize":
         run_optimize(

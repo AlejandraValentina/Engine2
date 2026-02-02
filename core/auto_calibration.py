@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 from dataclasses import dataclass
 from typing import Iterable
+import random
 
 from core.engine_components import Engine
 from core.thermo import CylinderSimulator
@@ -71,6 +72,15 @@ def _grid_values() -> list[float]:
     return [0.8, 1.0, 1.2]
 
 
+def _param_bounds() -> tuple[float, float]:
+    grid = _grid_values()
+    return min(grid), max(grid)
+
+
+def _sorted_params(params: Iterable[str]) -> list[str]:
+    return [p.strip() for p in params if p.strip()]
+
+
 def calibrate_engine(
     engine: Engine,
     target_points: list[dict],
@@ -80,7 +90,7 @@ def calibrate_engine(
     if max_evals < 1:
         raise ValueError("max_evals must be >= 1")
 
-    params = [p.strip() for p in params if p.strip()]
+    params = _sorted_params(params)
     for p in params:
         if p not in _ALLOWED_PARAMS:
             raise ValueError(f"Unknown calibration param '{p}'")
@@ -119,3 +129,114 @@ def calibrate_engine(
         evals_used=evals_used,
         status=status,
     )
+
+
+def calibrate_engine_diagnostics(
+    engine: Engine,
+    target_points: list[dict],
+    params: Iterable[str],
+    max_evals: int,
+    *,
+    multi_start: int = 1,
+    top_k: int = 5,
+    seed: int = 0,
+    eps_obj: float = 1e-3,
+    eps_params: float = 0.05,
+) -> dict:
+    if max_evals < 1:
+        raise ValueError("max_evals must be >= 1")
+    if multi_start < 1:
+        raise ValueError("multi_start must be >= 1")
+    if top_k < 1:
+        raise ValueError("top_k must be >= 1")
+
+    params = _sorted_params(params)
+    for p in params:
+        if p not in _ALLOWED_PARAMS:
+            raise ValueError(f"Unknown calibration param '{p}'")
+
+    params_initial = {p: 1.0 for p in params}
+    bounds = _param_bounds()
+    rng = random.Random(seed)
+
+    candidates: list[dict] = []
+    candidates.append(params_initial)
+
+    grid = _grid_values()
+    if params:
+        for values in itertools.product(grid, repeat=len(params)):
+            candidates.append(dict(zip(params, values)))
+
+    for _ in range(multi_start):
+        candidates.append({p: rng.uniform(bounds[0], bounds[1]) for p in params})
+
+    seen = set()
+    unique_candidates: list[dict] = []
+    for candidate in candidates:
+        key = tuple(round(float(candidate[p]), 6) for p in params)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique_candidates.append(candidate)
+
+    results: list[dict] = []
+    evals_used = 0
+    for candidate in unique_candidates:
+        if evals_used >= max_evals:
+            break
+        trial_engine = Engine.from_dict(engine.to_dict())
+        _apply_scales(trial_engine, candidate)
+        err = _evaluate(trial_engine, target_points)
+        results.append({"params": dict(candidate), "objective": float(err)})
+        evals_used += 1
+
+    if not results:
+        raise RuntimeError("calibration diagnostics produced no evaluations")
+
+    results_sorted = sorted(results, key=lambda item: item["objective"])
+    best = results_sorted[0]
+    top_k = min(top_k, len(results_sorted))
+    top_entries = results_sorted[:top_k]
+
+    near = [r for r in results_sorted if r["objective"] <= best["objective"] + eps_obj]
+    param_spread = {p: 0.0 for p in params}
+    for p in params:
+        values = [float(r["params"].get(p, 1.0)) for r in near]
+        if values:
+            param_spread[p] = max(values) - min(values)
+    obj_spread = max(r["objective"] for r in near) - min(r["objective"] for r in near)
+
+    unique = True
+    reason = "unique"
+    for r in near:
+        if r is best:
+            continue
+        max_diff = 0.0
+        for p in params:
+            max_diff = max(max_diff, abs(float(r["params"].get(p, 1.0)) - float(best["params"].get(p, 1.0))))
+        if max_diff > eps_params:
+            unique = False
+            reason = "non_identifiable"
+            break
+
+    status = "complete" if evals_used < max_evals else "max_evals"
+    return {
+        "metadata": {
+            "seed": int(seed),
+            "multi_start": int(multi_start),
+            "eps_obj": float(eps_obj),
+            "eps_params": float(eps_params),
+            "bounds": {"min": float(bounds[0]), "max": float(bounds[1])},
+            "top_k": int(top_k),
+        },
+        "best_solution": best,
+        "top_k": top_entries,
+        "uniqueness": {
+            "unique": bool(unique),
+            "reason": reason,
+            "param_spread": param_spread,
+            "obj_spread": float(obj_spread),
+        },
+        "evals_used": int(evals_used),
+        "status": status,
+    }
