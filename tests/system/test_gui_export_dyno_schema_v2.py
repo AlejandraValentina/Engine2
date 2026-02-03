@@ -20,11 +20,14 @@ def test_gui_export_dyno_schema_v2(tmp_path: Path, monkeypatch: pytest.MonkeyPat
 
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
-    window.engine.block.redline_rpm = 1000.0
+    window.engine.block.redline_rpm = 3000.0
 
     idx = window.dyno_mode_combo.findData("v2")
     if idx >= 0:
         window.dyno_mode_combo.setCurrentIndex(idx)
+    qidx = window.dyno_quality_combo.findData("stable")
+    if qidx >= 0:
+        window.dyno_quality_combo.setCurrentIndex(qidx)
 
     out_path = tmp_path / "dyno_v2.json"
     monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *args, **kwargs: (str(out_path), "json"))
@@ -51,3 +54,5 @@ def test_gui_export_dyno_schema_v2(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     schema = json.loads(Path("schemas/dyno.schema.json").read_text(encoding="utf-8"))
     jsonschema.validate(instance=payload, schema=schema)
     assert payload["metadata"]["coupling_mode"] == "v2_orchestrator"
+    assert payload["results"]
+    assert all(result["mean_torque_nm"] >= 0.0 for result in payload["results"])
