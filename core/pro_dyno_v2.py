@@ -98,7 +98,13 @@ class ProDynoV2Runner:
 
     def run_point(self, rpm: int, warm_start_state: Optional[dict[str, Any]] = None) -> tuple[dict[str, Any], dict[str, Any]]:
         warm_start = warm_start_state is not None
+        settle_cycles = int(self.settings.get("settle_cycles", 0))
+        if settle_cycles < 0:
+            raise ValueError("settle_cycles must be non-negative")
+        extra_cycles = settle_cycles if not warm_start else 0
         orchestrator = self._build_orchestrator(warm_start)
+        if extra_cycles > 0:
+            orchestrator.cfg.max_cycles = int(orchestrator.cfg.max_cycles + extra_cycles)
         cells, length_m, diameter_m = self._default_pipe()
         block = self.engine.block
         bore_m = float(block.bore) * 1e-3
@@ -121,9 +127,13 @@ class ProDynoV2Runner:
         )
 
         work_history = result.get("indicated_work", [])
-        indicated_work = work_history[-1] if work_history else 0.0
+        if extra_cycles > 0 and len(work_history) > extra_cycles:
+            work_eval = work_history[extra_cycles:]
+        else:
+            work_eval = work_history
+        indicated_work = work_eval[-1] if work_eval else 0.0
         if orchestrator.cfg.combustion.enabled and indicated_work < 0.0:
-            nonneg = [work for work in work_history if work >= 0.0]
+            nonneg = [work for work in work_eval if work >= 0.0]
             if nonneg:
                 indicated_work = max(nonneg)
         disp_per_cyl_m3 = area * stroke_m
@@ -146,6 +156,28 @@ class ProDynoV2Runner:
             "ve_real": ve_real,
             "residual_frac": residual,
         }
+        min_periodicity = self.settings.get("min_periodicity")
+        report_status = bool(self.settings.get("report_status")) or min_periodicity is not None
+        periodicity_error = None
+        if report_status or min_periodicity is not None:
+            history = result.get("convergence_history", [])
+            if history:
+                periodicity_error = history[-1].get("err_periodicity_1d")
+        if report_status or min_periodicity is not None:
+            status = "ok"
+            reason = ""
+            if min_periodicity is not None and periodicity_error is not None:
+                if periodicity_error > float(min_periodicity):
+                    status = "failed"
+                    reason = "not_converged"
+            if status == "ok" and orchestrator.cfg.combustion.enabled:
+                if indicated_work < 0.0 or mean_torque_nm < 0.0:
+                    status = "failed"
+                    reason = "motoring"
+            out["periodicity_error"] = float(periodicity_error) if periodicity_error is not None else None
+            out["status"] = status
+            if reason:
+                out["reason"] = reason
         state_out = {
             "last_result": result,
             "convergence_history": result.get("convergence_history", []),
@@ -161,14 +193,52 @@ class ProDynoV2Runner:
             "ve_real": [],
             "residual_frac": [],
         }
+        min_periodicity = self.settings.get("min_periodicity")
+        drop_invalid = bool(self.settings.get("drop_invalid", False))
+        report_status = bool(self.settings.get("report_status")) or min_periodicity is not None or drop_invalid
+        rpm_start_safe = bool(self.settings.get("rpm_start_safe", False))
         warm_state: Optional[dict[str, Any]] = None
+        if rpm_start_safe and rpm_values:
+            safe_floor = int(self.settings.get("rpm_safe_floor", 2000))
+            if rpm_values[0] < safe_floor:
+                _, warm_state = self.run_point(safe_floor, warm_state)
+        if report_status:
+            results["status"] = []
+            results["periodicity_error"] = []
+            results["reason"] = []
         for rpm in rpm_values:
-            result, warm_state = self.run_point(int(rpm), warm_state)
+            try:
+                result, warm_state = self.run_point(int(rpm), warm_state)
+            except (RuntimeError, ValueError) as exc:
+                if not (report_status or drop_invalid or min_periodicity is not None):
+                    raise
+                status = "failed"
+                reason = "solver_error"
+                if drop_invalid:
+                    warm_state = None
+                    continue
+                result = {
+                    "mean_power_hp": 0.0,
+                    "mean_torque_nm": 0.0,
+                    "ve_real": 0.0,
+                    "residual_frac": 0.0,
+                    "status": status,
+                    "reason": reason,
+                    "periodicity_error": None,
+                }
+            status = str(result.get("status", "ok"))
+            if drop_invalid and status != "ok":
+                warm_state = None
+                continue
             results["rpm"].append(int(rpm))
             results["mean_power_hp"].append(float(result["mean_power_hp"]))
             results["mean_torque_nm"].append(float(result["mean_torque_nm"]))
             results["ve_real"].append(float(result["ve_real"]))
             results["residual_frac"].append(float(result["residual_frac"]))
+            if report_status:
+                results["status"].append(status)
+                results["periodicity_error"].append(result.get("periodicity_error"))
+                results["reason"].append(result.get("reason", ""))
         self._last_state = warm_state
         if warm_state:
             results["convergence_history"] = warm_state.get("convergence_history", [])

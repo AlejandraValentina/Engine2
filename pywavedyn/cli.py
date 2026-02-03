@@ -188,27 +188,36 @@ def _dyno_results_v1(engine: Engine, rpm_values: list[float]) -> list[dict]:
     return results
 
 
-def _dyno_results_v2(engine: Engine, rpm_values: list[float]) -> list[dict]:
-    runner = ProDynoV2Runner(engine)
+def _dyno_results_v2(engine: Engine, rpm_values: list[float], v2_settings: dict | None = None) -> list[dict]:
+    runner = ProDynoV2Runner(engine, settings=v2_settings)
     rpm_ints = [int(round(rpm)) for rpm in rpm_values]
     sweep = runner.run_sweep(rpm_ints)
+    rpm_series = sweep.get("rpm", rpm_ints)
 
     displacement_m3 = max(cc_to_m3(engine.block.displacement_cc), 1e-9)
     results = []
-    for idx, rpm in enumerate(rpm_ints):
+    status_series = sweep.get("status")
+    periodicity_series = sweep.get("periodicity_error")
+    reason_series = sweep.get("reason")
+    for idx, rpm in enumerate(rpm_series):
         mean_power_hp = float(sweep["mean_power_hp"][idx])
         mean_torque_nm = float(sweep["mean_torque_nm"][idx])
         bmep_bar = mean_torque_nm * 4.0 * math.pi / displacement_m3 / 100000.0
         ve_actual = float(sweep["ve_real"][idx])
-        results.append(
-            {
-                "rpm": float(rpm),
-                "mean_power_hp": mean_power_hp,
-                "mean_torque_nm": mean_torque_nm,
-                "bmep_bar": float(bmep_bar),
-                "ve_actual": ve_actual,
-            }
-        )
+        entry = {
+            "rpm": float(rpm),
+            "mean_power_hp": mean_power_hp,
+            "mean_torque_nm": mean_torque_nm,
+            "bmep_bar": float(bmep_bar),
+            "ve_actual": ve_actual,
+        }
+        if status_series is not None and idx < len(status_series):
+            entry["status"] = status_series[idx]
+        if periodicity_series is not None and idx < len(periodicity_series):
+            entry["periodicity_error"] = periodicity_series[idx]
+        if reason_series is not None and idx < len(reason_series):
+            entry["reason"] = reason_series[idx]
+        results.append(entry)
     return results
 
 
@@ -218,6 +227,10 @@ def run_dyno(
     out_path: Path,
     mode: str = "v1",
     turbo_path: Path | None = None,
+    settle_cycles: int = 0,
+    min_periodicity: float | None = None,
+    drop_invalid: bool = False,
+    rpm_start_safe: bool = False,
 ) -> None:
     engine, raw = _load_engine(engine_path)
     if turbo_path is not None:
@@ -228,15 +241,31 @@ def run_dyno(
         results = _dyno_results_v1(engine, rpm_values)
         coupling_mode = "none"
     elif mode == "v2":
-        results = _dyno_results_v2(engine, rpm_values)
+        v2_settings: dict[str, Any] = {}
+        if settle_cycles:
+            v2_settings["settle_cycles"] = int(settle_cycles)
+        if min_periodicity is not None:
+            v2_settings["min_periodicity"] = float(min_periodicity)
+            v2_settings["report_status"] = True
+        if drop_invalid:
+            v2_settings["drop_invalid"] = True
+            v2_settings["report_status"] = True
+        if rpm_start_safe:
+            v2_settings["rpm_start_safe"] = True
+        results = _dyno_results_v2(engine, rpm_values, v2_settings=v2_settings)
         coupling_mode = "v2_orchestrator"
     else:
         raise ValueError(f"Unknown mode '{mode}' (expected 'v1' or 'v2')")
 
-    output = {
-        "metadata": _metadata(engine, raw, coupling_mode=coupling_mode),
-        "results": results,
-    }
+    metadata = _metadata(engine, raw, coupling_mode=coupling_mode)
+    if mode == "v2" and (settle_cycles or min_periodicity is not None or drop_invalid or rpm_start_safe):
+        metadata["dyno_v2_settings"] = {
+            "settle_cycles": int(settle_cycles),
+            "min_periodicity": float(min_periodicity) if min_periodicity is not None else None,
+            "drop_invalid": bool(drop_invalid),
+            "rpm_start_safe": bool(rpm_start_safe),
+        }
+    output = {"metadata": metadata, "results": results}
     _write_json(out_path, output)
 
 
@@ -942,6 +971,23 @@ def _build_parser() -> argparse.ArgumentParser:
     dyno.add_argument("--rpm", required=True, help="RPM or range start:end:step")
     dyno.add_argument("--mode", choices=["v1", "v2"], default="v1")
     dyno.add_argument("--turbo", type=Path, default=None)
+    dyno.add_argument("--settle-cycles", type=int, default=0, help="Extra cycles to settle v2 before first point")
+    dyno.add_argument(
+        "--min-periodicity",
+        type=float,
+        default=None,
+        help="Mark v2 points as not converged when periodicity error exceeds this",
+    )
+    dyno.add_argument(
+        "--drop-invalid",
+        action="store_true",
+        help="Drop v2 points marked not converged (opt-in)",
+    )
+    dyno.add_argument(
+        "--rpm-start-safe",
+        action="store_true",
+        help="Warm-start v2 at a safe RPM before the sweep",
+    )
     dyno.add_argument("--out", required=True, type=Path)
 
     scope = sub.add_parser("scope", help="Run a 1D wave scope")
@@ -1052,7 +1098,17 @@ def main(argv: Iterable[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     if args.command == "dyno":
-        run_dyno(args.engine, args.rpm, args.out, mode=args.mode, turbo_path=args.turbo)
+        run_dyno(
+            args.engine,
+            args.rpm,
+            args.out,
+            mode=args.mode,
+            turbo_path=args.turbo,
+            settle_cycles=args.settle_cycles,
+            min_periodicity=args.min_periodicity,
+            drop_invalid=args.drop_invalid,
+            rpm_start_safe=args.rpm_start_safe,
+        )
     elif args.command == "scope":
         run_scope(
             args.engine,
