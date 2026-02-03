@@ -76,9 +76,12 @@ PyWaveDyn is a verification-focused 0D virtual dyno plus a 1D exhaust wave-scope
 3. Pick a **Mode**:
    - **v1 (Quick 0D):** fast sweep using the 0D thermodynamic model.
    - **v2 (Pro Coupled):** slower coupled sweep using the v2 orchestrator.
-4. Click **Run Power Sweep** to simulate; the plot overlays Power (HP) and Torque (Nm).
-5. Progress is shown (RPM i/N + elapsed time) and the plot updates incrementally. You can cancel and the UI remains responsive.
-6. Use **Export Dyno JSON…** to save the CLI-compatible dyno output (validated against `schemas/dyno.schema.json`).
+4. Pick a **Quality** preset for v2:
+   - **Fast:** baseline behavior.
+   - **Stable:** adds settle cycles, periodicity gating, and drops non-converged points.
+5. Click **Run Power Sweep** to simulate; the plot overlays Power (HP) and Torque (Nm).
+6. Progress is shown (RPM i/N + elapsed time) and the plot updates incrementally. You can cancel and the UI remains responsive.
+7. Use **Export Dyno JSON…** to save the CLI-compatible dyno output (validated against `schemas/dyno.schema.json`).
 
 ### Correr smoke tests GUI offscreen
 ```bash
@@ -89,6 +92,7 @@ QT_QPA_PLATFORM=offscreen python3 -m pytest -q tests/test_gui_import_smoke.py te
 PyWaveDyn exposes a minimal headless CLI for reproducible runs without the GUI:
 
 - **Dyno sweep:** `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:9000:250 --out out_dyno.json`
+- **Dyno v2 (stable):** `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 1000:9000:500 --mode v2 --settle-cycles 1 --min-periodicity 0.35 --drop-invalid --rpm-start-safe --out out_dyno_v2.json`
 - **Wave scope:** `python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2500 --cycles 1 --out out_scope.json`
 - **Intake scope:** `python -m pywavedyn.cli intake-scope --engine presets/honda_k20.json --target-dx 0.05 --max-steps 200 --out intake_scope.json`
 - **Audio:** `python -m pywavedyn.cli audio --engine presets/honda_k20.json --rpm 2500 --duration 0.5 --sample-rate 44100 --out out.wav`

@@ -37,6 +37,7 @@ Command | Output | Acceptance
 ---|---|---
 `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 3000 --out dyno.json` | `dyno.json` | schema `schemas/dyno.schema.json`, sin NaN/inf
 `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 3000 --mode v2 --out dyno_v2.json` | `dyno_v2.json` | schema `schemas/dyno.schema.json`, coupling_mode=v2_orchestrator
+`python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 1000:9000:500 --mode v2 --settle-cycles 1 --min-periodicity 0.35 --drop-invalid --rpm-start-safe --out dyno_v2_stable.json` | `dyno_v2_stable.json` | puntos inválidos filtrados, sin torque negativo
 `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 4000 --turbo presets/turbo_simple.json --out dyno_turbo.json` | `dyno_turbo.json` | schema ok, power > NA
 `python -m pywavedyn.cli intake-scope --engine presets/honda_k20.json --out intake_scope.json` | `intake_scope.json` | schema ok, sin NaN/inf
 `python -m pywavedyn.cli calibrate --engine presets/honda_k20.json --target target.json --out calib_report.json` | `calib_report.json` | schema `schemas/calib_report.schema.json`
