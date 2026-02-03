@@ -112,7 +112,10 @@ class MainWindow(QMainWindow):
         self.dyno_plot = pg.PlotWidget()
         self.power_curve = None
         self.torque_curve = None
+        self.invalid_power_curve = None
+        self.invalid_torque_curve = None
         self.dyno_mode_combo = QComboBox()
+        self.dyno_quality_combo = QComboBox()
         self.dyno_run_btn = QPushButton("Run Power Sweep")
         self.dyno_cancel_btn = QPushButton("Cancel")
         self.dyno_progress = QProgressBar()
@@ -128,6 +131,12 @@ class MainWindow(QMainWindow):
         self._dyno_rpm_values: list[int] = []
         self._dyno_power_hp: list[float] = []
         self._dyno_torque_nm: list[float] = []
+        self._dyno_plot_rpms: list[int] = []
+        self._dyno_plot_power_hp: list[float] = []
+        self._dyno_plot_torque_nm: list[float] = []
+        self._dyno_invalid_rpms: list[int] = []
+        self._dyno_invalid_power_hp: list[float] = []
+        self._dyno_invalid_torque_nm: list[float] = []
         self._dyno_results: list[dict[str, float]] = []
         self._dyno_max_hp_value = -float("inf")
         self._dyno_max_hp_rpm = 0
@@ -243,9 +252,13 @@ class MainWindow(QMainWindow):
         self.dyno_progress.setVisible(False)
         self.dyno_mode_combo.addItem("v1 (Quick 0D)", "v1")
         self.dyno_mode_combo.addItem("v2 (Pro Coupled)", "v2")
+        self.dyno_quality_combo.addItem("Fast", "fast")
+        self.dyno_quality_combo.addItem("Stable", "stable")
         self.dyno_export_btn.clicked.connect(self.export_dyno_json)
         dyno_controls.addWidget(QLabel("Mode"))
         dyno_controls.addWidget(self.dyno_mode_combo)
+        dyno_controls.addWidget(QLabel("Quality"))
+        dyno_controls.addWidget(self.dyno_quality_combo)
         dyno_controls.addWidget(self.dyno_run_btn)
         dyno_controls.addWidget(self.dyno_cancel_btn)
         dyno_controls.addWidget(self.dyno_export_btn)
@@ -1465,6 +1478,21 @@ class MainWindow(QMainWindow):
         mode = self.dyno_mode_combo.currentData()
         return str(mode) if mode in ("v1", "v2") else "v1"
 
+    def _dyno_quality(self) -> str:
+        quality = self.dyno_quality_combo.currentData()
+        return str(quality) if quality in ("fast", "stable") else "fast"
+
+    def _dyno_v2_settings(self) -> dict[str, Any]:
+        if self._dyno_quality() == "stable":
+            return {
+                "settle_cycles": 1,
+                "min_periodicity": 0.35,
+                "drop_invalid": True,
+                "rpm_start_safe": True,
+                "report_status": True,
+            }
+        return {}
+
     def _dyno_results_from_cycles(self, rpm_values: list[int], cycles: list[dict[str, Any]]) -> list[dict[str, float]]:
         results: list[dict[str, float]] = []
         for rpm, cycle in zip(rpm_values, cycles):
@@ -1493,20 +1521,28 @@ class MainWindow(QMainWindow):
     def _dyno_results_from_sweep(self, rpm_values: list[int], sweep: dict[str, list[float]]) -> list[dict[str, float]]:
         displacement_m3 = max(cc_to_m3(self.engine.block.displacement_cc), 1e-9)
         results: list[dict[str, float]] = []
+        status_series = sweep.get("status")
+        periodicity_series = sweep.get("periodicity_error")
+        reason_series = sweep.get("reason")
         for idx, rpm in enumerate(rpm_values):
             mean_power_hp = float(sweep["mean_power_hp"][idx])
             mean_torque_nm = float(sweep["mean_torque_nm"][idx])
             bmep_bar = mean_torque_nm * 4.0 * math.pi / displacement_m3 / 100000.0
             ve_actual = float(sweep["ve_real"][idx])
-            results.append(
-                {
-                    "rpm": float(rpm),
-                    "mean_power_hp": mean_power_hp,
-                    "mean_torque_nm": mean_torque_nm,
-                    "bmep_bar": float(bmep_bar),
-                    "ve_actual": ve_actual,
-                }
-            )
+            entry: dict[str, Any] = {
+                "rpm": float(rpm),
+                "mean_power_hp": mean_power_hp,
+                "mean_torque_nm": mean_torque_nm,
+                "bmep_bar": float(bmep_bar),
+                "ve_actual": ve_actual,
+            }
+            if status_series is not None and idx < len(status_series):
+                entry["status"] = status_series[idx]
+            if periodicity_series is not None and idx < len(periodicity_series):
+                entry["periodicity_error"] = periodicity_series[idx]
+            if reason_series is not None and idx < len(reason_series):
+                entry["reason"] = reason_series[idx]
+            results.append(entry)
         return results
 
     def _build_dyno_payload(self, mode: str, results: list[dict[str, float]]) -> dict[str, Any]:
@@ -1522,6 +1558,7 @@ class MainWindow(QMainWindow):
             return
 
         mode = self._dyno_mode()
+        v2_settings = self._dyno_v2_settings() if mode == "v2" else {}
         max_rpm = int(self.engine.block.redline_rpm)
         rpm_values = list(range(1000, max_rpm + 500, 500))
         if not rpm_values:
@@ -1532,6 +1569,12 @@ class MainWindow(QMainWindow):
         self._dyno_rpm_values = rpm_values
         self._dyno_power_hp = []
         self._dyno_torque_nm = []
+        self._dyno_plot_rpms = []
+        self._dyno_plot_power_hp = []
+        self._dyno_plot_torque_nm = []
+        self._dyno_invalid_rpms = []
+        self._dyno_invalid_power_hp = []
+        self._dyno_invalid_torque_nm = []
         self._dyno_results = []
         self._dyno_progress_count = 0
         self._dyno_point_count = 0
@@ -1547,6 +1590,22 @@ class MainWindow(QMainWindow):
         self.dyno_plot.addLegend(clear=True)
         self.power_curve = self.dyno_plot.plot([], [], pen=pg.mkPen("r", width=2), name="Power (HP)", symbol="o")
         self.torque_curve = self.dyno_plot.plot([], [], pen=pg.mkPen("b", width=2), name="Torque (Nm)", symbol="o")
+        self.invalid_power_curve = self.dyno_plot.plot(
+            [],
+            [],
+            pen=None,
+            symbol="x",
+            symbolBrush=pg.mkBrush(150, 150, 150),
+            name="Power (invalid)",
+        )
+        self.invalid_torque_curve = self.dyno_plot.plot(
+            [],
+            [],
+            pen=None,
+            symbol="x",
+            symbolBrush=pg.mkBrush(120, 120, 120),
+            name="Torque (invalid)",
+        )
         self.dyno_plot.setLabel("bottom", "RPM")
         self.dyno_plot.setLabel("left", "Power (HP) / Torque (Nm)")
         self.dyno_plot.setTitle("")
@@ -1556,7 +1615,7 @@ class MainWindow(QMainWindow):
         self.dyno_elapsed.restart()
 
         engine_data = self.engine.to_dict()
-        self.dyno_worker = DynoWorker(engine_data, mode, rpm_values)
+        self.dyno_worker = DynoWorker(engine_data, mode, rpm_values, v2_settings=v2_settings)
         self.dyno_thread = QThread(self)
         self.dyno_worker.moveToThread(self.dyno_thread)
         self.dyno_thread.started.connect(self.dyno_worker.run)
@@ -1576,6 +1635,7 @@ class MainWindow(QMainWindow):
         self.dyno_run_btn.setEnabled(not running)
         self.dyno_export_btn.setEnabled(not running)
         self.dyno_mode_combo.setEnabled(not running)
+        self.dyno_quality_combo.setEnabled(not running)
         self.dyno_cancel_btn.setEnabled(running)
         self.dyno_progress.setVisible(running)
         if not running:
@@ -1587,6 +1647,10 @@ class MainWindow(QMainWindow):
             return
         self.power_curve.setData(self._dyno_rpm_values[: len(self._dyno_power_hp)], self._dyno_power_hp)
         self.torque_curve.setData(self._dyno_rpm_values[: len(self._dyno_torque_nm)], self._dyno_torque_nm)
+        if self.invalid_power_curve is not None:
+            self.invalid_power_curve.setData(self._dyno_invalid_rpms, self._dyno_invalid_power_hp)
+        if self.invalid_torque_curve is not None:
+            self.invalid_torque_curve.setData(self._dyno_invalid_rpms, self._dyno_invalid_torque_nm)
         if len(self._dyno_rpm_values) >= 2:
             self.dyno_plot.setXRange(min(self._dyno_rpm_values), max(self._dyno_rpm_values), padding=0.05)
 
@@ -1598,9 +1662,29 @@ class MainWindow(QMainWindow):
 
     def _on_dyno_point(self, payload: dict[str, Any]) -> None:
         self._dyno_point_count += 1
-        self._dyno_results.append({k: float(v) for k, v in payload.items() if isinstance(v, (int, float))})
-        self._dyno_power_hp.append(float(payload.get("mean_power_hp", 0.0)))
-        self._dyno_torque_nm.append(float(payload.get("mean_torque_nm", 0.0)))
+        entry: dict[str, Any] = {}
+        for key, value in payload.items():
+            if isinstance(value, (int, float)):
+                entry[key] = float(value)
+            elif isinstance(value, str):
+                entry[key] = value
+        dropped = bool(payload.get("dropped", False))
+        status = str(payload.get("status", "ok"))
+        if not dropped:
+            self._dyno_results.append(entry)
+
+        rpm_val = float(payload.get("rpm", 0.0))
+        power_val = float(payload.get("mean_power_hp", 0.0))
+        torque_val = float(payload.get("mean_torque_nm", 0.0))
+        if status != "ok":
+            self._dyno_power_hp.append(float("nan"))
+            self._dyno_torque_nm.append(float("nan"))
+            self._dyno_invalid_rpms.append(int(rpm_val))
+            self._dyno_invalid_power_hp.append(power_val)
+            self._dyno_invalid_torque_nm.append(torque_val)
+        else:
+            self._dyno_power_hp.append(power_val)
+            self._dyno_torque_nm.append(torque_val)
         self._update_dyno_plot()
 
         cycle = payload.get("cycle")
@@ -1616,6 +1700,13 @@ class MainWindow(QMainWindow):
                 self._dyno_max_tq_rpm = int(rpm)
             knock_present = self.update_analysis_table(rpm, cycle)
             self._dyno_knock_detected = self._dyno_knock_detected or knock_present
+        elif status == "ok":
+            if power_val > self._dyno_max_hp_value:
+                self._dyno_max_hp_value = power_val
+                self._dyno_max_hp_rpm = int(rpm_val)
+            if torque_val > self._dyno_max_tq_value:
+                self._dyno_max_tq_value = torque_val
+                self._dyno_max_tq_rpm = int(rpm_val)
 
     def _on_dyno_finished(self, payload: dict[str, Any]) -> None:
         mode = payload.get("mode", "v1")
