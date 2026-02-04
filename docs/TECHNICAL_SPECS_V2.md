@@ -1029,6 +1029,9 @@ Stop when **both** are satisfied:
   VE_{real} = \frac{m_{fresh,IVC}}{\rho_{ambient} V_{disp,per\,cyl}}
   \]
   For multi-cylinder, compute per-cylinder VE and report the average.
+  - **v1 vs v2:** v1 `ve_actual` is a modeled estimate of the same definition (based on cam/tuning
+    correlations), while v2 `ve_actual` is computed from trapped fresh mass at IVC. Numbers are
+    comparable but may differ if the modeled intake flow diverges from the coupled solution.
 - **Residual fraction:**
   \[
   res\_frac = 1 - \frac{m_{fresh}}{m_{total}}\Big|_{IVC}
