@@ -63,18 +63,8 @@ class ProDynoV2Runner:
 
     def _default_pipe(self) -> tuple[int, float, float]:
         cells = int(self.settings.get("pipe_cells", 40))
-        length_setting = self.settings.get("pipe_length_m")
-        diameter_setting = self.settings.get("pipe_diameter_m")
-        length_m = float(length_setting) if length_setting is not None else float(self.engine.intake.runner_length) * 1e-3
-        diameter_m = (
-            float(diameter_setting)
-            if diameter_setting is not None
-            else float(self.engine.intake.runner_diameter) * 1e-3
-        )
-        if length_m <= 0.0:
-            length_m = 0.6
-        if diameter_m <= 0.0:
-            diameter_m = 0.04
+        length_m = float(self.settings.get("pipe_length_m", 0.6))
+        diameter_m = float(self.settings.get("pipe_diameter_m", 0.04))
         return cells, length_m, diameter_m
 
     def _default_valve(self) -> ValveTiming:
