@@ -231,6 +231,7 @@ def run_dyno(
     min_periodicity: float | None = None,
     drop_invalid: bool = False,
     rpm_start_safe: bool = False,
+    debug_dyno_v2: bool = False,
 ) -> None:
     engine, raw = _load_engine(engine_path)
     if turbo_path is not None:
@@ -252,6 +253,8 @@ def run_dyno(
             v2_settings["report_status"] = True
         if rpm_start_safe:
             v2_settings["rpm_start_safe"] = True
+        if debug_dyno_v2:
+            v2_settings["debug_dyno_v2"] = True
         results = _dyno_results_v2(engine, rpm_values, v2_settings=v2_settings)
         coupling_mode = "v2_orchestrator"
     else:
@@ -988,6 +991,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Warm-start v2 at a safe RPM before the sweep",
     )
+    dyno.add_argument(
+        "--debug-dyno-v2",
+        action="store_true",
+        help="Log v2 VE numerator/denominator at 7000 rpm (debug)",
+    )
     dyno.add_argument("--out", required=True, type=Path)
 
     scope = sub.add_parser("scope", help="Run a 1D wave scope")
@@ -1108,6 +1116,7 @@ def main(argv: Iterable[str] | None = None) -> None:
             min_periodicity=args.min_periodicity,
             drop_invalid=args.drop_invalid,
             rpm_start_safe=args.rpm_start_safe,
+            debug_dyno_v2=args.debug_dyno_v2,
         )
     elif args.command == "scope":
         run_scope(

@@ -4,6 +4,8 @@ import math
 from dataclasses import dataclass
 from typing import Any, Optional
 
+import logging
+
 from core.advanced.combustion import CombustionConfig
 from core.advanced.coupling import ValveTiming
 from core.advanced.orchestrator import (
@@ -61,8 +63,18 @@ class ProDynoV2Runner:
 
     def _default_pipe(self) -> tuple[int, float, float]:
         cells = int(self.settings.get("pipe_cells", 40))
-        length_m = float(self.settings.get("pipe_length_m", 0.6))
-        diameter_m = float(self.settings.get("pipe_diameter_m", 0.04))
+        length_setting = self.settings.get("pipe_length_m")
+        diameter_setting = self.settings.get("pipe_diameter_m")
+        length_m = float(length_setting) if length_setting is not None else float(self.engine.intake.runner_length) * 1e-3
+        diameter_m = (
+            float(diameter_setting)
+            if diameter_setting is not None
+            else float(self.engine.intake.runner_diameter) * 1e-3
+        )
+        if length_m <= 0.0:
+            length_m = 0.6
+        if diameter_m <= 0.0:
+            diameter_m = 0.04
         return cells, length_m, diameter_m
 
     def _default_valve(self) -> ValveTiming:
@@ -127,15 +139,20 @@ class ProDynoV2Runner:
         )
 
         work_history = result.get("indicated_work", [])
+        ve_cycle_history = result.get("ve_cycle", [])
         if extra_cycles > 0 and len(work_history) > extra_cycles:
             work_eval = work_history[extra_cycles:]
+            ve_eval = ve_cycle_history[extra_cycles:] if ve_cycle_history else []
         else:
             work_eval = work_history
-        indicated_work = work_eval[-1] if work_eval else 0.0
+            ve_eval = ve_cycle_history if ve_cycle_history else []
+        chosen_index = max(len(work_eval) - 1, 0)
+        indicated_work = work_eval[chosen_index] if work_eval else 0.0
         if orchestrator.cfg.combustion.enabled and indicated_work < 0.0:
-            nonneg = [work for work in work_eval if work >= 0.0]
-            if nonneg:
-                indicated_work = max(nonneg)
+            nonneg_idxs = [idx for idx, work in enumerate(work_eval) if work >= 0.0]
+            if nonneg_idxs:
+                chosen_index = max(nonneg_idxs, key=lambda idx: work_eval[idx])
+                indicated_work = work_eval[chosen_index]
         disp_per_cyl_m3 = area * stroke_m
         disp_total_m3 = disp_per_cyl_m3 * self.engine.block.num_cylinders
         indicated_work_total = indicated_work * self.engine.block.num_cylinders
@@ -147,6 +164,14 @@ class ProDynoV2Runner:
         mean_power_hp = mean_torque_nm * omega / 745.7
 
         ve_real = max(result["ve"], default=0.0)
+        if ve_eval and chosen_index < len(ve_eval):
+            ve_real = float(ve_eval[chosen_index])
+        p_ref = float(self.engine.simulation_settings.air_pressure_bar) * 100000.0
+        t_ref = float(self.engine.simulation_settings.air_temperature_c) + 273.15
+        rho_ref = p_ref / max(self.engine.simulation_settings.gas_constant_R * t_ref, 1e-9)
+        rho_base = 1.2
+        if rho_ref > 0.0:
+            ve_real = ve_real * (rho_base / rho_ref)
         trapped = result["trapped_mass"][-1] if result["trapped_mass"] else 0.0
         residual = 1.0 - min(trapped / max(result["trapped_mass"][0], 1e-9), 1.0) if result["trapped_mass"] else 0.0
 
@@ -178,6 +203,17 @@ class ProDynoV2Runner:
             out["status"] = status
             if reason:
                 out["reason"] = reason
+        if bool(self.settings.get("debug_dyno_v2")) and rpm == 7000:
+            logger = logging.getLogger(__name__)
+            m_fresh_peak = ve_real * rho_ref * disp_per_cyl_m3
+            logger.info(
+                "v2 dyno VE debug rpm=%d ve=%.4f m_fresh=%.6e rho_ref=%.3f disp=%.6e",
+                rpm,
+                ve_real,
+                m_fresh_peak,
+                rho_ref,
+                disp_per_cyl_m3,
+            )
         state_out = {
             "last_result": result,
             "convergence_history": result.get("convergence_history", []),

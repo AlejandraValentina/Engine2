@@ -1022,6 +1022,7 @@ class Orchestrator:
         angle_history: List[float] = []
         p_history: List[float] = []
         ve_history: List[float] = []
+        ve_cycle_history: List[float] = []
         work_history: List[float] = []
         trapped_history: List[float] = []
         periodicity_history: List[float] = []
@@ -1052,6 +1053,7 @@ class Orchestrator:
             prev_angle = None
             U_cycle_start = U.copy()
             prev_down_totals: Optional[Tuple[float, float, float]] = None
+            cycle_m_fresh_peak = cyl.m_fresh
             for step in range(int(720.0 / 1.0)):
                 angle_deg = step
                 theta = math.radians(angle_deg)
@@ -1491,6 +1493,8 @@ class Orchestrator:
                 angle_history.append(angle_deg + (cycle_offset + cycle) * 720.0)
                 p_history.append(cyl.p)
                 ve_history.append(cyl.m_fresh / max(rho0 * (math.pi * (bore_m * 0.5) ** 2) * stroke_m, 1e-9))
+                if cyl.m_fresh > cycle_m_fresh_peak:
+                    cycle_m_fresh_peak = cyl.m_fresh
                 if prev_p is not None and prev_V is not None:
                     work_step = 0.5 * (prev_p + cyl.p) * (V - prev_V)
                     indicated_work += work_step
@@ -1503,6 +1507,9 @@ class Orchestrator:
                 prev_angle = angle_deg
 
             trapped_history.append(cyl.m_fresh)
+            ve_cycle_history.append(
+                cycle_m_fresh_peak / max(rho0 * (math.pi * (bore_m * 0.5) ** 2) * stroke_m, 1e-9)
+            )
             work_history.append(indicated_work)
             if track_pumping_work:
                 if pumping_samples > 0:
@@ -1575,6 +1582,7 @@ class Orchestrator:
             "angle_deg": angle_history,
             "pressure": p_history,
             "ve": ve_history,
+            "ve_cycle": ve_cycle_history,
             "trapped_mass": trapped_history,
             "indicated_work": work_history,
             "periodicity_metric": periodicity_history,
