@@ -29,9 +29,9 @@ def test_audio_exhaust_plenum_smoother(tmp_path: Path) -> None:
         "--rpm",
         "2500",
         "--duration",
-        "0.05",
+        "0.02",
         "--sample-rate",
-        "8000",
+        "6000",
     ]
 
     subprocess.run(cmd_base + ["--source", "primary", "--out", str(runner_path)], check=True, capture_output=True, text=True)

@@ -10,15 +10,15 @@ pytestmark = [pytest.mark.slow]
 
 @pytest.mark.integration
 def test_ram_charging_sensitivity() -> None:
-    cfg = OrchestratorConfig(dt_max=1e-4)
+    cfg = OrchestratorConfig(dt_max=1e-4, max_cycles=3)
     solver = Orchestrator(cfg)
     valve = ValveTiming(open_start_deg=360.0, open_end_deg=540.0, max_lift_m=0.008, seat_diameter_m=0.03, cd=0.9)
 
     base = solver.run(
         rpm=3000.0,
-        pipe_cells=20,
-        pipe_length_m=0.4,
-        pipe_diameter_m=0.04,
+        pipe_cells=12,
+        pipe_length_m=0.35,
+        pipe_diameter_m=0.038,
         bore_m=0.086,
         stroke_m=0.086,
         conrod_m=0.139,
@@ -27,9 +27,9 @@ def test_ram_charging_sensitivity() -> None:
     )
     tuned = solver.run(
         rpm=3000.0,
-        pipe_cells=20,
-        pipe_length_m=0.8,
-        pipe_diameter_m=0.04,
+        pipe_cells=12,
+        pipe_length_m=0.65,
+        pipe_diameter_m=0.038,
         bore_m=0.086,
         stroke_m=0.086,
         conrod_m=0.139,

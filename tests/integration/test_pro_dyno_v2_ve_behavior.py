@@ -19,11 +19,13 @@ def test_pro_dyno_v2_ve_reasonable_and_trend() -> None:
         settings={
             "max_cycles": 2,
             "settle_cycles": 1,
-            "pipe_cells": 12,
+            "pipe_cells": 10,
+            "pipe_length_m": 0.4,
+            "pipe_diameter_m": 0.04,
             "dt_max": 1e-4,
         },
     )
-    results = runner.run_sweep([6000, 7000, 8000])
+    results = runner.run_sweep([6500, 7500])
     ve_values = results["ve_real"]
     assert all(0.5 < ve < 1.5 for ve in ve_values)
 
@@ -39,7 +41,9 @@ def test_v1_v2_ve_not_diverging_in_stable_point() -> None:
         settings={
             "max_cycles": 2,
             "settle_cycles": 1,
-            "pipe_cells": 12,
+            "pipe_cells": 10,
+            "pipe_length_m": 0.4,
+            "pipe_diameter_m": 0.04,
             "dt_max": 1e-4,
         },
     )

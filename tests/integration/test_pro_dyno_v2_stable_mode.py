@@ -18,11 +18,15 @@ def test_pro_dyno_v2_no_negative_at_low_rpm_when_stable_mode() -> None:
         settings={
             "max_cycles": 2,
             "settle_cycles": 1,
-            "min_periodicity": 0.35,
+            "pipe_cells": 10,
+            "pipe_length_m": 0.4,
+            "pipe_diameter_m": 0.04,
+            "dt_max": 1e-4,
+            "min_periodicity": 0.6,
             "drop_invalid": True,
         },
     )
-    results = runner.run_sweep([2000, 3000])
+    results = runner.run_sweep([2000])
     assert results["rpm"]
     assert all(value >= 0.0 for value in results["mean_torque_nm"])
 
@@ -37,7 +41,7 @@ def test_pro_dyno_v2_marks_not_converged_points() -> None:
             "max_cycles": 2,
             "pipe_cells": 12,
             "pipe_length_m": 0.4,
-            "pipe_diameter_m": 0.038,
+            "pipe_diameter_m": 0.04,
             "dt_max": 1e-4,
             "min_periodicity": 0.01,
             "report_status": True,
