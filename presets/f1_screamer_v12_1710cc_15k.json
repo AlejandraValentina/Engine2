@@ -12,12 +12,12 @@
     "redline_rpm": 15500.0
   },
   "head": {
-    "compression_ratio": 12.3,
+    "compression_ratio": 13.2,
     "intake_valves": 2,
     "exhaust_valves": 2,
-    "intake_valve_diameter_mm": 29.0,
-    "exhaust_valve_diameter_mm": 25.0,
-    "port_flow_cfm": 90.0,
+    "intake_valve_diameter_mm": 27.5,
+    "exhaust_valve_diameter_mm": 23.5,
+    "port_flow_cfm": 118.0,
     "port_flow_efficiency": 0.90,
     "mach_tolerance": 0.90,
     "gasket_thickness_mm": 1.0,
@@ -25,26 +25,26 @@
     "deck_clearance_mm": 0.0
   },
   "camshaft": {
-    "intake_lift": 13.0,
+    "intake_lift": 11.5,
     "exhaust_lift": 12.0,
-    "intake_duration": 300.0,
-    "exhaust_duration": 290.0,
+    "intake_duration": 315.0,
+    "exhaust_duration": 300.0,
     "lobe_separation": 108.0,
     "advance": 0.0,
     "peak_rpm": 15000.0
   },
   "intake": {
-    "runner_length": 95.0,
-    "runner_diameter": 46.0,
+    "runner_length": 60.0,
+    "runner_diameter": 37.0,
     "plenum_volume": 1.2,
     "throttle_body_dia": 50.0,
     "throttle_cfm": 1800.0,
     "flow_loss_coefficient": 0.0
   },
   "exhaust": {
-    "header_primary_length": 310.0,
-    "header_primary_diameter": 38.0,
-    "collector_length": 500.0
+    "header_primary_length": 270.0,
+    "header_primary_diameter": 31.0,
+    "collector_length": 300.0
   },
   "supercharger": {
     "type": "NA",
@@ -52,9 +52,11 @@
     "intercooler_efficiency": 0.7
   },
   "combustion": {
-    "thermal_efficiency": 0.36,
+    "thermal_efficiency": 0.44,
     "burn_duration": 24.0,
-    "ignition_advance": 28.0,
+    "ignition_advance": 30.0,
+    "use_dynamic_burn_duration": true,
+    "burn_duration_base": 24.0,
     "afr": 12.8,
     "wiebe_a": 5.0,
     "wiebe_m": 2.0,
@@ -74,8 +76,8 @@
   },
   "friction": {
     "bottom_end_type": "Race",
-    "water_pump": true,
-    "alternator": true,
+    "water_pump": false,
+    "alternator": false,
     "power_steering": false,
     "mechanical_fan": false,
     "friction_base_kpa": 6.0,
@@ -84,7 +86,7 @@
     "global_scaling_factor": 1.0
   },
   "simulation_settings": {
-    "ignition_timing_btdc": 28.0,
+    "ignition_timing_btdc": 30.0,
     "heat_loss_factor": 1.0,
     "pipe_friction_factor": 1.0,
     "tuning_sensitivity": 1.0,
@@ -94,7 +96,7 @@
     "fuel": {
       "enabled": true,
       "mode": "lambda",
-      "lambda_target": 0.88,
+      "lambda_target": 0.87,
       "afr_target": 12.8,
       "afr_stoich": 14.7,
       "lhv_j_per_kg": 44000000.0,
@@ -105,8 +107,8 @@
     }
   },
   "fuel": {
-    "type_name": "Race Gas",
-    "octane_rating": 110.0,
+    "type_name": "PREMIUM",
+    "octane_rating": 97.0,
     "energy_density": 44000000.0,
     "stoich_afr": 14.7
   }
