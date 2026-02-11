@@ -4,3 +4,4 @@ __pycache__/
 out_v2_demo.json
 *.egg-info/
 _scope_test.json
+.vscode/
