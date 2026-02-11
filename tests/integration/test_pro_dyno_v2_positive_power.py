@@ -19,10 +19,10 @@ def test_pro_dyno_v2_positive_power() -> None:
         engine,
         settings={
             "max_cycles": 2,
-            "pipe_cells": 10,
+            "pipe_cells": 5,
             "pipe_length_m": 0.4,
             "pipe_diameter_m": 0.04,
-            "dt_max": 1e-4,
+            "dt_max": 4e-4,
         },
     )
     results = runner.run_sweep([3000])

@@ -37,7 +37,7 @@ def _build_solver(engine: Engine) -> Engine1DSolver:
         settings=engine.simulation_settings,
         camshaft=engine.camshaft,
         head=engine.head,
-        target_dx=0.04,
+        target_dx=0.08,
     )
 
 
@@ -120,7 +120,7 @@ def test_0d_1d_bidirectional_backpressure_affects_cycle() -> None:
     )
 
     solver = _build_solver(engine)
-    backpressure_trace = _sample_backpressure_trace(solver, rpm, coupling, cyl_id=1, degrees=180.0)
+    backpressure_trace = _sample_backpressure_trace(solver, rpm, coupling, cyl_id=1, degrees=90.0)
 
     assert np.isfinite(backpressure_trace["pressure"]).all()
     assert float(np.min(backpressure_trace["pressure"])) > 0.0

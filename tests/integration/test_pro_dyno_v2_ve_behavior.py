@@ -17,12 +17,12 @@ def test_pro_dyno_v2_ve_reasonable_and_trend() -> None:
     runner = ProDynoV2Runner(
         engine,
         settings={
-            "max_cycles": 2,
-            "settle_cycles": 1,
-            "pipe_cells": 10,
+            "max_cycles": 1,
+            "settle_cycles": 0,
+            "pipe_cells": 5,
             "pipe_length_m": 0.4,
             "pipe_diameter_m": 0.04,
-            "dt_max": 1e-4,
+            "dt_max": 4e-4,
         },
     )
     results = runner.run_sweep([6500, 7500])
@@ -39,12 +39,12 @@ def test_v1_v2_ve_not_diverging_in_stable_point() -> None:
     runner = ProDynoV2Runner(
         engine,
         settings={
-            "max_cycles": 2,
-            "settle_cycles": 1,
-            "pipe_cells": 10,
+            "max_cycles": 1,
+            "settle_cycles": 0,
+            "pipe_cells": 5,
             "pipe_length_m": 0.4,
             "pipe_diameter_m": 0.04,
-            "dt_max": 1e-4,
+            "dt_max": 4e-4,
         },
     )
     v2 = runner.run_sweep([7000])

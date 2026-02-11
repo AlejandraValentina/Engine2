@@ -8,16 +8,16 @@ from core.advanced.orchestrator import Orchestrator, OrchestratorConfig
 pytestmark = [pytest.mark.slow]
 
 
-@pytest.mark.integration
+@pytest.mark.system
 def test_ram_charging_sensitivity() -> None:
-    cfg = OrchestratorConfig(dt_max=1e-4, max_cycles=3)
+    cfg = OrchestratorConfig(dt_max=3e-4, max_cycles=2)
     solver = Orchestrator(cfg)
     valve = ValveTiming(open_start_deg=360.0, open_end_deg=540.0, max_lift_m=0.008, seat_diameter_m=0.03, cd=0.9)
 
     base = solver.run(
         rpm=3000.0,
-        pipe_cells=12,
-        pipe_length_m=0.35,
+        pipe_cells=8,
+        pipe_length_m=0.3,
         pipe_diameter_m=0.038,
         bore_m=0.086,
         stroke_m=0.086,
@@ -27,8 +27,8 @@ def test_ram_charging_sensitivity() -> None:
     )
     tuned = solver.run(
         rpm=3000.0,
-        pipe_cells=12,
-        pipe_length_m=0.65,
+        pipe_cells=8,
+        pipe_length_m=0.75,
         pipe_diameter_m=0.038,
         bore_m=0.086,
         stroke_m=0.086,

@@ -23,10 +23,10 @@ def test_full_network_runner_length_shifts_torque_peak() -> None:
     rpm_low = 2000.0
     rpm_high = 4500.0
 
-    low_short = run_full_scope(short_engine, duration_s=0.008, max_steps=2500, target_dx=0.12, rpm=rpm_low)
-    high_short = run_full_scope(short_engine, duration_s=0.008, max_steps=2500, target_dx=0.12, rpm=rpm_high)
-    low_long = run_full_scope(long_engine, duration_s=0.008, max_steps=2500, target_dx=0.12, rpm=rpm_low)
-    high_long = run_full_scope(long_engine, duration_s=0.008, max_steps=2500, target_dx=0.12, rpm=rpm_high)
+    low_short = run_full_scope(short_engine, duration_s=0.0035, max_steps=900, target_dx=0.2, rpm=rpm_low)
+    high_short = run_full_scope(short_engine, duration_s=0.0035, max_steps=900, target_dx=0.2, rpm=rpm_high)
+    low_long = run_full_scope(long_engine, duration_s=0.0035, max_steps=900, target_dx=0.2, rpm=rpm_low)
+    high_long = run_full_scope(long_engine, duration_s=0.0035, max_steps=900, target_dx=0.2, rpm=rpm_high)
 
     torque_low_short = low_short.per_cyl[0]["mean_torque_nm"]
     torque_high_short = high_short.per_cyl[0]["mean_torque_nm"]

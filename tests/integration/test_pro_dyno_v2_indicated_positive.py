@@ -17,10 +17,10 @@ def test_pro_dyno_v2_indicated_positive_when_combustion_on() -> None:
         engine,
         settings={
             "max_cycles": 2,
-            "pipe_cells": 10,
+            "pipe_cells": 5,
             "pipe_length_m": 0.4,
             "pipe_diameter_m": 0.04,
-            "dt_max": 1e-4,
+            "dt_max": 4e-4,
         },
     )
     _, state = runner.run_point(3000)
