@@ -38,6 +38,13 @@ PyWaveDyn is a verification-focused 0D virtual dyno plus a 1D exhaust wave-scope
 - **Key Classes:** `Block`, `CylinderHead`, `Camshaft`, `IntakeSystem`, `ExhaustSystem`, `Supercharger`, `Engine` (root container with save/load helpers).
 - **Physics/Data:** Geometric parameters, firing order, displacement computation; cam harmonic lift approximation; redline RPM; flow limits (port flow CFM, throttle CFM).
 
+#### `head.port_flow_cfm` semantics (important)
+- `head.port_flow_cfm` is **per intake valve** capacity at 28 inH2O.
+- The 0D flow cap computes total head supply as `head_supply_cfm = port_flow_cfm * intake_valves * num_cylinders`.
+- The final supply is `supply_cfm = min(head_supply_cfm, throttle_cfm)`.
+- This `supply_cfm` limits VE via `flow_cap_factor = supply_cfm / required_cfm`.
+- **Preset guidance:** set `port_flow_cfm` per **valve**, not per cylinder or whole engine.
+
 ### `acoustics/audio_generator.py`
 - **Responsibilities:** Convert simulated pressure-time signals into listenable audio files.
 - **Key Classes:**
@@ -103,6 +110,14 @@ PyWaveDyn exposes a minimal headless CLI for reproducible runs without the GUI:
 - **Auto-calibration:** `python -m pywavedyn.cli calibrate --engine presets/honda_k20.json --target target.json --out calib_report.json --max-evals 40 --params ve_scale,friction_scale,burn_scale`
 
 The CLI outputs JSON with metadata (input_hash, timestamp, settings, coupling_mode) plus results for each command.
+
+### Preset: F1 Screamer V12 1.71L @ 15k
+Minimal CLI examples for the new V12 preset:
+
+- **Dyno v1 (quick):** `python -m pywavedyn.cli dyno --engine presets/f1_screamer_v12_1710cc_15k.json --rpm 12000:15000:3000 --out v12_dyno_v1.json`
+- **Dyno v2 (stable):** `python -m pywavedyn.cli dyno --engine presets/f1_screamer_v12_1710cc_15k.json --rpm 12000:15000:3000 --mode v2 --settle-cycles 1 --min-periodicity 0.6 --drop-invalid --rpm-start-safe --out v12_dyno_v2.json`
+- **Optional knock report:** `python -m pywavedyn.cli dyno --engine presets/f1_screamer_v12_1710cc_15k.json --rpm 12000:15000:3000 --mode v2 --knock-report v12_knock.json --out v12_dyno_v2.json`
+- **Schema validation (dyno JSON):** `python -m pytest -q tests/test_output_schema_dyno.py`
 
 ### Species transport (opt-in)
 El transporte conservativo de la especie `Y_fresh` en el solver 1D está deshabilitado por defecto. Para activarlo:
