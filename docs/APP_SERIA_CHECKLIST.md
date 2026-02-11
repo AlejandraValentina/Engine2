@@ -37,12 +37,20 @@ Command | Output | Acceptance
 ---|---|---
 `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 3000 --out dyno.json` | `dyno.json` | schema `schemas/dyno.schema.json`, sin NaN/inf
 `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 3000 --mode v2 --out dyno_v2.json` | `dyno_v2.json` | schema `schemas/dyno.schema.json`, coupling_mode=v2_orchestrator
+`python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 3000 --mode v2 --knock-report knock.json --out dyno.json` | `knock.json` | schema `schemas/knock_report.schema.json`, requiere residuals enabled
 `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 1000:9000:500 --mode v2 --settle-cycles 1 --min-periodicity 0.35 --drop-invalid --rpm-start-safe --out dyno_v2_stable.json` | `dyno_v2_stable.json` | puntos inválidos filtrados, sin torque negativo
 `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 4000 --turbo presets/turbo_simple.json --out dyno_turbo.json` | `dyno_turbo.json` | schema ok, power > NA
+`python -m pywavedyn.cli dyno --engine presets/legacy/custom_twin_230cc.json --rpm 2000 --auto-legacy-compat --out dyno_legacy.json` | `dyno_legacy.json` | `metadata.legacy_compat=\"v1\"` presente
 `python -m pywavedyn.cli intake-scope --engine presets/honda_k20.json --out intake_scope.json` | `intake_scope.json` | schema ok, sin NaN/inf
 `python -m pywavedyn.cli calibrate --engine presets/honda_k20.json --target target.json --out calib_report.json` | `calib_report.json` | schema `schemas/calib_report.schema.json`
 `python -m pywavedyn.cli calibrate --engine presets/honda_k20.json --target target.json --out calibrate_report.json --diagnostics --multi-start 2 --top-k 3 --seed 123` | `calibrate_report.json` | schema `schemas/calibrate_report.schema.json`, `uniqueness.unique` presente
 `python -m pywavedyn.cli benchmark --engine presets/honda_k20.json --dataset benchmarks/datasets/honda_k20_na --out bench_report.json` | `bench_report.json` | schema ok, contract pass
+
+## 3.1) Legacy regression (golden)
+
+Command | Output | Acceptance
+---|---|---
+`python -m pytest -q tests/system/test_legacy_compat_golden_regression.py` | tests | compara BMEP/power/torque/VE vs golden (legacy_compat v1)
 
 ## 4) GUI smoke (offscreen)
 
@@ -59,6 +67,9 @@ Flag | Where | Expected
 `turbo` | `--turbo` in `dyno` | power trend > NA, schema ok
 `intake_plenum.wall_thermal` | config in engine JSON | `T_wall` updates (internal), no NaN/inf
 `calibrate --diagnostics` | CLI calibrate | `calibrate_report.schema.json` valid, uniqueness fields present
+`simulation_settings.species.enabled` | engine JSON | 1D conserva `Y_fresh` en rutas opt-in
+`--knock-report` | CLI dyno | reporte separado, schema `knock_report.schema.json`
+`--legacy-compat v1` / `--auto-legacy-compat` | CLI | aplica perfil v1 (solo opt-in)
 
 ## 6) Gates
 

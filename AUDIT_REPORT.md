@@ -8,6 +8,12 @@
 - **Legacy**
   - `presets/legacy/custom_twin_230cc.json` — esquema antiguo/pequeño desplazamiento.
   - `presets/legacy/ferrari_355_v12.json` — preset previo no canónico.
+  - `presets/legacy/chevy_350_legacy.json` — legado v1 para regresión.
+
+## Legacy compatibility mode
+- Perfil `legacy_compat v1` (opt-in): fuerza flags v1.0 (cp_model constante, heat transfer 1D off, wall thermal off, residuals advanced off, shock_cfl off).
+- Auto-legacy para presets bajo `presets/legacy` con `--auto-legacy-compat`.
+- Regresión golden: `benchmarks/datasets/regression_golden/legacy_compat/*.json`.
 
 ## Validation Cases
 - `validation_cases/k20_like.json`, `validation_cases/v8_like.json`, `validation_cases/single_cyl_moto_like.json`

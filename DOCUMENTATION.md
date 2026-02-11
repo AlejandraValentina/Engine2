@@ -104,6 +104,46 @@ PyWaveDyn exposes a minimal headless CLI for reproducible runs without the GUI:
 
 The CLI outputs JSON with metadata (input_hash, timestamp, settings, coupling_mode) plus results for each command.
 
+### Species transport (opt-in)
+El transporte conservativo de la especie `Y_fresh` en el solver 1D está deshabilitado por defecto. Para activarlo:
+
+```json
+{
+  "simulation_settings": {
+    "species": {
+      "enabled": true,
+      "model": "y_fresh"
+    }
+  }
+}
+```
+
+Cuando está habilitado, el solver 1D advecta `rhoY = rho * Y_fresh` con el mismo esquema que la masa y clampa `Y_fresh` a `[0,1]`.
+
+### Knock report (opt-in)
+Reporte de knock basado en residuales calientes (proxy). Requiere `combustion.residual_coupling.enabled=true` y se exporta como JSON separado:
+
+```bash
+python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:4000:1000 --mode v2 --knock-report knock.json --out dyno.json
+```
+
+El reporte se valida contra `schemas/knock_report.schema.json` y no altera `dyno.schema.json`.
+
+### Legacy compatibility mode (opt-in)
+Para presets legacy, se puede forzar el perfil v1 con:
+
+```bash
+python -m pywavedyn.cli dyno --engine presets/legacy/custom_twin_230cc.json --rpm 2000 --auto-legacy-compat --out dyno.json
+```
+
+O explícitamente:
+
+```bash
+python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000 --legacy-compat v1 --out dyno.json
+```
+
+Cuando está activo, los outputs incluyen `metadata.legacy_compat="v1"`.
+
 ### Plenum wall thermal (opt-in)
 Los plenums 0D pueden habilitar masa térmica de pared para evitar enfriamientos irreales por A/V. Se activa en el bloque `intake_plenum.wall_thermal` o `exhaust_plenum.wall_thermal`:
 

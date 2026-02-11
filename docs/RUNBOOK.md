@@ -36,6 +36,40 @@ Para evitar enfriamiento irreal por A/V, se puede habilitar masa térmica de par
 }
 ```
 
+## Species transport (opt-in)
+Para activar el transporte conservativo de `Y_fresh` en 1D:
+
+```json
+{
+  \"simulation_settings\": {
+    \"species\": {
+      \"enabled\": true,
+      \"model\": \"y_fresh\"
+    }
+  }
+}
+```
+
+## Knock report (opt-in)
+Requiere `combustion.residual_coupling.enabled=true` y genera un reporte separado:
+
+```bash
+python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000 --mode v2 --knock-report knock.json --out dyno.json
+```
+
+## Legacy compatibility mode (opt-in)
+Para presets legacy, habilitar perfil v1:
+
+```bash
+python -m pywavedyn.cli dyno --engine presets/legacy/custom_twin_230cc.json --rpm 2000 --auto-legacy-compat --out dyno.json
+```
+
+O explícito:
+
+```bash
+python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000 --legacy-compat v1 --out dyno.json
+```
+
 ## GUI smoke tests (offscreen)
 Use offscreen rendering for headless CI:
 ```bash
