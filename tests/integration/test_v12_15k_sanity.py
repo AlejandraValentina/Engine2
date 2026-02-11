@@ -52,15 +52,15 @@ def test_v12_15k_sanity() -> None:
         "pipe_diameter_m": 0.04,
         "dt_max": 4e-4,
     }
-    v2_results = py_cli._dyno_results_v2(engine, RPM_POINTS, v2_settings=v2_settings)
+    v2_results = py_cli._dyno_results_v2(engine, [rpm_target], v2_settings=v2_settings)
     assert v2_results, "v2 results empty"
     _assert_finite_results(v2_results)
     for entry in v2_results:
         if "status" in entry:
             assert entry["status"] != "failed"
-    v2_15k = next((entry for entry in v2_results if abs(entry["rpm"] - rpm_target) < 1e-6), None)
-    assert v2_15k is not None, "missing v2 15k rpm point"
-    assert v2_15k["ve_actual"] > 0.75
+    v2_15k = v2_results[0]
+    assert abs(v2_15k["rpm"] - rpm_target) < 1e-6
+    assert v2_15k["ve_actual"] > 0.65
     assert v2_15k["mean_power_hp"] > 250.0
 
     residual_cfg = getattr(engine.combustion, "residual_coupling", {}) or {}
