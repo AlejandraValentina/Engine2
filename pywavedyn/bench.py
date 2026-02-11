@@ -49,10 +49,7 @@ def _mae(errors: list[float]) -> float:
     return float(sum(abs(e) for e in errors) / max(len(errors), 1))
 
 
-def evaluate(engine_path: Path, dataset_dir: Path) -> BenchReport:
-    engine_raw = _load_json(engine_path)
-    engine = Engine.from_dict(engine_raw)
-
+def _evaluate_with_engine(engine: Engine, engine_raw: dict, dataset_dir: Path) -> BenchReport:
     dataset_dir = dataset_dir.resolve()
     meta = _load_json(dataset_dir / "metadata.json")
     target = _load_json(dataset_dir / "target_curve.json")
@@ -122,3 +119,13 @@ def evaluate(engine_path: Path, dataset_dir: Path) -> BenchReport:
             "pass": bool(contract_pass),
         },
     )
+
+
+def evaluate(engine_path: Path, dataset_dir: Path) -> BenchReport:
+    engine_raw = _load_json(engine_path)
+    engine = Engine.from_dict(engine_raw)
+    return _evaluate_with_engine(engine, engine_raw, dataset_dir)
+
+
+def evaluate_with_engine(engine: Engine, engine_raw: dict, dataset_dir: Path) -> BenchReport:
+    return _evaluate_with_engine(engine, engine_raw, dataset_dir)

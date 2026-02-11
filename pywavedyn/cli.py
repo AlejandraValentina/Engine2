@@ -19,6 +19,7 @@ from acoustics.audio_generator import (
     _smooth_waveform,
 )
 from core.engine_components import Engine, Pipe
+from core.legacy_compat import LEGACY_PROFILE_V1, apply_legacy_compat
 from core.pro_dyno_v2 import ProDynoV2Runner
 from core.thermo import CylinderSimulator
 from core.simulator import Engine1DSolver
@@ -26,7 +27,7 @@ from core.intake_scope import run_intake_scope as run_intake_scope_sim
 from core.map_runner import run_partload_map
 from core.auto_calibration import calibrate_engine, calibrate_engine_diagnostics
 from core.optimize_runner import load_target_points, optimize_runner_length
-from pywavedyn.bench import evaluate as evaluate_benchmark
+from pywavedyn.bench import evaluate_with_engine
 from pywavedyn.bench_import import import_csv as import_bench_csv, write_targets as write_bench_targets
 from core.full_network import run_full_scope as run_full_scope_sim
 from core.units import cc_to_m3
@@ -49,6 +50,38 @@ def _load_engine(path: Path) -> tuple[Engine, dict]:
     normalized = json.dumps(raw, sort_keys=True).encode("utf-8")
     engine = Engine.from_dict(raw)
     return engine, raw
+
+
+def _resolve_legacy_profile(
+    path: Path, raw: dict, legacy_compat: str | None, auto_legacy_compat: bool
+) -> str | None:
+    if legacy_compat:
+        return legacy_compat
+    meta = raw.get("meta", {}) if isinstance(raw.get("meta", {}), dict) else {}
+    legacy_meta = meta.get("legacy_compat")
+    if legacy_meta is True:
+        return LEGACY_PROFILE_V1
+    if isinstance(legacy_meta, str) and legacy_meta.lower() in {"v1", "legacy_v1"}:
+        return LEGACY_PROFILE_V1
+    if auto_legacy_compat:
+        parts = [part.lower() for part in path.parts]
+        if "presets" in parts and "legacy" in parts:
+            return LEGACY_PROFILE_V1
+    return None
+
+
+def _load_engine_with_legacy(
+    path: Path,
+    *,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
+) -> tuple[Engine, dict, str | None, dict | None]:
+    engine, raw = _load_engine(path)
+    profile = _resolve_legacy_profile(path, raw, legacy_compat, auto_legacy_compat)
+    overrides = None
+    if profile:
+        overrides = apply_legacy_compat(raw, engine, profile=profile)
+    return engine, raw, profile, overrides
 
 
 def _input_hash(raw: dict) -> str:
@@ -96,6 +129,20 @@ def _parse_bounds(value: str) -> tuple[float, float]:
     return float(parts[0]), float(parts[1])
 
 
+def _add_legacy_args(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--legacy-compat",
+        choices=[LEGACY_PROFILE_V1],
+        default=None,
+        help="Apply legacy compatibility profile (opt-in).",
+    )
+    parser.add_argument(
+        "--auto-legacy-compat",
+        action="store_true",
+        help="Auto-apply legacy profile for presets/legacy (opt-in).",
+    )
+
+
 def _runner_length_grid(base_mm: float, points: int, span_mm: float) -> list[float]:
     points = max(int(points), 1)
     span_mm = max(float(span_mm), 0.0)
@@ -106,14 +153,26 @@ def _runner_length_grid(base_mm: float, points: int, span_mm: float) -> list[flo
     return [float(v) for v in np.linspace(start, end, points)]
 
 
-def _metadata(engine: Engine, raw: dict, coupling_mode: str) -> dict:
-    return {
+def _metadata(
+    engine: Engine,
+    raw: dict,
+    coupling_mode: str,
+    *,
+    legacy_compat: str | None = None,
+    legacy_overrides: dict | None = None,
+) -> dict:
+    payload = {
         "input_hash": _input_hash(raw),
         "timestamp": dt.datetime.utcnow().isoformat() + "Z",
         "version": _git_version(),
         "settings": engine.simulation_settings.to_dict(),
         "coupling_mode": coupling_mode,
     }
+    if legacy_compat:
+        payload["legacy_compat"] = legacy_compat
+    if legacy_overrides:
+        payload["legacy_overrides"] = legacy_overrides
+    return payload
 
 
 def _build_wave_solver(engine: Engine, target_dx: float | None = None) -> Engine1DSolver:
@@ -232,8 +291,14 @@ def run_dyno(
     drop_invalid: bool = False,
     rpm_start_safe: bool = False,
     debug_dyno_v2: bool = False,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
 ) -> None:
-    engine, raw = _load_engine(engine_path)
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
     if turbo_path is not None:
         turbo_raw = json.loads(turbo_path.read_text(encoding="utf-8"))
         engine.turbo = engine.turbo.from_dict(turbo_raw)
@@ -260,7 +325,13 @@ def run_dyno(
     else:
         raise ValueError(f"Unknown mode '{mode}' (expected 'v1' or 'v2')")
 
-    metadata = _metadata(engine, raw, coupling_mode=coupling_mode)
+    metadata = _metadata(
+        engine,
+        raw,
+        coupling_mode=coupling_mode,
+        legacy_compat=legacy_profile,
+        legacy_overrides=legacy_overrides,
+    )
     if mode == "v2" and (settle_cycles or min_periodicity is not None or drop_invalid or rpm_start_safe):
         metadata["dyno_v2_settings"] = {
             "settle_cycles": int(settle_cycles),
@@ -279,8 +350,14 @@ def run_scope(
     out_path: Path,
     target_dx: float | None = None,
     max_steps: int | None = None,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
 ) -> None:
-    engine, raw = _load_engine(engine_path)
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
     simulator = CylinderSimulator(engine)
     solver = _build_wave_solver(engine, target_dx=target_dx)
 
@@ -343,7 +420,13 @@ def run_scope(
         )
     matrix = compute_pressure_matrix(history, solver.gamma)
     output = {
-        "metadata": _metadata(engine, raw, coupling_mode=coupling_mode),
+        "metadata": _metadata(
+            engine,
+            raw,
+            coupling_mode=coupling_mode,
+            legacy_compat=legacy_profile,
+            legacy_overrides=legacy_overrides,
+        ),
         "time": list(time_vector),
         "tail_pressure_pa": list(audio),
         "pressure_matrix_pa": matrix.tolist(),
@@ -357,11 +440,23 @@ def run_intake_scope(
     *,
     max_steps: int | None = None,
     target_dx: float | None = None,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
 ) -> None:
-    engine, raw = _load_engine(engine_path)
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
     result = run_intake_scope_sim(engine, max_steps=max_steps, target_dx=target_dx)
     output = {
-        "metadata": _metadata(engine, raw, coupling_mode="intake_scope"),
+        "metadata": _metadata(
+            engine,
+            raw,
+            coupling_mode="intake_scope",
+            legacy_compat=legacy_profile,
+            legacy_overrides=legacy_overrides,
+        ),
         "time": result.time_s,
         "plenum_pressure_pa": result.plenum_pressure_pa,
         "runner_pressure_pa": result.runner_pressure_pa,
@@ -378,8 +473,14 @@ def run_audio(
     out_path: Path,
     firing_order: str | None,
     source: str = "runner",
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
 ) -> None:
-    engine, _raw = _load_engine(engine_path)
+    engine, _raw, _legacy_profile, _legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
     order = _parse_firing_order(firing_order or "")
     if not order:
         order = list(engine.block.firing_order)
@@ -486,8 +587,14 @@ def run_sweep(
     runner_lengths: list[float] | None = None,
     points: int = 5,
     span_mm: float = 200.0,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
 ) -> None:
-    engine, raw = _load_engine(engine_path)
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
     lengths = runner_lengths or _runner_length_grid(
         base_mm=float(engine.intake.runner_length),
         points=points,
@@ -510,7 +617,13 @@ def run_sweep(
         )
 
     output = {
-        "metadata": _metadata(engine, raw, coupling_mode="none"),
+        "metadata": _metadata(
+            engine,
+            raw,
+            coupling_mode="none",
+            legacy_compat=legacy_profile,
+            legacy_overrides=legacy_overrides,
+        ),
         "sweep": {
             "param": "intake.runner_length",
             "unit": "mm",
@@ -527,15 +640,27 @@ def run_map(
     rpm_grid: list[float],
     throttle_grid: list[float],
     out_path: Path,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
 ) -> None:
     if not rpm_grid:
         raise ValueError("rpm_grid must be non-empty")
     if not throttle_grid:
         raise ValueError("throttle_grid must be non-empty")
-    engine, raw = _load_engine(engine_path)
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
     points = run_partload_map(engine, rpm_grid, throttle_grid)
     output = {
-        "metadata": _metadata(engine, raw, coupling_mode="map_runner"),
+        "metadata": _metadata(
+            engine,
+            raw,
+            coupling_mode="map_runner",
+            legacy_compat=legacy_profile,
+            legacy_overrides=legacy_overrides,
+        ),
         "grid": {
             "rpm": [float(v) for v in rpm_grid],
             "throttle": [float(v) for v in throttle_grid],
@@ -558,8 +683,14 @@ def run_calibrate(
     eps_params: float = 0.05,
     top_k: int = 5,
     seed: int = 0,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
 ) -> None:
-    engine, raw = _load_engine(engine_path)
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
     target = json.loads(target_path.read_text(encoding="utf-8"))
     points = target.get("points") or target.get("targets") or []
     if not isinstance(points, list) or not points:
@@ -579,7 +710,13 @@ def run_calibrate(
         )
         output = {
             "metadata": {
-                **_metadata(engine, raw, coupling_mode="calibrate_diagnostics"),
+                **_metadata(
+                    engine,
+                    raw,
+                    coupling_mode="calibrate_diagnostics",
+                    legacy_compat=legacy_profile,
+                    legacy_overrides=legacy_overrides,
+                ),
                 **report["metadata"],
             },
             "best_solution": report["best_solution"],
@@ -591,7 +728,13 @@ def run_calibrate(
     else:
         report = calibrate_engine(engine, points, params, max_evals)
         output = {
-            "metadata": _metadata(engine, raw, coupling_mode="calibrate"),
+            "metadata": _metadata(
+                engine,
+                raw,
+                coupling_mode="calibrate",
+                legacy_compat=legacy_profile,
+                legacy_overrides=legacy_overrides,
+            ),
             **report.to_dict(),
         }
     _write_json(out_path, output)
@@ -605,8 +748,14 @@ def run_optimize(
     bounds_m: tuple[float, float],
     seed: int,
     max_evals: int,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
 ) -> None:
-    engine, raw = _load_engine(engine_path)
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
     points = load_target_points(str(target_path))
     report = optimize_runner_length(
         engine,
@@ -617,7 +766,13 @@ def run_optimize(
         param=param,
     )
     output = {
-        "metadata": _metadata(engine, raw, coupling_mode="optimize"),
+        "metadata": _metadata(
+            engine,
+            raw,
+            coupling_mode="optimize",
+            legacy_compat=legacy_profile,
+            legacy_overrides=legacy_overrides,
+        ),
         **report.to_dict(),
     }
     _write_json(out_path, output)
@@ -632,8 +787,14 @@ def run_full_scope(
     target_dx: float | None = None,
     use_numba: bool = False,
     time_budget_ms: float | None = None,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
 ) -> None:
-    engine, raw = _load_engine(engine_path)
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
     result = run_full_scope_sim(
         engine,
         duration_s=float(duration),
@@ -643,7 +804,13 @@ def run_full_scope(
         time_budget_ms=time_budget_ms,
     )
     output = {
-        "metadata": _metadata(engine, raw, coupling_mode="full_network"),
+        "metadata": _metadata(
+            engine,
+            raw,
+            coupling_mode="full_network",
+            legacy_compat=legacy_profile,
+            legacy_overrides=legacy_overrides,
+        ),
         "duration_s": float(duration),
         "dt_min": float(result.dt_min),
         "dt_max": float(result.dt_max),
@@ -660,9 +827,25 @@ def run_full_scope(
     _write_json(out_path, output)
 
 
-def run_benchmark(engine_path: Path, dataset_dir: Path, out_path: Path) -> None:
-    report = evaluate_benchmark(engine_path, dataset_dir)
+def run_benchmark(
+    engine_path: Path,
+    dataset_dir: Path,
+    out_path: Path,
+    *,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
+) -> None:
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
+    report = evaluate_with_engine(engine, raw, dataset_dir)
     report.metadata["version"] = _git_version()
+    if legacy_profile:
+        report.metadata["legacy_compat"] = legacy_profile
+    if legacy_overrides:
+        report.metadata["legacy_overrides"] = legacy_overrides
     output = report.to_dict()
     _write_json(out_path, output)
 
@@ -690,8 +873,18 @@ def _cutlist_text_path(out_path: Path) -> Path:
     return out_path.with_name(out_path.name + ".txt")
 
 
-def run_cutlist(engine_path: Path, out_path: Path) -> None:
-    engine, raw = _load_engine(engine_path)
+def run_cutlist(
+    engine_path: Path,
+    out_path: Path,
+    *,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
+) -> None:
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
     block = engine.block
     intake = engine.intake
     exhaust = engine.exhaust
@@ -717,7 +910,13 @@ def run_cutlist(engine_path: Path, out_path: Path) -> None:
     ]
 
     output = {
-        "metadata": _metadata(engine, raw, coupling_mode="none"),
+        "metadata": _metadata(
+            engine,
+            raw,
+            coupling_mode="none",
+            legacy_compat=legacy_profile,
+            legacy_overrides=legacy_overrides,
+        ),
         "engine": {
             "model_name": engine.model_name,
             "num_cylinders": int(block.num_cylinders),
@@ -812,7 +1011,7 @@ def run_selfcheck(expectations_path: Path, out_path: Path) -> int:
         issues: list[str] = []
         case_entry = {"file": case_name, "issues": issues, "checks": {}}
         try:
-            engine, raw = _load_engine(engine_path)
+            engine, raw, _legacy_profile, _legacy_overrides = _load_engine_with_legacy(engine_path)
             simulator = CylinderSimulator(engine)
 
             dyno_rpms: Sequence[float] = case.get("rpm", [])
@@ -870,7 +1069,7 @@ def run_selfcheck(expectations_path: Path, out_path: Path) -> int:
                         duration_s = float(full_scope_cfg.get("duration_s", compare_to.get("duration_s", 0.01)))
                         max_steps = full_scope_cfg.get("max_steps", compare_to.get("max_steps"))
                         target_dx = full_scope_cfg.get("target_dx", compare_to.get("target_dx"))
-                        base_engine, _ = _load_engine(base_path)
+                        base_engine, _, _base_profile, _base_overrides = _load_engine_with_legacy(base_path)
                         base_result = run_full_scope_sim(
                             base_engine,
                             duration_s=duration_s,
@@ -893,7 +1092,7 @@ def run_selfcheck(expectations_path: Path, out_path: Path) -> int:
                             base_value = float("nan")
                             value = float("nan")
                         else:
-                            base_engine, _ = _load_engine(base_path)
+                            base_engine, _, _base_profile, _base_overrides = _load_engine_with_legacy(base_path)
                             base_cycle = CylinderSimulator(base_engine).run_cycle(rpm)
                             base_value = _metric_from_cycle(metric, base_cycle)
                             value = _metric_from_cycle(metric, simulator.run_cycle(rpm))
@@ -996,6 +1195,7 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Log v2 VE numerator/denominator at 7000 rpm (debug)",
     )
+    _add_legacy_args(dyno)
     dyno.add_argument("--out", required=True, type=Path)
 
     scope = sub.add_parser("scope", help="Run a 1D wave scope")
@@ -1004,12 +1204,14 @@ def _build_parser() -> argparse.ArgumentParser:
     scope.add_argument("--cycles", type=int, default=2)
     scope.add_argument("--target-dx", type=float, default=None)
     scope.add_argument("--max-steps", type=int, default=None)
+    _add_legacy_args(scope)
     scope.add_argument("--out", required=True, type=Path)
 
     intake_scope = sub.add_parser("intake-scope", help="Run a headless intake 1D scope")
     intake_scope.add_argument("--engine", required=True, type=Path)
     intake_scope.add_argument("--target-dx", type=float, default=None)
     intake_scope.add_argument("--max-steps", type=int, default=None)
+    _add_legacy_args(intake_scope)
     intake_scope.add_argument("--out", required=True, type=Path)
 
     bench_import = sub.add_parser("bench-import", help="Import CSV data into benchmark targets")
@@ -1031,6 +1233,7 @@ def _build_parser() -> argparse.ArgumentParser:
         default="runner",
         help="Audio source (default matches existing synthetic runner output).",
     )
+    _add_legacy_args(audio)
     audio.add_argument("--out", required=True, type=Path)
 
     sweep = sub.add_parser("sweep", help="Run a headless sweep (runner length)")
@@ -1039,12 +1242,14 @@ def _build_parser() -> argparse.ArgumentParser:
     sweep.add_argument("--runner-lengths", type=str, default="")
     sweep.add_argument("--points", type=int, default=5)
     sweep.add_argument("--span-mm", type=float, default=200.0)
+    _add_legacy_args(sweep)
     sweep.add_argument("--out", required=True, type=Path)
 
     map_cmd = sub.add_parser("map", help="Run a headless part-load map")
     map_cmd.add_argument("--engine", required=True, type=Path)
     map_cmd.add_argument("--rpm-grid", required=True, type=str)
     map_cmd.add_argument("--throttle-grid", required=True, type=str)
+    _add_legacy_args(map_cmd)
     map_cmd.add_argument("--out", required=True, type=Path)
 
     calibrate = sub.add_parser("calibrate", help="Run bounded auto-calibration against target curve")
@@ -1059,6 +1264,7 @@ def _build_parser() -> argparse.ArgumentParser:
     calibrate.add_argument("--eps-params", type=float, default=0.05, help="Param spread tolerance for non-uniqueness")
     calibrate.add_argument("--top-k", type=int, default=5, help="Number of top solutions to retain")
     calibrate.add_argument("--seed", type=int, default=0, help="Seed for diagnostics sampling")
+    _add_legacy_args(calibrate)
 
     optimize = sub.add_parser("optimize", help="Optimize runner length against target curve")
     optimize.add_argument("--engine", required=True, type=Path)
@@ -1067,6 +1273,7 @@ def _build_parser() -> argparse.ArgumentParser:
     optimize.add_argument("--bounds", required=True, type=str, help="Bounds in meters: low,high")
     optimize.add_argument("--seed", type=int, default=123)
     optimize.add_argument("--max-evals", type=int, default=30)
+    _add_legacy_args(optimize)
     optimize.add_argument("--out", required=True, type=Path)
 
     full_scope = sub.add_parser("full-scope", help="Run full intake+exhaust network scope")
@@ -1077,11 +1284,13 @@ def _build_parser() -> argparse.ArgumentParser:
     full_scope.add_argument("--target-dx", type=float, default=None)
     full_scope.add_argument("--fast-numba", action="store_true", help="Enable Numba fast path (if available)")
     full_scope.add_argument("--time-budget-ms", type=float, default=None)
+    _add_legacy_args(full_scope)
 
     cutlist = sub.add_parser("cutlist", help="Generate cut-list report (JSON + text)")
     cutlist_group = cutlist.add_mutually_exclusive_group(required=True)
     cutlist_group.add_argument("--engine", type=Path)
     cutlist_group.add_argument("--preset", type=Path, help=argparse.SUPPRESS)
+    _add_legacy_args(cutlist)
     cutlist.add_argument("--out", required=True, type=Path)
 
     selfcheck = sub.add_parser("selfcheck", help="Run deterministic validation cases")
@@ -1096,6 +1305,7 @@ def _build_parser() -> argparse.ArgumentParser:
     benchmark = sub.add_parser("benchmark", help="Run benchmark evaluation against dataset")
     benchmark.add_argument("--engine", required=True, type=Path)
     benchmark.add_argument("--dataset", required=True, type=Path)
+    _add_legacy_args(benchmark)
     benchmark.add_argument("--out", required=True, type=Path)
 
     return parser
@@ -1117,6 +1327,8 @@ def main(argv: Iterable[str] | None = None) -> None:
             drop_invalid=args.drop_invalid,
             rpm_start_safe=args.rpm_start_safe,
             debug_dyno_v2=args.debug_dyno_v2,
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
         )
     elif args.command == "scope":
         run_scope(
@@ -1126,6 +1338,8 @@ def main(argv: Iterable[str] | None = None) -> None:
             args.out,
             target_dx=args.target_dx,
             max_steps=args.max_steps,
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
         )
     elif args.command == "intake-scope":
         run_intake_scope(
@@ -1133,6 +1347,8 @@ def main(argv: Iterable[str] | None = None) -> None:
             args.out,
             max_steps=args.max_steps,
             target_dx=args.target_dx,
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
         )
     elif args.command == "audio":
         run_audio(
@@ -1143,6 +1359,8 @@ def main(argv: Iterable[str] | None = None) -> None:
             args.out,
             args.firing_order,
             source=str(args.source),
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
         )
     elif args.command == "sweep":
         run_sweep(
@@ -1152,6 +1370,8 @@ def main(argv: Iterable[str] | None = None) -> None:
             runner_lengths=_parse_length_list(args.runner_lengths),
             points=args.points,
             span_mm=args.span_mm,
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
         )
     elif args.command == "map":
         run_map(
@@ -1159,6 +1379,8 @@ def main(argv: Iterable[str] | None = None) -> None:
             _parse_float_list(args.rpm_grid),
             _parse_float_list(args.throttle_grid),
             args.out,
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
         )
     elif args.command == "calibrate":
         run_calibrate(
@@ -1173,6 +1395,8 @@ def main(argv: Iterable[str] | None = None) -> None:
             eps_params=float(args.eps_params),
             top_k=int(args.top_k),
             seed=int(args.seed),
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
         )
     elif args.command == "optimize":
         run_optimize(
@@ -1183,6 +1407,8 @@ def main(argv: Iterable[str] | None = None) -> None:
             _parse_bounds(args.bounds),
             int(args.seed),
             int(args.max_evals),
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
         )
     elif args.command == "full-scope":
         run_full_scope(
@@ -1193,14 +1419,27 @@ def main(argv: Iterable[str] | None = None) -> None:
             target_dx=args.target_dx,
             use_numba=bool(args.fast_numba),
             time_budget_ms=args.time_budget_ms,
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
         )
     elif args.command == "cutlist":
         engine_path = args.engine if args.engine is not None else args.preset
-        run_cutlist(engine_path, args.out)
+        run_cutlist(
+            engine_path,
+            args.out,
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
+        )
     elif args.command == "selfcheck":
         sys.exit(run_selfcheck(args.expectations, args.out))
     elif args.command == "benchmark":
-        run_benchmark(args.engine, args.dataset, args.out)
+        run_benchmark(
+            args.engine,
+            args.dataset,
+            args.out,
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
+        )
     elif args.command == "bench-import":
         run_bench_import(
             args.csv,
