@@ -266,6 +266,25 @@ class FuelConfig:
 
 
 @dataclass
+class SpeciesConfig:
+    enabled: bool = False
+    model: str = "y_fresh"
+
+    def to_dict(self) -> dict:
+        return {
+            "enabled": self.enabled,
+            "model": self.model,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SpeciesConfig":
+        return cls(
+            enabled=bool(data.get("enabled", False)),
+            model=str(data.get("model", "y_fresh")),
+        )
+
+
+@dataclass
 class WallThermalConfig:
     enabled: bool = False
     m_wall_kg: float = 1.0
@@ -356,6 +375,7 @@ class SimulationSettings:
     exhaust_valve_area_model: str = "curtain"
     trace_metadata: bool = True
     fuel: FuelConfig = field(default_factory=FuelConfig)
+    species: SpeciesConfig = field(default_factory=SpeciesConfig)
     intake_plenum: dict[str, Any] = field(default_factory=dict)
     exhaust_plenum: dict[str, Any] = field(default_factory=dict)
     junction_capacitance: dict[str, Any] = field(default_factory=dict)
@@ -364,7 +384,7 @@ class SimulationSettings:
     intake_coupling: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {
+        payload = {
             "ignition_timing_btdc": self.ignition_timing_btdc,
             "heat_loss_factor": self.heat_loss_factor,
             "pipe_friction_factor": self.pipe_friction_factor,
@@ -397,6 +417,9 @@ class SimulationSettings:
             "shock_cfl": self.shock_cfl,
             "intake_coupling": self.intake_coupling,
         }
+        if self.species.enabled or self.species.model != "y_fresh":
+            payload["species"] = self.species.to_dict()
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict) -> "SimulationSettings":
@@ -426,6 +449,7 @@ class SimulationSettings:
             exhaust_valve_area_model=data.get("exhaust_valve_area_model", "curtain"),
             trace_metadata=data.get("trace_metadata", True),
             fuel=FuelConfig.from_dict(data.get("fuel", {})),
+            species=SpeciesConfig.from_dict(data.get("species", {})),
             intake_plenum=data.get("intake_plenum", {}),
             exhaust_plenum=data.get("exhaust_plenum", {}),
             junction_capacitance=data.get("junction_capacitance", {}),
@@ -974,6 +998,7 @@ __all__ = [
     "Friction",
     "Fuel",
     "FuelConfig",
+    "SpeciesConfig",
     "Combustion",
     "Engine",
 ]

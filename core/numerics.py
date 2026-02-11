@@ -38,6 +38,25 @@ def flux_vector(U, gamma=DEFAULT_GAMMA):
 
 
 @jit(nopython=True)
+def flux_vector_scalar(U, gamma=DEFAULT_GAMMA):
+    """Compute flux vector for U = [rho, rho*u, rho*E, rho*Y]."""
+    rho = U[0]
+    mom = U[1]
+    energy = U[2]
+    rhoY = U[3]
+    rho_safe = max(rho, 1e-12)
+    u = mom / rho_safe
+    kinetic = 0.5 * rho_safe * u * u
+    p = (gamma - 1.0) * (energy - kinetic)
+    F = np.empty(4, dtype=np.float64)
+    F[0] = mom
+    F[1] = mom * u + p
+    F[2] = (energy + p) * u
+    F[3] = rhoY * u
+    return F
+
+
+@jit(nopython=True)
 def source_terms(U, dx, D, f, Tw, heat_transfer_enabled):
     """Compute wall friction and heat transfer source terms."""
     rho = U[0]
@@ -160,6 +179,130 @@ def lax_wendroff_step(
         U_new[i, 0] = rho_i
         U_new[i, 1] = mom_i
         U_new[i, 2] = energy_i
+
+    return U_new
+
+
+@jit(nopython=True)
+def lax_wendroff_step_scalar(
+    U_grid,
+    dt,
+    dx,
+    areas,
+    friction_coeffs,
+    diameters,
+    gamma,
+    artificial_diffusion,
+    clamp_rho_min,
+    clamp_p_min,
+    clamp_p_max,
+    clamp_u_max,
+    clamp_energy_max,
+    heat_transfer_enabled,
+):
+    """Advance conserved variables with a passive scalar rho*Y."""
+    n_cells = U_grid.shape[0]
+    U_new = np.empty_like(U_grid)
+
+    F_centers = np.empty_like(U_grid)
+    for i in range(n_cells):
+        F_centers[i] = flux_vector_scalar(U_grid[i], gamma)
+
+    U_half = np.empty((n_cells - 1, 4), dtype=np.float64)
+    F_half = np.empty_like(U_half)
+    for i in range(n_cells - 1):
+        U_half[i] = 0.5 * (U_grid[i + 1] + U_grid[i]) - 0.5 * dt / dx * (F_centers[i + 1] - F_centers[i])
+        F_half[i] = flux_vector_scalar(U_half[i], gamma)
+
+    for i in range(n_cells):
+        if i == 0:
+            dA_dx = (areas[i + 1] - areas[i]) / dx
+        elif i == n_cells - 1:
+            dA_dx = (areas[i] - areas[i - 1]) / dx
+        else:
+            dA_dx = (areas[i + 1] - areas[i - 1]) / (2.0 * dx)
+
+        rho_i = U_grid[i, 0]
+        mom_i = U_grid[i, 1]
+        energy_i = U_grid[i, 2]
+        rhoY_i = U_grid[i, 3]
+        rho_safe = max(rho_i, clamp_rho_min)
+        u_i = mom_i / rho_safe
+        p_i = (gamma - 1.0) * (energy_i - 0.5 * mom_i * u_i)
+        if p_i < clamp_p_min:
+            p_i = clamp_p_min
+
+        geom_0 = -(rho_safe * u_i) * dA_dx / areas[i]
+        geom_1 = -rho_safe * u_i * u_i * dA_dx / areas[i]
+        geom_2 = -(u_i * (energy_i + p_i)) * dA_dx / areas[i]
+        geom_3 = -(rhoY_i * u_i) * dA_dx / areas[i]
+
+        diameter = max(diameters[i], 1e-12)
+        S = source_terms(U_grid[i], dx, diameter, friction_coeffs[i], 0.0, heat_transfer_enabled)
+        S0 = S[0]
+        S1 = S[1]
+        S2 = S[2]
+        S3 = 0.0
+
+        if i == 0:
+            flux_diff0 = F_half[i, 0]
+            flux_diff1 = F_half[i, 1]
+            flux_diff2 = F_half[i, 2]
+            flux_diff3 = F_half[i, 3]
+        elif i == n_cells - 1:
+            flux_diff0 = -F_half[i - 1, 0]
+            flux_diff1 = -F_half[i - 1, 1]
+            flux_diff2 = -F_half[i - 1, 2]
+            flux_diff3 = -F_half[i - 1, 3]
+        else:
+            flux_diff0 = F_half[i, 0] - F_half[i - 1, 0]
+            flux_diff1 = F_half[i, 1] - F_half[i - 1, 1]
+            flux_diff2 = F_half[i, 2] - F_half[i - 1, 2]
+            flux_diff3 = F_half[i, 3] - F_half[i - 1, 3]
+
+        coef = dt / dx
+        U_new[i, 0] = U_grid[i, 0] - coef * flux_diff0 + dt * (S0 + geom_0)
+        U_new[i, 1] = U_grid[i, 1] - coef * flux_diff1 + dt * (S1 + geom_1)
+        U_new[i, 2] = U_grid[i, 2] - coef * flux_diff2 + dt * (S2 + geom_2)
+        U_new[i, 3] = U_grid[i, 3] - coef * flux_diff3 + dt * (S3 + geom_3)
+
+    if artificial_diffusion > 0.0:
+        for i in range(1, n_cells - 1):
+            laplacian = U_grid[i + 1] - 2.0 * U_grid[i] + U_grid[i - 1]
+            U_new[i] += artificial_diffusion * laplacian
+
+    for i in range(n_cells):
+        rho_i = max(U_new[i, 0], clamp_rho_min)
+        mom_i = U_new[i, 1]
+        u_i = mom_i / rho_i
+        if u_i > clamp_u_max:
+            u_i = clamp_u_max
+        elif u_i < -clamp_u_max:
+            u_i = -clamp_u_max
+        mom_i = rho_i * u_i
+
+        kinetic = 0.5 * rho_i * u_i * u_i
+        pressure = (gamma - 1.0) * (U_new[i, 2] - kinetic)
+        if pressure < clamp_p_min:
+            energy_i = kinetic + clamp_p_min / (gamma - 1.0)
+        elif pressure > clamp_p_max:
+            energy_i = kinetic + clamp_p_max / (gamma - 1.0)
+        else:
+            energy_i = U_new[i, 2]
+        energy_i = min(max(energy_i, kinetic), clamp_energy_max)
+
+        rhoY_i = U_new[i, 3]
+        Y_i = rhoY_i / max(rho_i, clamp_rho_min)
+        if Y_i < 0.0:
+            Y_i = 0.0
+        elif Y_i > 1.0:
+            Y_i = 1.0
+        rhoY_i = rho_i * Y_i
+
+        U_new[i, 0] = rho_i
+        U_new[i, 1] = mom_i
+        U_new[i, 2] = energy_i
+        U_new[i, 3] = rhoY_i
 
     return U_new
 

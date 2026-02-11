@@ -31,6 +31,8 @@ def _init_pipe_state(
     gamma: float,
     gas_constant: float,
     friction_factor: float = 1.0,
+    species_enabled: bool = False,
+    y_init: float = 0.0,
 ):
     L_m = float(pipe_data.length) * 1e-3
     estimated_N = int(np.ceil(L_m / target_dx))
@@ -48,10 +50,17 @@ def _init_pipe_state(
     rho0 = p_atm / (gas_constant * T_amb)
     u0 = 0.0
     e0 = p_atm / (gamma - 1.0) / rho0
-    U = np.zeros((N, 3), dtype=np.float64)
-    U[:, 0] = rho0
-    U[:, 1] = rho0 * u0
-    U[:, 2] = rho0 * (e0 + 0.5 * u0 * u0)
+    if species_enabled:
+        U = np.zeros((N, 4), dtype=np.float64)
+        U[:, 0] = rho0
+        U[:, 1] = rho0 * u0
+        U[:, 2] = rho0 * (e0 + 0.5 * u0 * u0)
+        U[:, 3] = rho0 * float(np.clip(y_init, 0.0, 1.0))
+    else:
+        U = np.zeros((N, 3), dtype=np.float64)
+        U[:, 0] = rho0
+        U[:, 1] = rho0 * u0
+        U[:, 2] = rho0 * (e0 + 0.5 * u0 * u0)
 
     return {
         "N": N,
@@ -145,27 +154,42 @@ def compute_exhaust_valve_area(
 
 
 def rusanov_flux(U_L: np.ndarray, U_R: np.ndarray, gamma: float) -> np.ndarray:
-    """Local Lax-Friedrichs flux for 1D Euler equations."""
+    """Local Lax-Friedrichs flux for 1D Euler equations (+ optional passive scalar)."""
 
-    def _primitive(U: np.ndarray) -> Tuple[float, float, float]:
+    def _primitive(U: np.ndarray) -> Tuple[float, float, float, float]:
         rho = float(U[0])
         u = float(U[1]) / max(rho, 1e-12)
         p = max((gamma - 1.0) * (float(U[2]) - 0.5 * rho * u * u), 1e-9)
-        return rho, u, p
+        Y = float(U[3]) / max(rho, 1e-12) if U.shape[0] > 3 else 0.0
+        return rho, u, p, Y
 
-    rho_L, u_L, p_L = _primitive(U_L)
-    rho_R, u_R, p_R = _primitive(U_R)
+    rho_L, u_L, p_L, Y_L = _primitive(U_L)
+    rho_R, u_R, p_R, Y_R = _primitive(U_R)
 
-    F_L = np.array([
-        rho_L * u_L,
-        rho_L * u_L * u_L + p_L,
-        u_L * (float(U_L[2]) + p_L),
-    ])
-    F_R = np.array([
-        rho_R * u_R,
-        rho_R * u_R * u_R + p_R,
-        u_R * (float(U_R[2]) + p_R),
-    ])
+    if U_L.shape[0] > 3 or U_R.shape[0] > 3:
+        F_L = np.array([
+            rho_L * u_L,
+            rho_L * u_L * u_L + p_L,
+            u_L * (float(U_L[2]) + p_L),
+            (rho_L * Y_L) * u_L,
+        ])
+        F_R = np.array([
+            rho_R * u_R,
+            rho_R * u_R * u_R + p_R,
+            u_R * (float(U_R[2]) + p_R),
+            (rho_R * Y_R) * u_R,
+        ])
+    else:
+        F_L = np.array([
+            rho_L * u_L,
+            rho_L * u_L * u_L + p_L,
+            u_L * (float(U_L[2]) + p_L),
+        ])
+        F_R = np.array([
+            rho_R * u_R,
+            rho_R * u_R * u_R + p_R,
+            u_R * (float(U_R[2]) + p_R),
+        ])
 
     c_L = math.sqrt(gamma * p_L / max(rho_L, 1e-12))
     c_R = math.sqrt(gamma * p_R / max(rho_R, 1e-12))
@@ -202,6 +226,15 @@ class Engine1DSolver:
         self.gas_constant = float(
             getattr(self.settings, "gas_constant_R", numerics.DEFAULT_R)
         )
+        species_cfg = getattr(self.settings, "species", None)
+        if isinstance(species_cfg, dict):
+            self.species_enabled = bool(species_cfg.get("enabled", False))
+            self.species_model = str(species_cfg.get("model", "y_fresh"))
+        else:
+            self.species_enabled = bool(getattr(species_cfg, "enabled", False))
+            self.species_model = str(getattr(species_cfg, "model", "y_fresh"))
+        if self.species_enabled and self.species_model != "y_fresh":
+            raise ValueError(f"Unsupported species model '{self.species_model}'")
 
         self.primary_states = [
             _init_pipe_state(
@@ -212,6 +245,8 @@ class Engine1DSolver:
                 self.gamma,
                 self.gas_constant,
                 self.settings.pipe_friction_factor,
+                species_enabled=self.species_enabled,
+                y_init=0.0,
             )
             for pipe in primary_pipes
         ]
@@ -223,11 +258,16 @@ class Engine1DSolver:
             self.gamma,
             self.gas_constant,
             self.settings.pipe_friction_factor,
+            species_enabled=self.species_enabled,
+            y_init=0.0,
         )
 
         self.collector = Junction(
             collector_volume, p_atm, T_amb, gamma=self.gamma, gas_constant=self.gas_constant
         )
+        if self.species_enabled:
+            self.collector_Y = 0.0
+            self.collector_mY = self.collector.mass * self.collector_Y
 
         self.junction_capacitance_cfg = JunctionCapacitanceConfig.from_dict(
             self.settings.junction_capacitance or {}
@@ -285,6 +325,7 @@ class Engine1DSolver:
         valve_area: float,
         dt: float,
         Cd: float = 0.9,
+        Y_stag: float = 0.0,
     ) -> None:
         if valve_area <= 0.0 or dt <= 0.0:
             return
@@ -345,6 +386,14 @@ class Engine1DSolver:
                 self.settings.clamp_energy_max,
             )
         )
+        if self.species_enabled:
+            if mdot >= 0.0:
+                y_src = float(np.clip(Y_stag, 0.0, 1.0))
+            else:
+                rho_cell = max(float(state["U"][1, 0]), self.settings.clamp_rho_min)
+                y_src = float(np.clip(state["U"][1, 3] / rho_cell, 0.0, 1.0))
+            rhoY_delta = mass_delta * y_src
+            state["U"][0, 3] = float(max(state["U"][0, 3] + rhoY_delta / max(cell_vol, 1e-12), 0.0))
 
     def _apply_collector_boundaries(self, mdot_primary: List[float], mdot_tail: float) -> None:
         p_col, T_col, rho_col = self.collector.get_state()
@@ -360,6 +409,8 @@ class Engine1DSolver:
             state["U"][-1, 0] = rho_col
             state["U"][-1, 1] = rho_col * u_ghost
             state["U"][-1, 2] = float(np.clip(rho_col * E_tot, 0.0, self.settings.clamp_energy_max))
+            if self.species_enabled:
+                state["U"][-1, 3] = rho_col * float(np.clip(self.collector_Y, 0.0, 1.0))
 
         tail = self.tail_state
         area_tail = float(max(tail["areas"][0], 1e-12))
@@ -371,6 +422,8 @@ class Engine1DSolver:
         tail["U"][0, 0] = rho_col
         tail["U"][0, 1] = rho_col * u_tail
         tail["U"][0, 2] = float(np.clip(rho_col * E_tail, 0.0, self.settings.clamp_energy_max))
+        if self.species_enabled:
+            tail["U"][0, 3] = rho_col * float(np.clip(self.collector_Y, 0.0, 1.0))
 
     def _pipe_primitive(self, U_cell: np.ndarray) -> Tuple[float, float, float, float, float]:
         rho = float(U_cell[0])
@@ -386,7 +439,11 @@ class Engine1DSolver:
             )[0]
         )
         T = max(p / (self.gas_constant * rho_safe), 1.0)
-        return rho_safe, u, p, T, 0.0
+        if self.species_enabled and U_cell.shape[0] > 3:
+            Y = float(np.clip(U_cell[3] / rho_safe, 0.0, 1.0))
+        else:
+            Y = 0.0
+        return rho_safe, u, p, T, Y
 
     def _apply_junction_capacitance(self, dt: float) -> None:
         if not self.junction_capacitance_cfg.enabled:
@@ -456,6 +513,8 @@ class Engine1DSolver:
             state["U"][-1, 0] = ghost[0]
             state["U"][-1, 1] = ghost[1]
             state["U"][-1, 2] = ghost[2]
+            if self.species_enabled:
+                state["U"][-1, 3] = ghost[3]
             _accumulate(mdot, Hdot, Ydot)
 
         tail = self.tail_state
@@ -488,6 +547,8 @@ class Engine1DSolver:
         tail["U"][0, 0] = ghost_tail[0]
         tail["U"][0, 1] = ghost_tail[1]
         tail["U"][0, 2] = ghost_tail[2]
+        if self.species_enabled:
+            tail["U"][0, 3] = ghost_tail[3]
         _accumulate(mdot_tail, Hdot_tail, Ydot_tail)
 
         update_junction_capacitance_state(
@@ -535,6 +596,10 @@ class Engine1DSolver:
         tail["U"][-1, 0] = rho_g
         tail["U"][-1, 1] = rho_g * u_g
         tail["U"][-1, 2] = float(np.clip(e_g, 0.0, self.settings.clamp_energy_max))
+        if self.species_enabled:
+            rho_i_safe = max(float(U_i[0]), self.settings.clamp_rho_min)
+            Y_i = float(np.clip(float(U_i[3]) / rho_i_safe, 0.0, 1.0)) if U_i.shape[0] > 3 else 0.0
+            tail["U"][-1, 3] = rho_g * Y_i
 
     def apply_boundary_conditions(
         self,
@@ -580,12 +645,15 @@ class Engine1DSolver:
                 if cd_val is None:
                     cd_val = getattr(self.settings, "exhaust_valve_cd", None)
                 cd_val = 0.9 if cd_val is None else float(cd_val)
-                self._apply_inlet(state, p_cyl, T_cyl, valve_area, dt, Cd=cd_val)
+                Y_cyl = 0.0
+                self._apply_inlet(state, p_cyl, T_cyl, valve_area, dt, Cd=cd_val, Y_stag=Y_cyl)
             else:
                 # Reflective ghost cell when valve is closed
                 state["U"][0, 0] = state["U"][1, 0]
                 state["U"][0, 1] = -state["U"][1, 1]
                 state["U"][0, 2] = state["U"][1, 2]
+                if self.species_enabled:
+                    state["U"][0, 3] = state["U"][1, 3]
 
         self._tail_atmosphere()
 
@@ -665,11 +733,15 @@ class Engine1DSolver:
             p_col, T_col, rho_col = self.collector.get_state()
             rho_col = max(rho_col, self.settings.clamp_rho_min)
             E_col = p_col / max((self.gamma - 1.0) * rho_col, 1e-12)
-            U_col = np.array([rho_col, 0.0, rho_col * E_col], dtype=np.float64)
+            if self.species_enabled:
+                U_col = np.array([rho_col, 0.0, rho_col * E_col, rho_col * self.collector_Y], dtype=np.float64)
+            else:
+                U_col = np.array([rho_col, 0.0, rho_col * E_col], dtype=np.float64)
 
             mdot_primary: List[float] = []
             mdot_sum = 0.0
             edot_sum = 0.0
+            ydot_sum = 0.0
 
             for state in self.primary_states:
                 U_int = state["U"][-2]
@@ -680,6 +752,8 @@ class Engine1DSolver:
                 mdot_primary.append(mdot_i)
                 mdot_sum += mdot_i
                 edot_sum += edot_i
+                if self.species_enabled:
+                    ydot_sum += float(flux[3] * area_end)
 
             flux_tail = rusanov_flux(U_col, tail["U"][1], self.gamma)
             area_tail = float(tail["areas"][0])
@@ -687,21 +761,72 @@ class Engine1DSolver:
             edot_tail = float(flux_tail[2] * area_tail)
             mdot_sum -= mdot_tail
             edot_sum -= edot_tail
+            if self.species_enabled:
+                ydot_sum -= float(flux_tail[3] * area_tail)
 
             self.collector.update(dt, mdot_sum, edot_sum)
+            if self.species_enabled:
+                self.collector_mY = self.collector_mY + ydot_sum * dt
+                if self.collector_mY < 0.0:
+                    self.collector_mY = 0.0
+                mass = max(self.collector.mass, 1e-12)
+                Y_col = self.collector_mY / mass
+                if Y_col < 0.0:
+                    Y_col = 0.0
+                elif Y_col > 1.0:
+                    Y_col = 1.0
+                self.collector_mY = Y_col * mass
+                self.collector_Y = Y_col
 
             # Re-apply collector BC with updated pressure using interface fluxes
             self._apply_collector_boundaries(mdot_primary, mdot_tail)
 
         # Advance all pipes
         for state in self.primary_states:
-            U_new = numerics.lax_wendroff_step(
-                state["U"],
+            if self.species_enabled:
+                U_new = numerics.lax_wendroff_step_scalar(
+                    state["U"],
+                    dt,
+                    state["dx"],
+                    state["areas"],
+                    state["friction"],
+                    state["diameters"],
+                    self.gamma,
+                    self.settings.artificial_diffusion,
+                    self.settings.clamp_rho_min,
+                    self.settings.clamp_p_min,
+                    self.settings.clamp_p_max,
+                    self.settings.clamp_u_max,
+                    self.settings.clamp_energy_max,
+                    self.settings.enable_heat_transfer_1d,
+                )
+            else:
+                U_new = numerics.lax_wendroff_step(
+                    state["U"],
+                    dt,
+                    state["dx"],
+                    state["areas"],
+                    state["friction"],
+                    state["diameters"],
+                    self.gamma,
+                    self.settings.artificial_diffusion,
+                    self.settings.clamp_rho_min,
+                    self.settings.clamp_p_min,
+                    self.settings.clamp_p_max,
+                    self.settings.clamp_u_max,
+                    self.settings.clamp_energy_max,
+                    self.settings.enable_heat_transfer_1d,
+                )
+            state["U"] = U_new
+
+        if self.species_enabled:
+            U_tail = numerics.lax_wendroff_step_scalar(
+                tail["U"],
                 dt,
-                state["dx"],
-                state["areas"],
-                state["friction"],
-                state["diameters"],
+                tail["dx"],
+                tail["areas"],
+                tail["friction"],
+                tail["diameters"],
                 self.gamma,
                 self.settings.artificial_diffusion,
                 self.settings.clamp_rho_min,
@@ -711,24 +836,23 @@ class Engine1DSolver:
                 self.settings.clamp_energy_max,
                 self.settings.enable_heat_transfer_1d,
             )
-            state["U"] = U_new
-
-        U_tail = numerics.lax_wendroff_step(
-            tail["U"],
-            dt,
-            tail["dx"],
-            tail["areas"],
-            tail["friction"],
-            tail["diameters"],
-            self.gamma,
-            self.settings.artificial_diffusion,
-            self.settings.clamp_rho_min,
-            self.settings.clamp_p_min,
-            self.settings.clamp_p_max,
-            self.settings.clamp_u_max,
-            self.settings.clamp_energy_max,
-            self.settings.enable_heat_transfer_1d,
-        )
+        else:
+            U_tail = numerics.lax_wendroff_step(
+                tail["U"],
+                dt,
+                tail["dx"],
+                tail["areas"],
+                tail["friction"],
+                tail["diameters"],
+                self.gamma,
+                self.settings.artificial_diffusion,
+                self.settings.clamp_rho_min,
+                self.settings.clamp_p_min,
+                self.settings.clamp_p_max,
+                self.settings.clamp_u_max,
+                self.settings.clamp_energy_max,
+                self.settings.enable_heat_transfer_1d,
+            )
         tail["U"] = U_tail
 
         # Atmospheric outlet (already set in apply_boundary_conditions, repeated for safety)
