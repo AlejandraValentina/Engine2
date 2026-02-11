@@ -19,6 +19,7 @@ from acoustics.audio_generator import (
     _smooth_waveform,
 )
 from core.engine_components import Engine, Pipe
+from core.knock import KnockConfig, compute_knock_index
 from core.legacy_compat import LEGACY_PROFILE_V1, apply_legacy_compat
 from core.pro_dyno_v2 import ProDynoV2Runner
 from core.thermo import CylinderSimulator
@@ -280,6 +281,59 @@ def _dyno_results_v2(engine: Engine, rpm_values: list[float], v2_settings: dict 
     return results
 
 
+def _build_knock_report(
+    engine: Engine,
+    raw: dict,
+    rpm_values: list[float],
+    coupling_mode: str,
+    *,
+    legacy_compat: str | None = None,
+    legacy_overrides: dict | None = None,
+) -> dict:
+    residual_cfg = getattr(engine.combustion, "residual_coupling", {}) or {}
+    if not bool(residual_cfg.get("enabled", False)):
+        raise ValueError("knock report requires combustion.residual_coupling.enabled = true")
+
+    knock_cfg = residual_cfg.get("knock", {})
+    if not isinstance(knock_cfg, dict):
+        knock_cfg = {}
+
+    simulator = CylinderSimulator(engine)
+    results: list[dict[str, float | bool]] = []
+    for rpm in rpm_values:
+        cycle = simulator.run_cycle(float(rpm))
+        trace = cycle.get("trace", {})
+        residual_fraction = float(trace.get("residual_fraction_est", 0.0))
+        start_angle = float(trace.get("start_angle_used", 360.0 - engine.combustion.ignition_advance))
+        entry = compute_knock_index(
+            cycle["angle"],
+            cycle["temperature"],
+            float(rpm),
+            start_angle,
+            residual_fraction,
+            config=knock_cfg,
+        )
+        entry["rpm"] = float(rpm)
+        results.append(entry)
+
+    knock_model = KnockConfig.from_dict(knock_cfg)
+    metadata = _metadata(
+        engine,
+        raw,
+        coupling_mode=coupling_mode,
+        legacy_compat=legacy_compat,
+        legacy_overrides=legacy_overrides,
+    )
+    metadata["knock_model"] = {
+        "A": knock_model.A,
+        "B": knock_model.B,
+        "threshold": knock_model.threshold,
+        "window_deg": knock_model.window_deg,
+        "residual_hot_k": knock_model.residual_hot_k,
+    }
+    return {"metadata": metadata, "results": results}
+
+
 def run_dyno(
     engine_path: Path,
     rpm_spec: str,
@@ -293,6 +347,7 @@ def run_dyno(
     debug_dyno_v2: bool = False,
     legacy_compat: str | None = None,
     auto_legacy_compat: bool = False,
+    knock_report: Path | None = None,
 ) -> None:
     engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
         engine_path,
@@ -341,6 +396,17 @@ def run_dyno(
         }
     output = {"metadata": metadata, "results": results}
     _write_json(out_path, output)
+
+    if knock_report is not None:
+        report = _build_knock_report(
+            engine,
+            raw,
+            rpm_values,
+            coupling_mode=coupling_mode,
+            legacy_compat=legacy_profile,
+            legacy_overrides=legacy_overrides,
+        )
+        _write_json(knock_report, report)
 
 
 def run_scope(
@@ -1195,6 +1261,12 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Log v2 VE numerator/denominator at 7000 rpm (debug)",
     )
+    dyno.add_argument(
+        "--knock-report",
+        type=Path,
+        default=None,
+        help="Write knock report JSON (opt-in; requires residual coupling).",
+    )
     _add_legacy_args(dyno)
     dyno.add_argument("--out", required=True, type=Path)
 
@@ -1329,6 +1401,7 @@ def main(argv: Iterable[str] | None = None) -> None:
             debug_dyno_v2=args.debug_dyno_v2,
             legacy_compat=args.legacy_compat,
             auto_legacy_compat=bool(args.auto_legacy_compat),
+            knock_report=args.knock_report,
         )
     elif args.command == "scope":
         run_scope(

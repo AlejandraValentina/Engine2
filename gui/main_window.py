@@ -68,6 +68,7 @@ from core.thermo import CylinderSimulator
 from core.units import cc_to_m3
 from core.wave_utils import compute_image_levels, compute_pressure_matrix
 from pywavedyn.cli import _metadata as cli_metadata
+from core.knock import KnockConfig, compute_knock_index
 from gui.widgets.scope_widget import ScopeWidget
 
 
@@ -121,6 +122,7 @@ class MainWindow(QMainWindow):
         self.dyno_progress = QProgressBar()
         self.dyno_status_label = QLabel("")
         self.dyno_export_btn = QPushButton("Export Dyno JSON...")
+        self.dyno_knock_export_checkbox = QCheckBox("Knock report (opt-in)")
         self.last_dyno_payload: Optional[dict[str, Any]] = None
         self.dyno_thread: Optional[QThread] = None
         self.dyno_worker: Optional[DynoWorker] = None
@@ -262,6 +264,7 @@ class MainWindow(QMainWindow):
         dyno_controls.addWidget(self.dyno_run_btn)
         dyno_controls.addWidget(self.dyno_cancel_btn)
         dyno_controls.addWidget(self.dyno_export_btn)
+        dyno_controls.addWidget(self.dyno_knock_export_checkbox)
         dyno_controls.addWidget(self.dyno_progress)
         dyno_controls.addWidget(self.dyno_status_label)
         dyno_controls.addStretch()
@@ -1553,6 +1556,45 @@ class MainWindow(QMainWindow):
             "results": results,
         }
 
+    def _build_knock_report_payload(self, rpm_values: list[int], mode: str) -> dict[str, Any]:
+        residual_cfg = getattr(self.engine.combustion, "residual_coupling", {}) or {}
+        if not bool(residual_cfg.get("enabled", False)):
+            raise ValueError("combustion.residual_coupling.enabled must be true for knock reports")
+
+        knock_cfg = residual_cfg.get("knock", {})
+        if not isinstance(knock_cfg, dict):
+            knock_cfg = {}
+
+        simulator = CylinderSimulator(self.engine)
+        results: list[dict[str, Any]] = []
+        for rpm in rpm_values:
+            cycle = simulator.run_cycle(float(rpm))
+            trace = cycle.get("trace", {})
+            residual_fraction = float(trace.get("residual_fraction_est", 0.0))
+            start_angle = float(trace.get("start_angle_used", 360.0 - self.engine.combustion.ignition_advance))
+            entry = compute_knock_index(
+                cycle["angle"],
+                cycle["temperature"],
+                float(rpm),
+                start_angle,
+                residual_fraction,
+                config=knock_cfg,
+            )
+            entry["rpm"] = float(rpm)
+            results.append(entry)
+
+        coupling_mode = "v2_orchestrator" if mode == "v2" else "none"
+        metadata = cli_metadata(self.engine, self.engine.to_dict(), coupling_mode=coupling_mode)
+        knock_model = KnockConfig.from_dict(knock_cfg)
+        metadata["knock_model"] = {
+            "A": knock_model.A,
+            "B": knock_model.B,
+            "threshold": knock_model.threshold,
+            "window_deg": knock_model.window_deg,
+            "residual_hot_k": knock_model.residual_hot_k,
+        }
+        return {"metadata": metadata, "results": results}
+
     def run_dyno_sweep(self) -> None:
         if self.dyno_thread and self.dyno_thread.isRunning():
             return
@@ -1634,6 +1676,7 @@ class MainWindow(QMainWindow):
     def _set_dyno_ui_running(self, running: bool) -> None:
         self.dyno_run_btn.setEnabled(not running)
         self.dyno_export_btn.setEnabled(not running)
+        self.dyno_knock_export_checkbox.setEnabled(not running)
         self.dyno_mode_combo.setEnabled(not running)
         self.dyno_quality_combo.setEnabled(not running)
         self.dyno_cancel_btn.setEnabled(running)
@@ -1766,6 +1809,22 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Export Dyno JSON", "Run a dyno sweep first.")
             return
 
+        knock_path = None
+        if self.dyno_knock_export_checkbox.isChecked():
+            residual_cfg = getattr(self.engine.combustion, "residual_coupling", {}) or {}
+            if not bool(residual_cfg.get("enabled", False)):
+                QMessageBox.critical(
+                    self,
+                    "Knock report unavailable",
+                    "Enable combustion.residual_coupling before exporting a knock report.",
+                )
+                return
+            knock_path, _ = QFileDialog.getSaveFileName(
+                self, "Export Knock Report", "knock_report.json", "JSON Files (*.json)"
+            )
+            if not knock_path:
+                return
+
         filename, _ = QFileDialog.getSaveFileName(
             self, "Export Dyno JSON", "dyno.json", "JSON Files (*.json)"
         )
@@ -1788,6 +1847,23 @@ class MainWindow(QMainWindow):
 
         Path(filename).write_text(json.dumps(payload, indent=2), encoding="utf-8")
         self.statusBar().showMessage(f"Dyno JSON exported to {filename}", 3000)
+
+        if knock_path:
+            try:
+                report = self._build_knock_report_payload(self._dyno_rpm_values, self._dyno_mode_running or "v1")
+                try:
+                    import jsonschema
+                except Exception:
+                    jsonschema = None
+                if jsonschema is not None:
+                    schema_path = Path("schemas/knock_report.schema.json")
+                    schema = json.loads(schema_path.read_text(encoding="utf-8"))
+                    jsonschema.validate(instance=report, schema=schema)
+            except Exception as exc:
+                QMessageBox.critical(self, "Knock report failed", str(exc))
+                return
+            Path(knock_path).write_text(json.dumps(report, indent=2), encoding="utf-8")
+            self.statusBar().showMessage(f"Knock report exported to {knock_path}", 3000)
 
     def update_analysis_table(self, rpm: float, result: dict[str, float]) -> bool:
         row = self.analysis_table.rowCount()
