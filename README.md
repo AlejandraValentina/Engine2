@@ -52,6 +52,10 @@ See: FEATURES.md and VALIDATION_GUIDE.md.
    ```bash
    python -m pytest
    ```
+9. **Run selfcheck (validation cases):**
+   ```bash
+   python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json
+   ```
 
 ## Docs
 - [TECHNICAL_DOCS.md](TECHNICAL_DOCS.md) – especificación técnica de modelos 0D/1D.
@@ -70,6 +74,13 @@ See: FEATURES.md and VALIDATION_GUIDE.md.
 - Contratos rápidos: `python -m pytest -q tests/test_contract_*.py`
 - Identidades/Tendencias/Sanidad: `python -m pytest -q tests/test_identities.py` | `tests/test_trends.py` | `tests/test_sanity_bands.py`
 
+## Advanced Core (v2)
+The v2.0 Advanced Physics Core lives in `core/advanced/` and runs in parallel with v1 (Quick Dyno).
+
+**Toy demo:**\n`python scripts/run_v2_toy.py`
+
+**Tests:**\n- Unit: `pytest -q`\n- Integration (opt-in): `pytest -q -m integration`
+
 ## Physics Overview
 - **Thermodynamics (0D):** Four-stroke phasing with Wiebe combustion (configurable a/m, burn duration, ignition advance), Woschni wall heat transfer, Chen–Flynn FMEP (A/B/C coefficients with user scaling), and Mach-index flow choking tied to valve geometry/port flow efficiency.
 - **Wave Dynamics (1D):** Euler equations with Lax–Wendroff integration, Darcy–Weisbach friction source, and ghost-cell boundaries for valves/outlets plus junction collectors for multi-cylinder exhausts. Current coupling is one-way: the 0D dyno provides cylinder pressure traces as inlet boundaries; there is no feedback from the 1D scope to the 0D solver.
@@ -87,4 +98,5 @@ See: FEATURES.md and VALIDATION_GUIDE.md.
 _Add your screenshots here to showcase the interface._
 
 ## License & Contributions
-License: TODO (add SPDX identifier and LICENSE file). Contributions, validation data, and new presets are welcome via issues and pull requests.
+SPDX-License-Identifier: MIT  
+License: MIT (see LICENSE). Contributions, validation data, and new presets are welcome via issues and pull requests.

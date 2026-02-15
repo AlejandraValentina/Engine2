@@ -11,6 +11,8 @@ import math
 from dataclasses import dataclass, field
 from typing import List, Optional
 
+from core.units import cc_to_m3, mm_to_m
+
 
 def migrate_preset_dict(data: dict) -> dict:
     """Normalize preset dictionaries for backward compatibility.
@@ -46,8 +48,8 @@ class Block:
     @property
     def displacement_cc(self) -> float:
         """Return total displacement in cubic centimeters."""
-        bore_m = self.bore * 1e-3
-        stroke_m = self.stroke * 1e-3
+        bore_m = mm_to_m(self.bore)
+        stroke_m = mm_to_m(self.stroke)
         single_cyl_vol_m3 = math.pi * (bore_m**2) * stroke_m / 4.0
         total_vol_m3 = single_cyl_vol_m3 * self.num_cylinders
         return total_vol_m3 * 1e6  # convert m^3 to cc
@@ -91,6 +93,8 @@ class CylinderHead:
     port_flow_cfm: float = 200.0  # peak flow at max lift @ 28" H2O per valve
     port_flow_efficiency: float = 0.65  # 0.1 (very restrictive) .. 1.0 (race)
     mach_tolerance: float = 0.75  # Mach index where choking begins
+    exhaust_valve_cd: float = 0.85  # discharge coefficient for exhaust valves
+    exhaust_valve_seat_diameter_mm: Optional[float] = None  # millimeters
     gasket_thickness_mm: float = 1.0
     gasket_bore_mm: float = 88.0
     deck_clearance_mm: float = 0.0
@@ -107,6 +111,8 @@ class CylinderHead:
             self.exhaust_valve_diameter_mm = self.exhaust_valve_diameter
         if self.exhaust_valve_diameter is None:
             self.exhaust_valve_diameter = self.exhaust_valve_diameter_mm
+        if self.exhaust_valve_seat_diameter_mm is None:
+            self.exhaust_valve_seat_diameter_mm = self.exhaust_valve_diameter_mm
 
     def to_dict(self) -> dict:
         return {
@@ -121,6 +127,8 @@ class CylinderHead:
             "port_flow_cfm": self.port_flow_cfm,
             "port_flow_efficiency": self.port_flow_efficiency,
             "mach_tolerance": self.mach_tolerance,
+            "exhaust_valve_cd": self.exhaust_valve_cd,
+            "exhaust_valve_seat_diameter_mm": self.exhaust_valve_seat_diameter_mm,
             "gasket_thickness_mm": self.gasket_thickness_mm,
             "gasket_bore_mm": self.gasket_bore_mm,
             "deck_clearance_mm": self.deck_clearance_mm,
@@ -137,6 +145,7 @@ class CylinderHead:
             "exhaust_valve_diameter_mm",
             data.get("exhaust_valve_diameter", 30.0),
         )
+        exhaust_seat = data.get("exhaust_valve_seat_diameter_mm", exhaust_dia)
         return cls(
             compression_ratio=data.get("compression_ratio", 10.5),
             intake_valves=data.get("intake_valves", 2),
@@ -149,6 +158,8 @@ class CylinderHead:
             port_flow_cfm=data.get("port_flow_cfm", 200.0),
             port_flow_efficiency=data.get("port_flow_efficiency", 0.65),
             mach_tolerance=data.get("mach_tolerance", 0.75),
+            exhaust_valve_cd=data.get("exhaust_valve_cd", 0.85),
+            exhaust_valve_seat_diameter_mm=exhaust_seat,
             gasket_thickness_mm=data.get("gasket_thickness_mm", 1.0),
             gasket_bore_mm=data.get("gasket_bore_mm", 88.0),
             deck_clearance_mm=data.get("deck_clearance_mm", 0.0),
@@ -160,9 +171,9 @@ class CylinderHead:
 class Pipe:
     """Representation of a duct segment used in intake or exhaust systems."""
 
-    length: float = 500.0
-    diameter_inlet: float = 45.0
-    diameter_outlet: float = 45.0
+    length: float = 500.0  # millimeters
+    diameter_inlet: float = 45.0  # millimeters
+    diameter_outlet: float = 45.0  # millimeters
     wall_temperature: float = 600.0
     friction_coeff: float = 0.02
 
@@ -225,6 +236,18 @@ class SimulationSettings:
     gamma_air: float = 1.40
     gamma_exhaust: float = 1.35
     gas_constant_R: float = 287.0  # J/(kg*K)
+    artificial_diffusion: float = 0.0  # dimensionless scaling for numerical smoothing
+    clamp_rho_min: float = 0.1  # kg/m^3
+    clamp_p_min: float = 1e-6  # Pa
+    clamp_p_max: float = 1e9  # Pa
+    clamp_u_max: float = 1500.0  # m/s
+    clamp_energy_max: float = 1.0e7  # J/m^3
+    enable_heat_transfer_1d: bool = False
+    wall_temperature_k: float = 450.0
+    enable_0d_to_1d_exhaust_coupling: bool = False
+    exhaust_valve_cd: float = 0.85
+    exhaust_valve_area_model: str = "curtain"
+    trace_metadata: bool = True
 
     def to_dict(self) -> dict:
         return {
@@ -238,6 +261,18 @@ class SimulationSettings:
             "gamma_air": self.gamma_air,
             "gamma_exhaust": self.gamma_exhaust,
             "gas_constant_R": self.gas_constant_R,
+            "artificial_diffusion": self.artificial_diffusion,
+            "clamp_rho_min": self.clamp_rho_min,
+            "clamp_p_min": self.clamp_p_min,
+            "clamp_p_max": self.clamp_p_max,
+            "clamp_u_max": self.clamp_u_max,
+            "clamp_energy_max": self.clamp_energy_max,
+            "enable_heat_transfer_1d": self.enable_heat_transfer_1d,
+            "wall_temperature_k": self.wall_temperature_k,
+            "enable_0d_to_1d_exhaust_coupling": self.enable_0d_to_1d_exhaust_coupling,
+            "exhaust_valve_cd": self.exhaust_valve_cd,
+            "exhaust_valve_area_model": self.exhaust_valve_area_model,
+            "trace_metadata": self.trace_metadata,
         }
 
     @classmethod
@@ -253,6 +288,18 @@ class SimulationSettings:
             gamma_air=data.get("gamma_air", 1.40),
             gamma_exhaust=data.get("gamma_exhaust", 1.35),
             gas_constant_R=data.get("gas_constant_R", 287.0),
+            artificial_diffusion=data.get("artificial_diffusion", 0.0),
+            clamp_rho_min=data.get("clamp_rho_min", 0.1),
+            clamp_p_min=data.get("clamp_p_min", 1e-6),
+            clamp_p_max=data.get("clamp_p_max", 1e9),
+            clamp_u_max=data.get("clamp_u_max", 1500.0),
+            clamp_energy_max=data.get("clamp_energy_max", 1.0e7),
+            enable_heat_transfer_1d=data.get("enable_heat_transfer_1d", False),
+            wall_temperature_k=data.get("wall_temperature_k", 450.0),
+            enable_0d_to_1d_exhaust_coupling=data.get("enable_0d_to_1d_exhaust_coupling", False),
+            exhaust_valve_cd=data.get("exhaust_valve_cd", 0.85),
+            exhaust_valve_area_model=data.get("exhaust_valve_area_model", "curtain"),
+            trace_metadata=data.get("trace_metadata", True),
         )
 
 
@@ -261,6 +308,15 @@ class Combustion:
     thermal_efficiency: float = 0.50  # 0.3 .. 0.7
     burn_duration: float = 50.0  # crank degrees
     ignition_advance: float = 30.0  # degrees BTDC
+    target_ca50_deg_atdc: Optional[float] = None
+    use_dynamic_burn_duration: bool = False
+    use_dynamic_ca50: bool = False
+    burn_duration_base: float = 50.0
+    burn_duration_rpm_factor: float = 0.0
+    burn_duration_load_factor: float = 0.0
+    ca50_base_deg_atdc: float = 8.0
+    ca50_rpm_factor: float = 0.0
+    ca50_load_factor: float = 0.0
     afr: float = 13.0  # air-fuel ratio
     chamber_type: str = "Modern Pentroof"
     wiebe_a: float = 5.0
@@ -271,6 +327,15 @@ class Combustion:
             "thermal_efficiency": self.thermal_efficiency,
             "burn_duration": self.burn_duration,
             "ignition_advance": self.ignition_advance,
+            "target_ca50_deg_atdc": self.target_ca50_deg_atdc,
+            "use_dynamic_burn_duration": self.use_dynamic_burn_duration,
+            "use_dynamic_ca50": self.use_dynamic_ca50,
+            "burn_duration_base": self.burn_duration_base,
+            "burn_duration_rpm_factor": self.burn_duration_rpm_factor,
+            "burn_duration_load_factor": self.burn_duration_load_factor,
+            "ca50_base_deg_atdc": self.ca50_base_deg_atdc,
+            "ca50_rpm_factor": self.ca50_rpm_factor,
+            "ca50_load_factor": self.ca50_load_factor,
             "afr": self.afr,
             "chamber_type": self.chamber_type,
             "wiebe_a": self.wiebe_a,
@@ -283,6 +348,15 @@ class Combustion:
             thermal_efficiency=data.get("thermal_efficiency", 0.50),
             burn_duration=data.get("burn_duration", 50.0),
             ignition_advance=data.get("ignition_advance", 30.0),
+            target_ca50_deg_atdc=data.get("target_ca50_deg_atdc"),
+            use_dynamic_burn_duration=data.get("use_dynamic_burn_duration", False),
+            use_dynamic_ca50=data.get("use_dynamic_ca50", False),
+            burn_duration_base=data.get("burn_duration_base", 50.0),
+            burn_duration_rpm_factor=data.get("burn_duration_rpm_factor", 0.0),
+            burn_duration_load_factor=data.get("burn_duration_load_factor", 0.0),
+            ca50_base_deg_atdc=data.get("ca50_base_deg_atdc", 8.0),
+            ca50_rpm_factor=data.get("ca50_rpm_factor", 0.0),
+            ca50_load_factor=data.get("ca50_load_factor", 0.0),
             afr=data.get("afr", 13.0),
             chamber_type=data.get("chamber_type", "Modern Pentroof"),
             wiebe_a=data.get("wiebe_a", 5.0),
@@ -363,6 +437,7 @@ class Camshaft:
 
 @dataclass
 class Friction:
+    """Parameterized FMEP curve: kPa = A + B*rpm + C*rpm^2."""
     bottom_end_type: str = "Standard"  # "Standard", "Performance", "Race"
     water_pump: bool = True
     alternator: bool = True
@@ -530,6 +605,56 @@ class Engine:
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(self.to_dict(), f, indent=2)
 
+    def validate_with_issues(self) -> list[str]:
+        """Return a list of validation issues without raising."""
+        issues: list[tuple[str, str]] = []
+
+        def _fail(path: str, msg: str) -> None:
+            issues.append((path, msg))
+
+        if self.block.bore <= 0 or self.block.stroke <= 0 or self.block.conrod_length <= 0:
+            _fail("block.geometry", "Block geometry must be positive (bore/stroke/conrod)")
+        if self.block.num_cylinders < 1:
+            _fail("block.num_cylinders", "Engine must have at least one cylinder")
+        if self.head.compression_ratio <= 1.0:
+            _fail("head.compression_ratio", "Compression ratio must exceed 1.0")
+        if getattr(self.head, "port_flow_cfm", 0.0) < 0.0:
+            _fail("head.port_flow_cfm", "Port flow CFM must be non-negative")
+        throttle_cfm = getattr(self.intake, "throttle_cfm", None)
+        throttle_flow_cfm = getattr(self.intake, "throttle_flow_cfm", None)
+        if throttle_cfm is not None and throttle_cfm < 0:
+            _fail("intake.throttle_cfm", "Throttle CFM must be non-negative")
+        if throttle_flow_cfm is not None and throttle_flow_cfm < 0:
+            _fail("intake.throttle_flow_cfm", "Throttle flow CFM must be non-negative")
+        if getattr(self.intake, "runner_length", 1.0) <= 0.0 or getattr(self.intake, "runner_diameter", 1.0) <= 0.0:
+            _fail("intake.geometry", "Intake runner geometry must be positive")
+        if getattr(self.combustion, "thermal_efficiency", 0.5) <= 0.0:
+            _fail("combustion.thermal_efficiency", "Combustion thermal efficiency must be positive")
+        if getattr(self.fuel, "energy_density", 0.0) <= 0.0:
+            _fail("fuel.energy_density", "Fuel energy density must be positive")
+        exhaust_cd = getattr(self.simulation_settings, "exhaust_valve_cd", None)
+        if exhaust_cd is None:
+            exhaust_cd = getattr(self.head, "exhaust_valve_cd", 0.85)
+        if not (0.0 < float(exhaust_cd) <= 1.2):
+            _fail("head.exhaust_valve_cd", "Exhaust valve Cd must be between 0 and 1.2")
+        seat_mm = getattr(self.head, "exhaust_valve_seat_diameter_mm", self.head.exhaust_valve_diameter_mm)
+        if seat_mm is None or seat_mm <= 0.0:
+            _fail("head.exhaust_valve_seat_diameter_mm", "Exhaust valve seat diameter must be positive")
+        if getattr(self.simulation_settings, "exhaust_valve_area_model", "curtain") not in {"curtain", "fixed"}:
+            _fail(
+                "simulation_settings.exhaust_valve_area_model",
+                "Exhaust valve area model must be 'curtain' or 'fixed'",
+            )
+
+        return [msg for _path, msg in sorted(issues, key=lambda item: item[0])]
+
+    def validate(self, strict: bool = False) -> bool:
+        """Validate basic physical ranges; raise if strict and invalid."""
+        issues = self.validate_with_issues()
+        if issues and strict:
+            raise ValueError("; ".join(issues))
+        return not issues
+
     @classmethod
     def load_from_file(cls, filename: str) -> "Engine":
         with open(filename, "r", encoding="utf-8") as f:
@@ -552,13 +677,13 @@ class Engine:
         V_deck = area_m2 * deck_clearance_m
 
         if head.combustion_chamber_vol is not None:
-            V_chamber = head.combustion_chamber_vol * 1e-6
+            V_chamber = cc_to_m3(head.combustion_chamber_vol)
         elif head.compression_ratio > 1.0:
             V_chamber = V_swept / (head.compression_ratio - 1.0)
         else:
             return 0.0
 
-        V_total_clearance = V_chamber + V_gasket + V_deck - (head.piston_dome_cc * 1e-6)
+        V_total_clearance = V_chamber + V_gasket + V_deck - cc_to_m3(head.piston_dome_cc)
         if V_total_clearance <= 0.0:
             return 0.0
 

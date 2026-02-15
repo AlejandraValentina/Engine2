@@ -17,7 +17,7 @@ def test_outlet_boundary_constructs_ghost(u_internal: float):
     tail_state = solver.tail_state
     rho_i = float(tail_state["U"][-2, 0])
     p_i = solver.p_atm * 1.05  # perturb pressure to avoid trivial copy
-    energy_density = p_i / (numerics.GAMMA - 1.0) / rho_i + 0.5 * u_internal * u_internal
+    energy_density = p_i / (solver.gamma - 1.0) / rho_i + 0.5 * u_internal * u_internal
 
     tail_state["U"][-2, 0] = rho_i
     tail_state["U"][-2, 1] = rho_i * u_internal
@@ -28,12 +28,12 @@ def test_outlet_boundary_constructs_ghost(u_internal: float):
     U_ghost = tail_state["U"][-1]
     rho_g, mom_g, energy_g = U_ghost
     u_g = mom_g / rho_g
-    p_g = (numerics.GAMMA - 1.0) * (energy_g - 0.5 * rho_g * u_g * u_g)
+    p_g = (solver.gamma - 1.0) * (energy_g - 0.5 * rho_g * u_g * u_g)
 
     assert np.isfinite(U_ghost).all()
     assert rho_g > 0
     assert energy_g >= 0
     assert abs(p_g - solver.p_atm) / solver.p_atm < 0.05
     if u_internal < 0:
-        T_ghost = p_g / (numerics.R * rho_g)
+        T_ghost = p_g / (solver.gas_constant * rho_g)
         assert pytest.approx(solver.T_amb, rel=0.1) == T_ghost

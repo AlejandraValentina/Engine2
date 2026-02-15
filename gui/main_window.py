@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
+import traceback
+from pathlib import Path
 from typing import Any, Optional
 
 import numpy as np
@@ -26,6 +29,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QTextBrowser,
     QPushButton,
+    QSplitter,
     QSlider,
     QStyle,
     QSpinBox,
@@ -57,8 +61,11 @@ from core.engine_components import (
 )
 from core.junctions import Junction
 from core.model import Pipe
+from core.pro_dyno_v2 import ProDynoV2Runner
 from core.simulator import Engine1DSolver
 from core.thermo import CylinderSimulator
+from core.wave_utils import compute_image_levels, compute_pressure_matrix
+from gui.widgets.scope_widget import ScopeWidget
 
 
 class MainWindow(QMainWindow):
@@ -66,11 +73,14 @@ class MainWindow(QMainWindow):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setWindowTitle("PyWaveDyn - Virtual Dyno")
         self.resize(1280, 800)
 
         self.engine = Engine()
         self.audio_synth = AudioSynthesizer()
+        self.current_project_path: Optional[str] = None
+        self.block_displacement_label: Optional[QLabel] = None
+        self.block_piston_speed_label: Optional[QLabel] = None
+        self._update_window_title()
 
         self.navigation_tree = QTreeWidget()
         self.navigation_tree.setHeaderHidden(True)
@@ -89,6 +99,9 @@ class MainWindow(QMainWindow):
         self.wave_record_btn = QPushButton("🔴 Record")
         self.wave_record_btn.setCheckable(True)
         self.wave_save_btn = QPushButton("💾 Save Audio")
+        self.wave_save_btn.setEnabled(False)
+        self.wave_frame_indicator: Optional[pg.InfiniteLine] = None
+        self.wave_scope = ScopeWidget()
         self.fabrication_table = QTableWidget()
         self.collector_type_combo = QComboBox()
         self.collector_inlet_label = QLabel("-")
@@ -110,7 +123,7 @@ class MainWindow(QMainWindow):
         self.wave_matrix: Optional[np.ndarray] = None
         self.wave_history: list[np.ndarray] = []
         self.wave_time_vector: list[float] = []
-        self.wave_audio_samples: list[float] = []
+        self.wave_x_axis: Optional[np.ndarray] = None
         self.timer = QTimer(self)
         self._setup_views()
 
@@ -132,6 +145,10 @@ class MainWindow(QMainWindow):
         save_action = QAction("Save", self)
         save_action.triggered.connect(self.save_engine)
         file_menu.addAction(save_action)
+
+        save_as_action = QAction("Save As...", self)
+        save_as_action.triggered.connect(self.save_engine_as)
+        file_menu.addAction(save_as_action)
 
         load_action = QAction("Load", self)
         load_action.triggered.connect(self.load_project)
@@ -359,9 +376,16 @@ class MainWindow(QMainWindow):
 
         layout.addLayout(controls)
 
-        # Heatmap-style wave visualization
+        # Heatmap-style wave visualization with frame indicator
         self.wave_plot = pg.PlotWidget(background="k")
         self.wave_plot.addItem(self.wave_image)
+        self.wave_frame_indicator = pg.InfiniteLine(
+            angle=0,
+            pos=0.0,
+            pen=pg.mkPen(color=QColor(255, 255, 0), width=2, style=Qt.DashLine),
+            movable=False,
+        )
+        self.wave_plot.addItem(self.wave_frame_indicator)
         pos = np.array([0.0, 0.5, 1.0])
         color = np.array(
             [[0, 0, 255, 255], [0, 0, 0, 255], [255, 255, 0, 255]], dtype=np.ubyte
@@ -371,7 +395,12 @@ class MainWindow(QMainWindow):
         self.wave_plot.setLabel("bottom", "Pipe Length (m)")
         self.wave_plot.setLabel("left", "Crank Angle (deg)")
 
-        layout.addWidget(self.wave_plot)
+        splitter = QSplitter(Qt.Vertical)
+        splitter.addWidget(self.wave_plot)
+        splitter.addWidget(self.wave_scope)
+        splitter.setSizes([300, 200])
+
+        layout.addWidget(splitter)
         container.setLayout(layout)
         return container
 
@@ -437,6 +466,8 @@ class MainWindow(QMainWindow):
     def _clear_property_form(self) -> None:
         while self.property_form.rowCount():
             self.property_form.removeRow(0)
+        self.block_displacement_label = None
+        self.block_piston_speed_label = None
 
     def _show_placeholder(self, message: str) -> None:
         self._clear_property_form()
@@ -480,13 +511,19 @@ class MainWindow(QMainWindow):
 
     def _build_block_form(self, block: Block) -> None:
         self._clear_property_form()
-        self.property_form.addRow(self._label_value("Displacement (cc)", f"{block.displacement_cc:.1f}"))
+        self.block_displacement_label = QLabel(f"{block.displacement_cc:.1f}")
+        displacement_row = self._label_value("Displacement (cc)", self.block_displacement_label)
+        self.property_form.addRow(displacement_row)
+        mean_piston_speed = 2.0 * (block.stroke * 1e-3) * block.redline_rpm / 60.0
+        self.block_piston_speed_label = QLabel(f"{mean_piston_speed:.2f}")
+        piston_row = self._label_value("Mean Piston Speed @ Redline (m/s)", self.block_piston_speed_label)
+        self.property_form.addRow(piston_row)
 
         bore_spin = self._double_spin(block.bore, 50.0, 110.0, 0.1)
         self._bind_spin(bore_spin, lambda val: self._update_value(block, "bore", val), "bore")
         self.property_form.addRow("Bore (mm)", bore_spin)
 
-        stroke_spin = self._double_spin(block.stroke, 40.0, 120.0, 0.1)
+        stroke_spin = self._double_spin(block.stroke, 10.0, 120.0, 0.1)
         self._bind_spin(stroke_spin, lambda val: self._update_value(block, "stroke", val), "stroke")
         self.property_form.addRow("Stroke (mm)", stroke_spin)
 
@@ -959,25 +996,39 @@ class MainWindow(QMainWindow):
         spin.setValue(value)
         return spin
 
+    def _update_window_title(self) -> None:
+        title = "PyWaveDyn - Virtual Dyno"
+        if self.current_project_path:
+            title = f"{title} — {Path(self.current_project_path).name}"
+        self.setWindowTitle(title)
+
     def _bind_spin(self, spin: Any, setter: Any, attr_name: Optional[str] = None) -> None:
         def handler() -> None:
+            label = attr_name or "value"
             try:
                 val = spin.value()
                 setter(val)
-                label = attr_name or "value"
                 self.statusBar().showMessage(f"Updated {label} to {val}", 2000)
-            except Exception:
-                pass
+            except Exception as exc:
+                logger = logging.getLogger(__name__)
+                trace = traceback.format_exc()
+                logger.error("Failed to update %s: %s\n%s", label, exc, trace)
+                message = f"Failed to update {label}: {exc}"
+                self.statusBar().showMessage(message, 4000)
+                QMessageBox.critical(self, "Update Error", message)
 
         spin.editingFinished.connect(handler)
 
-    def _label_value(self, label: str, value: str) -> QWidget:
+    def _label_value(self, label: str, value: str | QLabel) -> QWidget:
         container = QWidget()
         layout = QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(QLabel(label))
         layout.addStretch()
-        layout.addWidget(QLabel(value))
+        if isinstance(value, QLabel):
+            layout.addWidget(value)
+        else:
+            layout.addWidget(QLabel(value))
         container.setLayout(layout)
         return container
 
@@ -985,8 +1036,20 @@ class MainWindow(QMainWindow):
         setattr(obj, attr, value)
         current_item = self.navigation_tree.currentItem()
         if current_item and isinstance(obj, Block):
-            self._build_block_form(obj)
+            self._update_block_derived_labels(obj)
+            if attr in {"config"}:
+                self._schedule_block_form_rebuild(obj)
         self.update_overview()
+
+    def _update_block_derived_labels(self, block: Block) -> None:
+        if self.block_displacement_label is not None:
+            self.block_displacement_label.setText(f"{block.displacement_cc:.1f}")
+        if self.block_piston_speed_label is not None:
+            mean_piston_speed = 2.0 * (block.stroke * 1e-3) * block.redline_rpm / 60.0
+            self.block_piston_speed_label.setText(f"{mean_piston_speed:.2f}")
+
+    def _schedule_block_form_rebuild(self, block: Block) -> None:
+        QTimer.singleShot(0, lambda b=block: self._build_block_form(b))
 
     def _clear_head_chamber_override(self, head: CylinderHead) -> None:
         head.combustion_chamber_vol = 0.0
@@ -1016,6 +1079,10 @@ class MainWindow(QMainWindow):
     def update_overview(self) -> None:
         if not hasattr(self, "overview_browser"):
             return
+
+        project_name = "Unsaved Project"
+        if self.current_project_path:
+            project_name = Path(self.current_project_path).name
 
         block = self.engine.block
         head = self.engine.head
@@ -1057,7 +1124,7 @@ class MainWindow(QMainWindow):
             ]
 
         html_parts = [
-            "<h2>Project: PyWaveDyn Engine</h2>",
+            f"<h2>Project: {project_name}</h2>",
             "<h3>Short Block</h3>",
             "<ul>",
             f"<li><b>Config:</b> {block.config} {block.num_cylinders}</li>",
@@ -1132,9 +1199,29 @@ class MainWindow(QMainWindow):
 
     # -------------------------- File IO -----------------------------------
     def save_engine(self) -> None:
-        filename, _ = QFileDialog.getSaveFileName(self, "Save Engine", "engine.json", "JSON Files (*.json)")
+        if self.current_project_path:
+            self._save_engine_to_path(self.current_project_path)
+            return
+        self.save_engine_as()
+
+    def save_engine_as(self) -> None:
+        filename, _ = QFileDialog.getSaveFileName(self, "Save Engine As", "engine.json", "JSON Files (*.json)")
         if filename:
-            self.engine.save_to_file(filename)
+            self._save_engine_to_path(filename)
+
+    def _save_engine_to_path(self, filename: str) -> None:
+        try:
+            self.engine.validate(strict=True)
+        except ValueError as exc:
+            message = f"Cannot save engine: {exc}"
+            self.statusBar().showMessage(message, 4000)
+            QMessageBox.critical(self, "Validation Error", message)
+            return
+        self.engine.save_to_file(filename)
+        self.current_project_path = filename
+        self._update_window_title()
+        self.update_overview()
+        self.statusBar().showMessage("Engine saved.", 2000)
 
     def load_project(self) -> None:
         filename, _ = QFileDialog.getOpenFileName(self, "Load Engine", "", "JSON Files (*.json)")
@@ -1143,14 +1230,25 @@ class MainWindow(QMainWindow):
                 data = json.load(f)
 
             self.engine = Engine.from_dict(data)
+            issues = self.engine.validate_with_issues()
             self.wave_solver = None
             self.audio_synth = AudioSynthesizer()
             self.timer.stop()
             self.refresh_tree()
             self.update_properties_panel(None)
+            self.current_project_path = filename
+            self._update_window_title()
             self.update_overview()
             self.main_stack.setCurrentIndex(0)
             self.tabs.setCurrentIndex(0)
+            if issues:
+                issue_text = "\n".join(f"- {issue}" for issue in issues)
+                QMessageBox.warning(
+                    self,
+                    "Validation Warnings",
+                    f"Engine loaded with validation warnings:\n{issue_text}",
+                )
+                self.statusBar().showMessage("Loaded engine with validation warnings.", 4000)
 
     # Backwards compatibility with older action wiring
     def load_engine(self) -> None:  # pragma: no cover - retained for older menu hookups
@@ -1225,11 +1323,13 @@ class MainWindow(QMainWindow):
             tailpipe,
             block.firing_order,
             collector_volume=collector.volume,
+            settings=self.engine.simulation_settings,
+            camshaft=self.engine.camshaft,
+            head=self.engine.head,
         )
         self.audio_synth = AudioSynthesizer()
         self.wave_history = []
         self.wave_time_vector = []
-        self.wave_audio_samples = []
 
     def run_wave_calculation(self) -> None:
         if self.wave_solver is None:
@@ -1238,33 +1338,38 @@ class MainWindow(QMainWindow):
             return
 
         rpm = float(self.wave_rpm_spin.value())
+        record_audio = self.wave_record_btn.isChecked()
         self.audio_synth = AudioSynthesizer()
         history, audio_pressures, time_vector = self.wave_solver.run_full_simulation(
             rpm, cycles=2
         )
         self.wave_history = history
         self.wave_time_vector = time_vector
-        self.wave_audio_samples = audio_pressures
         self.wave_matrix = None
-        for t, p in zip(time_vector, audio_pressures):
-            self.audio_synth.add_sample(t, p)
+        self.wave_x_axis = None
+
+        if record_audio:
+            for t, p in zip(time_vector, audio_pressures):
+                self.audio_synth.add_sample(t, p)
+            self.wave_save_btn.setEnabled(len(audio_pressures) > 0)
+        else:
+            self.wave_save_btn.setEnabled(False)
 
         if self.wave_history:
-            pressures = []
-            for state in self.wave_history:
-                p_grid = (numerics.GAMMA - 1.0) * (
-                    state[:, 2] - 0.5 * (state[:, 1] ** 2) / state[:, 0]
-                )
-                pressures.append(p_grid)
-            self.wave_matrix = np.vstack(pressures)
+            self.wave_matrix = compute_pressure_matrix(
+                self.wave_history, self.wave_solver.gamma
+            )
 
-            levels = (80000.0, 140000.0)
+            levels = compute_image_levels(self.wave_matrix)
             self.wave_image.setImage(self.wave_matrix.T, levels=levels)
             total_degrees = float(self.wave_matrix.shape[0])
 
             primary_length = (
                 self.wave_solver.primary_states[0]["dx"]
                 * self.wave_solver.primary_states[0]["U"].shape[0]
+            )
+            self.wave_x_axis = np.arange(self.wave_matrix.shape[1]) * (
+                self.wave_solver.primary_states[0]["dx"]
             )
             self.wave_image.setRect(QRectF(0.0, 0.0, primary_length, total_degrees))
             self.wave_plot.setYRange(0.0, total_degrees)
@@ -1278,6 +1383,8 @@ class MainWindow(QMainWindow):
         else:
             self.wave_scrub_slider.setEnabled(False)
             self.wave_image.clear()
+            self.wave_scope.update_data([], [])
+            self.wave_scope.update_status(0.0, "N/A", 0.0)
 
     def update_wave_plot(self, index: int) -> None:
         if self.wave_matrix is None or self.wave_matrix.size == 0:
@@ -1285,6 +1392,12 @@ class MainWindow(QMainWindow):
         idx = max(0, min(int(index), self.wave_matrix.shape[0] - 1))
         rpm = float(self.wave_rpm_spin.value())
         angle = (self.wave_time_vector[idx] * rpm * 6.0) % 720.0
+        if self.wave_frame_indicator is not None:
+            self.wave_frame_indicator.setPos(float(idx))
+        if self.wave_x_axis is not None:
+            self.wave_scope.update_data(self.wave_x_axis, self.wave_matrix[idx])
+            sim_time = self.wave_time_vector[idx] if idx < len(self.wave_time_vector) else 0.0
+            self.wave_scope.update_status(angle, "N/A", sim_time)
         self.statusBar().showMessage(
             f"Angle {angle:5.1f} deg | Frame {idx+1}/{self.wave_matrix.shape[0]}", 1500
         )
@@ -1487,16 +1600,13 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Fabrication Report", "\n".join(report_lines))
 
     def run_pro_dyno_sweep(self) -> None:
-        simulator = CylinderSimulator(self.engine)
         max_rpm = int(self.engine.block.redline_rpm)
         rpm_values = list(range(1000, max_rpm + 500, 500))
-        power_hp: list[float] = []
-        torque_nm: list[float] = []
-
-        for rpm in rpm_values:
-            result = simulator.run_pro_cycle(rpm)
-            power_hp.append(result.get("mean_power_hp", 0.0))
-            torque_nm.append(result.get("mean_torque_nm", 0.0))
+        runner = ProDynoV2Runner(self.engine)
+        results = runner.run_sweep(rpm_values)
+        rpm_values = results.get("rpm", rpm_values)
+        power_hp = results.get("mean_power_hp", [])
+        torque_nm = results.get("mean_torque_nm", [])
 
         self.pro_dyno_plot.clear()
         self.pro_dyno_plot.addLegend(clear=True)

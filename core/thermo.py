@@ -8,6 +8,7 @@ from typing import Dict
 import numpy as np
 
 from core.engine_components import Engine
+from core.units import bar_to_pa, cc_to_m3, mm_to_m
 
 logger = logging.getLogger(__name__)
 
@@ -19,9 +20,9 @@ def piston_geometry(angle_array_deg: np.ndarray, bore: float, stroke: float, con
     angle_array_deg is expected in crank degrees.
     """
     theta = np.deg2rad(angle_array_deg)
-    r = (stroke * 1e-3) / 2.0  # crank radius (m)
-    l = conrod * 1e-3  # rod length (m)
-    area = math.pi * (bore * 1e-3) ** 2 / 4.0
+    r = mm_to_m(stroke) / 2.0  # crank radius (m)
+    l = mm_to_m(conrod)  # rod length (m)
+    area = math.pi * (mm_to_m(bore) ** 2) / 4.0
 
     sin_t = np.sin(theta)
     cos_t = np.cos(theta)
@@ -39,7 +40,6 @@ def wiebe_function(
     angle_array_deg: np.ndarray,
     start_angle: float,
     duration: float,
-    efficiency: float,
     a: float,
     m: float,
 ):
@@ -52,8 +52,8 @@ def wiebe_function(
     expo = -a * theta_rel ** (m + 1)
     x_val = 1.0 - np.exp(expo)
 
-    x[mask] = x_val * efficiency
-    x[theta > start_angle + duration] = efficiency
+    x[mask] = x_val
+    x[theta > start_angle + duration] = 1.0
     return x
 
 
@@ -62,6 +62,7 @@ class CylinderSimulator:
 
     def __init__(self, engine: Engine):
         self.engine = engine
+        self.engine.validate(strict=True)
 
     def _calculate_dynamic_ve(
         self,
@@ -72,6 +73,7 @@ class CylinderSimulator:
         gamma_air: float,
         gas_constant: float,
         ambient_temp_k: float,
+        return_debug: bool = False,
     ):
         """Estimate volumetric efficiency and Mach index with configurable choking."""
         cam_peak = max(getattr(self.engine.camshaft, "peak_rpm", 5500.0), 1500.0)
@@ -106,8 +108,11 @@ class CylinderSimulator:
         ve = max(0.2, base_curve * choke_factor)
 
         flow_loss = getattr(self.engine.intake, "flow_loss_coefficient", 0.0)
-        ve *= max(0.0, 1.0 - flow_loss)
+        flow_loss_factor = max(0.0, 1.0 - flow_loss)
+        ve *= flow_loss_factor
 
+        if return_debug:
+            return ve, mach_index, base_curve, choke_factor, flow_loss_factor
         return ve, mach_index
 
     def run_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
@@ -118,22 +123,21 @@ class CylinderSimulator:
 
         settings = getattr(self.engine, "simulation_settings", None)
         heat_loss_factor = getattr(settings, "heat_loss_factor", 1.0)
-        pipe_friction_factor = getattr(settings, "pipe_friction_factor", 1.0)
         tuning_sensitivity = getattr(settings, "tuning_sensitivity", 1.0)
         ambient_temp_k = (getattr(settings, "air_temperature_c", 25.0) + 273.15)
         gas_constant = getattr(settings, "gas_constant_R", 287.0)
         gamma_air = getattr(settings, "gamma_air", 1.4)
         gamma_exh = getattr(settings, "gamma_exhaust", 1.35)
         # Absolute ambient pressure (Pa)
-        ambient_pressure_pa = getattr(settings, "air_pressure_bar", 1.013) * 100000.0
+        ambient_pressure_pa = bar_to_pa(getattr(settings, "air_pressure_bar", 1.013))
 
         cam = self.engine.camshaft
         comb = getattr(self.engine, "combustion", None)
         ignition = getattr(comb, "ignition_advance", 30.0)
-        burn_duration = getattr(comb, "burn_duration", 50.0)
         afr_user = getattr(comb, "afr", getattr(self.engine.fuel, "stoich_afr", 14.7))
         wiebe_a = getattr(comb, "wiebe_a", 5.0)
         wiebe_m = getattr(comb, "wiebe_m", 2.0)
+        target_ca50 = getattr(comb, "target_ca50_deg_atdc", None)
 
         fuel_cfg = getattr(self.engine, "fuel", None)
         fuel_lhv = getattr(fuel_cfg, "energy_density", 44e6)
@@ -149,8 +153,8 @@ class CylinderSimulator:
             angle_arr, self.engine.block.bore, self.engine.block.stroke, self.engine.block.conrod_length
         )
 
-        bore_m = self.engine.block.bore * 1e-3
-        stroke_m = self.engine.block.stroke * 1e-3
+        bore_m = mm_to_m(self.engine.block.bore)
+        stroke_m = mm_to_m(self.engine.block.stroke)
         area = math.pi * bore_m ** 2 / 4.0
         Vd = area * stroke_m
 
@@ -160,7 +164,7 @@ class CylinderSimulator:
         head = self.engine.head
         compression_ratio = max(head.compression_ratio, 1.01)
         if head.combustion_chamber_vol is not None and head.combustion_chamber_vol > 0.0:
-            Vc = head.combustion_chamber_vol * 1e-6
+            Vc = cc_to_m3(head.combustion_chamber_vol)
         else:
             Vc = Vd / (compression_ratio - 1.0)
 
@@ -173,7 +177,7 @@ class CylinderSimulator:
         V_IVC = max(volume_at(IVC), 1e-9)
 
         boost_bar = getattr(self.engine.supercharger, "boost_pressure_bar", 0.0)
-        boost_pa = float(boost_bar) * 100000.0
+        boost_pa = bar_to_pa(float(boost_bar))
         # Manifold pressure is always absolute: ambient + boost (boost may be zero for NA).
         P_manifold = ambient_pressure_pa + boost_pa
         T_boost = ambient_temp_k * (P_manifold / ambient_pressure_pa) ** 0.28
@@ -181,12 +185,19 @@ class CylinderSimulator:
         T_charge = ambient_temp_k + (T_boost - ambient_temp_k) * (1.0 - intercooler_eff)
 
         piston_speed = 2.0 * stroke_m * rpm / 60.0
-        base_ve, mach_index = self._calculate_dynamic_ve(
-            rpm, piston_speed, bore_m, cam.intake_duration, gamma_air, gas_constant, ambient_temp_k
+        base_ve, mach_index, ve_cam_factor, ve_mach_factor, ve_flow_loss_factor = self._calculate_dynamic_ve(
+            rpm,
+            piston_speed,
+            bore_m,
+            cam.intake_duration,
+            gamma_air,
+            gas_constant,
+            ambient_temp_k,
+            return_debug=True,
         )
 
-        runner_length_m = max(self.engine.intake.runner_length * 1e-3, 1e-6)
-        runner_dia_m = max(self.engine.intake.runner_diameter * 1e-3, 1e-6)
+        runner_length_m = max(mm_to_m(self.engine.intake.runner_length), 1e-6)
+        runner_dia_m = max(mm_to_m(self.engine.intake.runner_diameter), 1e-6)
 
         runner_length_in = runner_length_m / 0.0254
         rpm_tune = 84000.0 / runner_length_in
@@ -197,8 +208,8 @@ class CylinderSimulator:
             peak = rpm_tune * h
             sigma = max(200.0, peak * 0.12)
             tuning_boost += b * math.exp(-0.5 * ((rpm - peak) / sigma) ** 2)
-        exhaust_length_m = max(self.engine.exhaust.header_primary_length * 1e-3, 1e-6)
-        exhaust_dia_m = max(self.engine.exhaust.header_primary_diameter * 1e-3, 1e-6)
+        exhaust_length_m = max(mm_to_m(self.engine.exhaust.header_primary_length), 1e-6)
+        exhaust_dia_m = max(mm_to_m(self.engine.exhaust.header_primary_diameter), 1e-6)
 
         exhaust_length_in = exhaust_length_m / 0.0254
         exhaust_peak = 115000.0 / exhaust_length_in
@@ -216,55 +227,66 @@ class CylinderSimulator:
         reversion_factor = max(0.85, 1.0 - (ivc_abdc * 0.002 * (1.0 - rpm_ratio)))
 
         ve_prelim = np.clip(base_ve * tuning_factor * reversion_factor, 0.0, 1.5)
+        ve_cam_factor = float(ve_cam_factor)
+        ve_mach_factor = float(ve_mach_factor)
+        ve_flow_loss_factor = float(ve_flow_loss_factor)
+
+        bmep_est_bar = (P_manifold / 1e5) * ve_prelim * 10.0
+        burn_duration = getattr(comb, "burn_duration", 50.0)
+        if getattr(comb, "use_dynamic_burn_duration", False):
+            base = getattr(comb, "burn_duration_base", burn_duration)
+            k_rpm = getattr(comb, "burn_duration_rpm_factor", 0.0)
+            k_load = getattr(comb, "burn_duration_load_factor", 0.0)
+            burn_duration = base + k_rpm * (rpm / 1000.0) + k_load * bmep_est_bar
+        burn_duration = max(burn_duration, 1.0)
+
+        if target_ca50 is None and getattr(comb, "use_dynamic_ca50", False):
+            base_ca50 = getattr(comb, "ca50_base_deg_atdc", 8.0)
+            k_rpm = getattr(comb, "ca50_rpm_factor", 0.0)
+            k_load = getattr(comb, "ca50_load_factor", 0.0)
+            target_ca50 = base_ca50 + k_rpm * (rpm / 1000.0) + k_load * bmep_est_bar
 
         disp_cid = self.engine.block.displacement_cc * 0.0610237
         required_cfm = (disp_cid * rpm) / 3456.0 * ve_prelim
-        head_capacity_total = (
-            self.engine.head.port_flow_cfm
-            * self.engine.head.intake_valves
-            * self.engine.block.num_cylinders
-            * 0.9
-        )
-        throttle_capacity = getattr(self.engine.intake, "throttle_cfm", 500.0)
-        total_capacity = max(1e-6, min(head_capacity_total, throttle_capacity))
-        restriction_penalty = 1.0 if required_cfm <= total_capacity else (total_capacity / required_cfm) ** 0.5
+        head_supply_cfm = self.engine.head.port_flow_cfm * self.engine.head.intake_valves * self.engine.block.num_cylinders
+        throttle_capacity = getattr(self.engine.intake, "throttle_cfm", None)
+        if throttle_capacity is None:
+            throttle_capacity = getattr(self.engine.intake, "throttle_flow_cfm", 500.0)
+        throttle_capacity = 500.0 if throttle_capacity is None else throttle_capacity
+        head_supply_cfm = max(head_supply_cfm, 0.0)
+        throttle_capacity = max(throttle_capacity, 0.0)
+        supply_cfm = min(head_supply_cfm, throttle_capacity)
+        eps = 1e-9
+        flow_cap_factor = float(np.clip(supply_cfm / max(required_cfm, eps), 0.0, 1.0))
 
-        intake_loss_factor = (runner_length_m / max(runner_dia_m, 1e-9)) * 0.0005 * pipe_friction_factor
-        exhaust_loss_factor = (exhaust_length_m / max(exhaust_dia_m, 1e-9)) * 0.0005 * pipe_friction_factor
-        total_loss = max(0.0, intake_loss_factor + exhaust_loss_factor)
-
-        ve = np.clip(ve_prelim * restriction_penalty * max(0.0, 1.0 - total_loss), 0.0, 1.2)
+        ve_limited = np.clip(ve_prelim * flow_cap_factor, 0.0, 1.5)
+        ve = ve_limited
+        ve_flow_cap_factor = float(flow_cap_factor)
 
         m_air = ve * (P_manifold * V_IVC) / (gas_constant * T_charge)
         fuel_mass = m_air / fuel_stoich
-        eta_combustion = 0.95
+        working_mass_kg = max(m_air + fuel_mass, 1e-12)
+        eta_combustion = float(np.clip(getattr(self.engine.combustion, "thermal_efficiency", 0.95), 0.0, 1.0))
         Q_total = fuel_mass * fuel_lhv
 
-        start_angle = 360.0 - float(ignition)
-        x = wiebe_function(angle_arr, start_angle, burn_duration, efficiency=1.0, a=wiebe_a, m=wiebe_m)
-        Q_rel = Q_total * eta_combustion * x
+        if target_ca50 is not None:
+            safe_a = max(wiebe_a, 1e-6)
+            phi50 = (math.log(2.0) / safe_a) ** (1.0 / (wiebe_m + 1.0))
+            ca50_abs = 360.0 + float(target_ca50)
+            start_angle = ca50_abs - burn_duration * phi50
+        else:
+            start_angle = 360.0 - float(ignition)
+        x = wiebe_function(angle_arr, start_angle, burn_duration, a=wiebe_a, m=wiebe_m)
+        Q_rel = Q_total * x
+        dQ_chem = np.diff(Q_rel, prepend=0.0)
 
         mask_intake = angle_arr < IVC
-        mask_compression = (angle_arr >= IVC) & (angle_arr < 360.0)
-        mask_power = (angle_arr >= 360.0) & (angle_arr < EVO)
         mask_exhaust = angle_arr >= EVO
 
         pressure = np.zeros_like(volume)
         pressure[mask_intake] = P_manifold
         backpressure_factor = getattr(settings, "exhaust_backpressure_factor", 1.05)
         pressure[mask_exhaust] = backpressure_factor * ambient_pressure_pa
-
-        vol_comp = np.maximum(volume[mask_compression], 1e-9)
-        vol_pow = np.maximum(volume[mask_power], 1e-9)
-
-        C_comp = P_manifold * (V_IVC ** gamma_air)
-        pressure[mask_compression] = C_comp / (vol_comp ** gamma_air)
-
-        C_power = C_comp
-        pressure_mot_power = C_power / (vol_pow ** gamma_exh)
-
-        power_indices = np.where(mask_power)[0]
-        pressure_power = np.zeros_like(power_indices, dtype=float)
 
         deg_step = angle_arr[1] - angle_arr[0]
         dt = deg_step / 360.0 * 60.0 / max(rpm, 1e-3)
@@ -277,16 +299,18 @@ class CylinderSimulator:
         heat_loss_multiplier = scale_factor
         woschni_k = 0.006 * heat_loss_multiplier * (rpm ** 0.6) * heat_loss_factor
 
-        q_rel_pow = Q_rel[mask_power]
-        q_rel_diff = np.diff(q_rel_pow, prepend=0.0)
+        idx_ivc = int(np.argmin(np.abs(angle_arr - IVC)))
+        idx_evo = int(np.argmin(np.abs(angle_arr - EVO)))
+        if idx_evo <= idx_ivc:
+            idx_evo = max(idx_ivc + 1, idx_evo)
 
-        p_current = C_power / (vol_pow[0] ** gamma_exh)
-        for i, idx in enumerate(power_indices):
-            V_curr = vol_pow[i]
+        p_current = P_manifold * (V_IVC / max(volume[idx_ivc], 1e-9)) ** gamma_air
+        for idx in range(idx_ivc, idx_evo + 1):
+            V_curr = max(volume[idx], 1e-9)
             x_disp = max((V_curr - Vc) / max(area, 1e-12), 0.0)
             area_wall = head_area + piston_area + (math.pi * bore_m * x_disp)
 
-            T_gas = p_current * V_curr / max(m_air * gas_constant, 1e-9)
+            T_gas = p_current * V_curr / max(working_mass_kg * gas_constant, 1e-9)
             w_mean = 2.28 * piston_speed_mean
             h_c = (
                 woschni_k
@@ -294,20 +318,20 @@ class CylinderSimulator:
                 * max(T_gas, 1e-3) ** -0.55
                 * max(w_mean, 1e-6) ** 0.8
             )
-            Q_loss = h_c * area_wall * max(T_gas - 450.0, 0.0) * dt
+            Q_loss = h_c * area_wall * max(T_gas - getattr(settings, "wall_temperature_k", 450.0), 0.0) * dt
 
-            dQ_chem = q_rel_diff[i]
-            dQ_net = dQ_chem - Q_loss
-            p_with_heat = p_current + (gamma_exh - 1.0) * dQ_net / max(V_curr, 1e-9)
-            pressure_power[i] = p_with_heat
+            gamma_curr = gamma_air if angle_arr[idx] < 360.0 else gamma_exh
+            dQ_net = eta_combustion * dQ_chem[idx] - Q_loss
+            p_with_heat = p_current + (gamma_curr - 1.0) * dQ_net / max(V_curr, 1e-9)
+            pressure[idx] = p_with_heat
 
-            if i < len(power_indices) - 1:
-                V_next = vol_pow[i + 1]
-                p_current = p_with_heat * (V_curr / V_next) ** gamma_exh
-            else:
-                p_current = p_with_heat
+            if idx < idx_evo:
+                V_next = max(volume[idx + 1], 1e-9)
+                p_current = p_with_heat * (V_curr / V_next) ** gamma_curr
 
-        pressure[mask_power] = pressure_power
+        temperature = pressure * volume / max(working_mass_kg * gas_constant, 1e-9)
+        exhaust_p_stag = pressure.copy()
+        exhaust_t_stag = temperature.copy()
 
         if (not np.isfinite(pressure).all()) or (not np.isfinite(volume).all()):
             raise ValueError(
@@ -333,7 +357,7 @@ class CylinderSimulator:
         fmep_pa = fmep_kpa * 1000.0
         fmep_pa *= getattr(f_cfg, "global_scaling_factor", 1.0)
 
-        displacement_m3 = max(self.engine.block.displacement_cc * 1e-6, 1e-9)
+        displacement_m3 = max(cc_to_m3(self.engine.block.displacement_cc), 1e-9)
         friction_torque = fmep_pa * displacement_m3 / (4.0 * math.pi)
 
         accessories = 0.0
@@ -382,21 +406,48 @@ class CylinderSimulator:
             brake_torque,
         )
 
+        trace = {
+            "ve_prelim": float(ve_prelim),
+            "ve_cam_factor": float(ve_cam_factor),
+            "ve_mach_factor": float(ve_mach_factor),
+            "ve_flow_cap_factor": float(ve_flow_cap_factor),
+            "ve_final": float(ve),
+            "eta_combustion_used": float(eta_combustion),
+            "start_angle_used": float(start_angle),
+            "burn_duration_used": float(burn_duration),
+            "ca50_target_used": None if target_ca50 is None else float(target_ca50),
+        }
+
         return {
             "angle": angle_arr,
             "pressure": pressure,
             "volume": volume,
+            "temperature": temperature,
+            "exhaust_p_stag": exhaust_p_stag,
+            "exhaust_t_stag": exhaust_t_stag,
             "torque": torque_trace,
             "mean_torque_nm": brake_torque,
             "mean_power_hp": mean_power_hp,
             "mean_piston_speed": piston_speed,
             "ve": ve * 100.0,
             "ve_actual": ve,
+            "ve_cam_factor": ve_cam_factor,
+            "ve_mach_factor": ve_mach_factor,
+            "ve_flow_loss_factor": ve_flow_loss_factor,
+            "ve_flow_cap_factor": ve_flow_cap_factor,
+            "ve_final": ve,
             "mach_index": mach_index,
             "friction_hp": friction_power_hp,
+            "fmep_kpa": fmep_kpa,
+            "friction_torque_nm": friction_torque,
+            "accessory_torque_nm": accessories,
+            "total_friction_torque_nm": total_friction_torque,
             "bmep_bar": bmep_bar,
             "airflow_cfm": actual_cfm,
             "knock_warning": knock_warning,
+            "burn_duration_deg": burn_duration,
+            "target_ca50_deg_atdc": target_ca50,
+            "trace": trace,
         }
     def run_pro_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
         """Pro dyno path currently reuses the calibrated quick cycle."""

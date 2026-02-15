@@ -1,10 +1,12 @@
 # PyWaveDyn — Checklist de Features
 
 ## 1) Dyno 0D (thermo)
-- [x] Virtual dyno 0D (Otto con Wiebe/Woschni, knock, FMEP) — Evidencia: `core/thermo.py`, presets canónicos en `presets/` (`honda_k20.json`, `chevy_350.json`, `ferrari_f1.json`), contratos en `tests/test_contract_0d.py`, identidades/trends/sanity en `tests/test_identities.py`, `tests/test_trends.py`, `tests/test_sanity_bands.py`. Comando: `python -m pytest -q tests/test_contract_0d.py`.
+- [x] Virtual dyno 0D (Otto con Wiebe/Woschni, knock, FMEP) — Evidencia: `core/thermo.py`, presets canónicos en `presets/` (`honda_k20.json`, `chevy_350.json`, `ferrari_f1.json`), contratos en `tests/test_contract_0d.py`, identidades/trends/sanity en `tests/test_identities.py`, `tests/test_trends.py`, `tests/test_sanity_bands.py`. Run: `python -m pytest -q tests/test_contract_0d.py`.
 
 ## 2) Wave Scope 1D (simulator/numerics)
-- [x] Solver 1D de escape (Euler + Lax–Wendroff + celdas fantasma + colector) — Evidencia: `core/simulator.py`, `core/numerics.py`, `gui/widgets/scope_widget.py`. Test de contrato marcado integration: `tests/test_contract_1d_bc.py` (ejecutar opt-in con `python -m pytest -m integration -q tests/test_contract_1d_bc.py`).
+- [x] Solver 1D de escape (Euler + Lax–Wendroff + celdas fantasma + colector) — Evidencia: `core/simulator.py`, `core/numerics.py`, `gui/widgets/scope_widget.py`. Run: `python -m pytest -m integration -q tests/test_contract_1d_bc.py`.
+- [x] Área real de válvula (cortina + Cd) en 1D — Evidencia: `core/simulator.py`, `tests/test_valve_area_curtain.py`. Run: `python -m pytest -q tests/test_valve_area_curtain.py`.
+- [x] Acople 0D→1D unidireccional (escape) — Evidencia: `tests/integration/test_0d_to_1d_scope.py` (marcado integration). Run: `python -m pytest -m integration -q tests/integration/test_0d_to_1d_scope.py`.
 - [ ] Acople 0D→1D bidireccional — Criterio de aceptación: test de integración que compare backpressure dinámica del 1D con la heurística 0D y afecte el ciclo.
 
 ## 3) Audio (acoustics)
@@ -17,8 +19,20 @@
 - [ ] Reporte/cut-list reproducible por CLI — Criterio de aceptación: comando que genere listado de cortes/diámetros desde presets sin GUI.
 
 ## 6) QA / Validación
-- [x] Identidades físicas y bandas de sanidad — Evidencia: `tests/test_identities.py`, `tests/test_sanity_bands.py`.
-- [x] Tendencias verificables (boost, restricciones, fricción) — Evidencia: `tests/test_trends.py`.
-- [x] Contratos básicos 0D/1D — Evidencia: `tests/test_contract_0d.py`, `tests/test_contract_1d_bc.py` (integration).
+- [x] Identidades físicas y bandas de sanidad — Evidencia: `tests/test_identities.py`, `tests/test_sanity_bands.py`. Run: `python -m pytest -q tests/test_identities.py tests/test_sanity_bands.py`.
+- [x] Tendencias verificables (boost, restricciones, fricción) — Evidencia: `tests/test_trends.py`. Run: `python -m pytest -q tests/test_trends.py`.
+- [x] Contratos básicos 0D/1D — Evidencia: `tests/test_contract_0d.py`, `tests/test_contract_1d_bc.py` (integration). Run: `python -m pytest -q tests/test_contract_0d.py` (y opt-in `python -m pytest -m integration -q tests/test_contract_1d_bc.py`).
 - [x] Presets legacy movidos a `presets/legacy/` — Evidencia: `AUDIT_REPORT.md`.
 - [ ] Cobertura de regresión para presets legacy — Criterio: tests marcados `legacy` que carguen presets legacy y validen no-NaN/no-negatividad.
+
+## 7) CLI Headless
+- [x] CLI dyno/scope reproducible — Evidencia: `pywavedyn/cli.py`, `tests/test_cli_outputs.py`. Run: `python -m pytest -q tests/test_cli_outputs.py`.
+
+## 8) Selfcheck & Validation Cases
+- [x] Selfcheck gate con dataset mínimo — Evidencia: `validation_cases/`, `pywavedyn/cli.py`, `tests/test_selfcheck_cli.py`. Run: `python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json`.
+
+## 9) Advanced Physics Core (v2)
+- [x] Pro Dyno v2 (advanced sweep runner) — Evidencia: `core/pro_dyno_v2.py`, `gui/main_window.py`, `tests/test_pro_dyno_v2.py`. Run: `python -m pytest -q tests/test_pro_dyno_v2.py`.
+- [ ] Coupled 0D–1D core (Phase 1 scaffolding) — Planned: `core/advanced/`, `docs/TECHNICAL_SPECS_V2.md`.
+- [ ] v2 unit tests (nozzle/CFL/passive scalar/roundtrip) — Planned: `tests/test_cfl_dt.py`, `tests/test_conserved_roundtrip.py`, `tests/test_passive_scalar_bounds.py`.
+- [ ] v2 integration tests (ram charging / blowdown) — Planned: `tests/integration/test_ram_charging.py`, `tests/integration/test_blowdown_wave_time.py`.

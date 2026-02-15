@@ -32,6 +32,11 @@ Construir una plataforma abierta, reproducible y auditable para diseñar, simula
 - Acoplamiento 0D↔1D bidireccional: no implementado (hoy es unidireccional hacia el 1D para visualización/acústica).
 - Prototipos GUI pueden existir, pero no cuentan como “implementado” sin comando/test reproducible.
 
+## Roadmap por hitos
+- **M1:** Acoplamiento 0D→1D escape unidireccional con área de válvula real (cortina + Cd) y CLI headless validado por tests.
+- **M2:** Feedback 1D→0D (backpressure dinámica) y pérdidas de bombeo coherentes con el ciclo 0D.
+- **M3:** Acople de admisión y scavenging con evaluación de solape (intake + exhaust) y métricas de rendimiento.
+
 ## Definición de “implementado”
 Una capacidad se considera implementada solo si existe un comando reproducible y/o un test verde que la cubra.
 Fuente de verdad: `FEATURES.md` y `VALIDATION_GUIDE.md`.
