@@ -34,8 +34,8 @@
     "peak_rpm": 11000.0
   },
   "intake": {
-    "runner_length": 190.0,
-    "runner_diameter": 34.5,
+    "runner_length": 180.0,
+    "runner_diameter": 36.0,
     "plenum_volume": 1.2,
     "throttle_body_dia": 50.0,
     "throttle_cfm": 1800.0,
@@ -52,7 +52,7 @@
     "intercooler_efficiency": 0.7
   },
   "combustion": {
-    "thermal_efficiency": 0.38,
+    "thermal_efficiency": 0.45,
     "burn_duration": 24.0,
     "ignition_advance": 26.0,
     "use_dynamic_burn_duration": true,
@@ -77,7 +77,7 @@
       "enabled": true,
       "ca50_deg_atdc": 9.0,
       "burn_duration_deg": 24.0,
-      "eta_scale": 1.18,
+      "eta_scale": 1.25,
       "a": 5.0,
       "m": 2.0
     }
