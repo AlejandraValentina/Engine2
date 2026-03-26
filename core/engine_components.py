@@ -478,9 +478,10 @@ class Combustion:
     wiebe_a: float = 5.0
     wiebe_m: float = 2.0
     residual_coupling: dict[str, Any] = field(default_factory=dict)
+    wiebe: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
-        return {
+        payload = {
             "thermal_efficiency": self.thermal_efficiency,
             "burn_duration": self.burn_duration,
             "ignition_advance": self.ignition_advance,
@@ -499,6 +500,9 @@ class Combustion:
             "wiebe_m": self.wiebe_m,
             "residual_coupling": self.residual_coupling,
         }
+        if self.wiebe:
+            payload["wiebe"] = self.wiebe
+        return payload
 
     @classmethod
     def from_dict(cls, data: dict) -> "Combustion":
@@ -520,6 +524,7 @@ class Combustion:
             wiebe_a=data.get("wiebe_a", 5.0),
             wiebe_m=data.get("wiebe_m", 2.0),
             residual_coupling=data.get("residual_coupling", {}),
+            wiebe=data.get("wiebe", {}),
         )
 
 

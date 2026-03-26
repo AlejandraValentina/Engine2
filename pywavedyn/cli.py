@@ -19,6 +19,7 @@ from acoustics.audio_generator import (
     _smooth_waveform,
 )
 from core.engine_components import Engine, Pipe
+from core.bmep_calibrator import calibrate_bmep
 from core.knock import KnockConfig, compute_knock_index
 from core.legacy_compat import LEGACY_PROFILE_V1, apply_legacy_compat
 from core.pro_dyno_v2 import ProDynoV2Runner
@@ -121,6 +122,27 @@ def _parse_float_list(value: str) -> list[float]:
         return []
     parts = [p.strip() for p in value.split(",") if p.strip()]
     return [float(p) for p in parts]
+
+
+def _parse_numeric_range(value: str, *, default_step: float = 1.0) -> list[float]:
+    if not value:
+        return []
+    if ":" in value:
+        parts = [p.strip() for p in value.split(":") if p.strip()]
+        if len(parts) == 2:
+            start_s, end_s = parts
+            step = float(default_step)
+        elif len(parts) == 3:
+            start_s, end_s, step_s = parts
+            step = float(step_s)
+        else:
+            raise ValueError("range must be formatted as start:end[:step]")
+        start = float(start_s)
+        end = float(end_s)
+        if step <= 0:
+            raise ValueError("range step must be positive")
+        return [float(v) for v in np.arange(start, end + 0.1 * step, step)]
+    return _parse_float_list(value)
 
 
 def _parse_bounds(value: str) -> tuple[float, float]:
@@ -806,6 +828,47 @@ def run_calibrate(
     _write_json(out_path, output)
 
 
+def run_calibrate_bmep(
+    engine_path: Path,
+    rpm: float,
+    target_bmep_bar: float,
+    out_path: Path,
+    ca50_grid: list[float],
+    duration_grid: list[float],
+    *,
+    wiebe_a: float | None = None,
+    wiebe_m: float | None = None,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
+) -> None:
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
+    report = calibrate_bmep(
+        engine,
+        rpm,
+        target_bmep_bar,
+        ca50_grid,
+        duration_grid,
+        wiebe_a=wiebe_a,
+        wiebe_m=wiebe_m,
+        require_no_knock=True,
+    )
+    output = {
+        "metadata": _metadata(
+            engine,
+            raw,
+            coupling_mode="calibrate_bmep",
+            legacy_compat=legacy_profile,
+            legacy_overrides=legacy_overrides,
+        ),
+        **report.to_dict(),
+    }
+    _write_json(out_path, output)
+
+
 def run_optimize(
     engine_path: Path,
     target_path: Path,
@@ -1338,6 +1401,17 @@ def _build_parser() -> argparse.ArgumentParser:
     calibrate.add_argument("--seed", type=int, default=0, help="Seed for diagnostics sampling")
     _add_legacy_args(calibrate)
 
+    calibrate_bmep = sub.add_parser("calibrate-bmep", help="Calibrate Wiebe timing to target BMEP (opt-in)")
+    calibrate_bmep.add_argument("--engine", required=True, type=Path)
+    calibrate_bmep.add_argument("--rpm", required=True, type=float)
+    calibrate_bmep.add_argument("--target-bmep", required=True, type=float)
+    calibrate_bmep.add_argument("--ca50-range", type=str, default="6:12:1")
+    calibrate_bmep.add_argument("--duration-range", type=str, default="14:26:2")
+    calibrate_bmep.add_argument("--wiebe-a", type=float, default=None)
+    calibrate_bmep.add_argument("--wiebe-m", type=float, default=None)
+    _add_legacy_args(calibrate_bmep)
+    calibrate_bmep.add_argument("--out", required=True, type=Path)
+
     optimize = sub.add_parser("optimize", help="Optimize runner length against target curve")
     optimize.add_argument("--engine", required=True, type=Path)
     optimize.add_argument("--target", required=True, type=Path)
@@ -1468,6 +1542,19 @@ def main(argv: Iterable[str] | None = None) -> None:
             eps_params=float(args.eps_params),
             top_k=int(args.top_k),
             seed=int(args.seed),
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
+        )
+    elif args.command == "calibrate-bmep":
+        run_calibrate_bmep(
+            args.engine,
+            float(args.rpm),
+            float(args.target_bmep),
+            args.out,
+            _parse_numeric_range(args.ca50_range, default_step=1.0),
+            _parse_numeric_range(args.duration_range, default_step=2.0),
+            wiebe_a=args.wiebe_a,
+            wiebe_m=args.wiebe_m,
             legacy_compat=args.legacy_compat,
             auto_legacy_compat=bool(args.auto_legacy_compat),
         )

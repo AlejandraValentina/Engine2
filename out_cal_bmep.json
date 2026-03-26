@@ -1,0 +1,497 @@
+{
+  "metadata": {
+    "input_hash": "2f12bde417e707024e127d403cf94864e805b49ca4779de26e07b45038c03d80",
+    "timestamp": "2026-02-12T14:47:40.821057Z",
+    "version": "974aaed",
+    "settings": {
+      "ignition_timing_btdc": 26.0,
+      "heat_loss_factor": 1.0,
+      "pipe_friction_factor": 1.0,
+      "tuning_sensitivity": 1.0,
+      "air_temperature_c": 25.0,
+      "air_pressure_bar": 1.013,
+      "exhaust_backpressure_factor": 1.05,
+      "gamma_air": 1.4,
+      "gamma_exhaust": 1.35,
+      "gas_constant_R": 287.0,
+      "cp_model": "constant",
+      "artificial_diffusion": 0.0,
+      "clamp_rho_min": 0.1,
+      "clamp_p_min": 1e-06,
+      "clamp_p_max": 1000000000.0,
+      "clamp_u_max": 1500.0,
+      "clamp_energy_max": 10000000.0,
+      "enable_heat_transfer_1d": false,
+      "wall_temperature_k": 450.0,
+      "wall_thermal": {
+        "enabled": false,
+        "m_wall_kg": 1.0,
+        "cp_wall_j_per_kgk": 500.0,
+        "h_w_per_m2k": 50.0,
+        "h_model": "constant",
+        "h_mult": 1.0,
+        "h_min": 10.0,
+        "h_max": 5000.0,
+        "mu_model": "constant",
+        "mu_const": 1.8e-05,
+        "k_th_const": 0.026,
+        "pr_const": 0.71,
+        "area_m2": 1.0,
+        "twall_init_k": 450.0,
+        "twall_min_k": 200.0,
+        "twall_max_k": 1200.0
+      },
+      "enable_0d_to_1d_exhaust_coupling": false,
+      "exhaust_valve_cd": 0.85,
+      "exhaust_valve_area_model": "curtain",
+      "trace_metadata": true,
+      "fuel": {
+        "enabled": true,
+        "mode": "lambda",
+        "lambda_target": 0.88,
+        "afr_target": 12.9,
+        "afr_stoich": 14.7,
+        "lhv_j_per_kg": 44000000.0,
+        "eta_comb": 0.98,
+        "bsfc_units": "g_per_kwh",
+        "clamp_lambda_min": 0.6,
+        "clamp_lambda_max": 2.0
+      },
+      "intake_plenum": {},
+      "exhaust_plenum": {},
+      "junction_capacitance": {},
+      "junction_losses": {},
+      "shock_cfl": {},
+      "intake_coupling": {}
+    },
+    "coupling_mode": "calibrate_bmep"
+  },
+  "target": {
+    "rpm": 10000.0,
+    "bmep_bar": 12.5
+  },
+  "ranges": {
+    "ca50_deg_atdc": [
+      6.0,
+      7.0,
+      8.0,
+      9.0,
+      10.0,
+      11.0,
+      12.0
+    ],
+    "burn_duration_deg": [
+      14.0,
+      16.0,
+      18.0,
+      20.0,
+      22.0,
+      24.0,
+      26.0
+    ]
+  },
+  "evaluations": [
+    {
+      "ca50_deg_atdc": 6.0,
+      "burn_duration_deg": 14.0,
+      "bmep_bar": 12.20820713715292,
+      "mean_power_hp": 233.31227690802905,
+      "mean_torque_nm": 166.13958339714893,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 6.0,
+      "burn_duration_deg": 16.0,
+      "bmep_bar": 12.21137954507464,
+      "mean_power_hp": 233.3729051155277,
+      "mean_torque_nm": 166.18275620086686,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 6.0,
+      "burn_duration_deg": 18.0,
+      "bmep_bar": 12.224296405365312,
+      "mean_power_hp": 233.6197605342687,
+      "mean_torque_nm": 166.35853973430318,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 6.0,
+      "burn_duration_deg": 20.0,
+      "bmep_bar": 12.243432925692408,
+      "mean_power_hp": 233.9854805027663,
+      "mean_torque_nm": 166.61896564935333,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 6.0,
+      "burn_duration_deg": 22.0,
+      "bmep_bar": 12.265417848359428,
+      "mean_power_hp": 234.40563657543643,
+      "mean_torque_nm": 166.91815502678466,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 6.0,
+      "burn_duration_deg": 24.0,
+      "bmep_bar": 12.287862029755216,
+      "mean_power_hp": 234.83456958795486,
+      "mean_torque_nm": 167.22359438449658,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 6.0,
+      "burn_duration_deg": 26.0,
+      "bmep_bar": 12.309252960034895,
+      "mean_power_hp": 235.2433738122496,
+      "mean_torque_nm": 167.5147002123399,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 7.0,
+      "burn_duration_deg": 14.0,
+      "bmep_bar": 12.165294783880494,
+      "mean_power_hp": 232.4921746000495,
+      "mean_torque_nm": 165.55559588651968,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 7.0,
+      "burn_duration_deg": 16.0,
+      "bmep_bar": 12.158648306083903,
+      "mean_power_hp": 232.36515309306486,
+      "mean_torque_nm": 165.465145008698,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 7.0,
+      "burn_duration_deg": 18.0,
+      "bmep_bar": 12.158149505398411,
+      "mean_power_hp": 232.3556204628967,
+      "mean_torque_nm": 165.45835690810677,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 7.0,
+      "burn_duration_deg": 20.0,
+      "bmep_bar": 12.165174040774259,
+      "mean_power_hp": 232.48986706637803,
+      "mean_torque_nm": 165.553952712453,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 7.0,
+      "burn_duration_deg": 22.0,
+      "bmep_bar": 12.177614859615522,
+      "mean_power_hp": 232.72762480900533,
+      "mean_torque_nm": 165.72325787218583,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 7.0,
+      "burn_duration_deg": 24.0,
+      "bmep_bar": 12.193077904822806,
+      "mean_power_hp": 233.02314062428533,
+      "mean_torque_nm": 165.93369203831094,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 7.0,
+      "burn_duration_deg": 26.0,
+      "bmep_bar": 12.20966145690249,
+      "mean_power_hp": 233.34007055932545,
+      "mean_torque_nm": 166.15937500738335,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 8.0,
+      "burn_duration_deg": 14.0,
+      "bmep_bar": 12.116575597149241,
+      "mean_power_hp": 231.56109731264144,
+      "mean_torque_nm": 164.89258408666697,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 8.0,
+      "burn_duration_deg": 16.0,
+      "bmep_bar": 12.109053450905272,
+      "mean_power_hp": 231.4173408177115,
+      "mean_torque_nm": 164.79021637376815,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 8.0,
+      "burn_duration_deg": 18.0,
+      "bmep_bar": 12.101418589555239,
+      "mean_power_hp": 231.2714302130305,
+      "mean_torque_nm": 164.68631473860265,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 8.0,
+      "burn_duration_deg": 20.0,
+      "bmep_bar": 12.098290925181692,
+      "mean_power_hp": 231.2116571039901,
+      "mean_torque_nm": 164.64375084284057,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 8.0,
+      "burn_duration_deg": 22.0,
+      "bmep_bar": 12.1010364150458,
+      "mean_power_hp": 231.26412643746605,
+      "mean_torque_nm": 164.68111378541843,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 8.0,
+      "burn_duration_deg": 24.0,
+      "bmep_bar": 12.108399303566168,
+      "mean_power_hp": 231.40483934199074,
+      "mean_torque_nm": 164.78131418484082,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 8.0,
+      "burn_duration_deg": 26.0,
+      "bmep_bar": 12.118679626230453,
+      "mean_power_hp": 231.60130762445078,
+      "mean_torque_nm": 164.92121748967864,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 9.0,
+      "burn_duration_deg": 14.0,
+      "bmep_bar": 12.060906853154444,
+      "mean_power_hp": 230.4972063360123,
+      "mean_torque_nm": 164.13499684788303,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 9.0,
+      "burn_duration_deg": 16.0,
+      "bmep_bar": 12.053579472922534,
+      "mean_power_hp": 230.35717203396683,
+      "mean_torque_nm": 164.03527967521012,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 9.0,
+      "burn_duration_deg": 18.0,
+      "bmep_bar": 12.045332406437069,
+      "mean_power_hp": 230.19956151524616,
+      "mean_torque_nm": 163.92304663601357,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 9.0,
+      "burn_duration_deg": 20.0,
+      "bmep_bar": 12.036869571195096,
+      "mean_power_hp": 230.03782741807532,
+      "mean_torque_nm": 163.80787723352356,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 9.0,
+      "burn_duration_deg": 22.0,
+      "bmep_bar": 12.031786598379654,
+      "mean_power_hp": 229.94068621235124,
+      "mean_torque_nm": 163.7387038506927,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 9.0,
+      "burn_duration_deg": 24.0,
+      "bmep_bar": 12.03134156798427,
+      "mean_power_hp": 229.9321811916161,
+      "mean_torque_nm": 163.73264750157793,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 9.0,
+      "burn_duration_deg": 26.0,
+      "bmep_bar": 12.034799806675165,
+      "mean_power_hp": 229.99827193974974,
+      "mean_torque_nm": 163.77971013157256,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 10.0,
+      "burn_duration_deg": 14.0,
+      "bmep_bar": 11.998527561004279,
+      "mean_power_hp": 229.30506939731512,
+      "mean_torque_nm": 163.2860868077758,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 10.0,
+      "burn_duration_deg": 16.0,
+      "bmep_bar": 11.991415787252407,
+      "mean_power_hp": 229.16915557243792,
+      "mean_torque_nm": 163.18930379000125,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 10.0,
+      "burn_duration_deg": 18.0,
+      "bmep_bar": 11.98341835243856,
+      "mean_power_hp": 229.01631578975082,
+      "mean_torque_nm": 163.08046794921881,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 10.0,
+      "burn_duration_deg": 20.0,
+      "bmep_bar": 11.974544061606904,
+      "mean_power_hp": 228.84671832334007,
+      "mean_torque_nm": 162.95969911189871,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 10.0,
+      "burn_duration_deg": 22.0,
+      "bmep_bar": 11.965390977749998,
+      "mean_power_hp": 228.67179281532788,
+      "mean_torque_nm": 162.83513622385945,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 10.0,
+      "burn_duration_deg": 24.0,
+      "bmep_bar": 11.95881823027974,
+      "mean_power_hp": 228.54618037604018,
+      "mean_torque_nm": 162.7456887305285,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 10.0,
+      "burn_duration_deg": 26.0,
+      "bmep_bar": 11.95594812902987,
+      "mean_power_hp": 228.49132958181292,
+      "mean_torque_nm": 162.70662997107235,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 11.0,
+      "burn_duration_deg": 14.0,
+      "bmep_bar": 11.929695083103645,
+      "mean_power_hp": 227.9896049754063,
+      "mean_torque_nm": 162.34935637110078,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 11.0,
+      "burn_duration_deg": 16.0,
+      "bmep_bar": 11.922816354431541,
+      "mean_power_hp": 227.85814489853414,
+      "mean_torque_nm": 162.25574482740345,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 11.0,
+      "burn_duration_deg": 18.0,
+      "bmep_bar": 11.915087951551525,
+      "mean_power_hp": 227.71044661224676,
+      "mean_torque_nm": 162.15057020017227,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 11.0,
+      "burn_duration_deg": 20.0,
+      "bmep_bar": 11.906517433935807,
+      "mean_power_hp": 227.5466545863793,
+      "mean_torque_nm": 162.03393536508332,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 11.0,
+      "burn_duration_deg": 22.0,
+      "bmep_bar": 11.897112862282611,
+      "mean_power_hp": 227.36692286974795,
+      "mean_torque_nm": 161.90595001891933,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 11.0,
+      "burn_duration_deg": 24.0,
+      "bmep_bar": 11.88739234049572,
+      "mean_power_hp": 227.18115299827096,
+      "mean_torque_nm": 161.77366495675307,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 11.0,
+      "burn_duration_deg": 26.0,
+      "bmep_bar": 11.87967023668243,
+      "mean_power_hp": 227.03357509408252,
+      "mean_torque_nm": 161.6685760525367,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 12.0,
+      "burn_duration_deg": 14.0,
+      "bmep_bar": 11.854681786922631,
+      "mean_power_hp": 226.55601831245502,
+      "mean_torque_nm": 161.32851214420086,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 12.0,
+      "burn_duration_deg": 16.0,
+      "bmep_bar": 11.848050157505263,
+      "mean_power_hp": 226.4292805743421,
+      "mean_torque_nm": 161.238263335652,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 12.0,
+      "burn_duration_deg": 18.0,
+      "bmep_bar": 11.84060641876828,
+      "mean_power_hp": 226.2870225331799,
+      "mean_torque_nm": 161.13696265826457,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 12.0,
+      "burn_duration_deg": 20.0,
+      "bmep_bar": 11.832356898766974,
+      "mean_power_hp": 226.12936512507082,
+      "mean_torque_nm": 161.02469622955434,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 12.0,
+      "burn_duration_deg": 22.0,
+      "bmep_bar": 11.823308320890217,
+      "mean_power_hp": 225.95643684137698,
+      "mean_torque_nm": 160.9015555470698,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 12.0,
+      "burn_duration_deg": 24.0,
+      "bmep_bar": 11.813467803807571,
+      "mean_power_hp": 225.76837372771004,
+      "mean_torque_nm": 160.76763748767289,
+      "knock_warning": false
+    },
+    {
+      "ca50_deg_atdc": 12.0,
+      "burn_duration_deg": 26.0,
+      "bmep_bar": 11.803291308328825,
+      "mean_power_hp": 225.57388969705625,
+      "mean_torque_nm": 160.62914715078008,
+      "knock_warning": false
+    }
+  ],
+  "best": {
+    "ca50_deg_atdc": 6.0,
+    "burn_duration_deg": 26.0,
+    "bmep_bar": 12.309252960034895,
+    "mean_power_hp": 235.2433738122496,
+    "mean_torque_nm": 167.5147002123399,
+    "knock_warning": false
+  },
+  "status": "target_not_met",
+  "used_no_knock_filter": false
+}

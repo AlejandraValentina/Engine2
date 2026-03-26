@@ -32,6 +32,7 @@ PyWaveDyn is a verification-focused 0D virtual dyno plus a 1D exhaust wave-scope
 - **Key Classes:**
   - `CylinderSimulator` builds volume profiles, applies Wiebe heat release, models boosted manifold pressure, runner tuning, Mach-index valve choking, camshaft-timed valve events, and subtracts FMEP friction.
 - **Physics:** Slider-crank volume/dV geometry; Wiebe combustion with ignition advance; adiabatic compression/expansion; P·dV work integral; intake/exhaust pumping losses; Mach-index volumetric efficiency with runner length harmonic boosts; valve-timing-based phase masks (IVC/EVO); forced-induction manifold pressure/temperature adjustments; friction mean effective pressure approximation.
+- **Nota (BMEP):** En 0D, `thermal_efficiency` escala el calor químico antes de pérdidas térmicas. Con `thermal_efficiency≈0.55` y VE ~1.2–1.3, el BMEP de freno puede saturar ~9–10 bar. Para targets tipo superbike se requiere un override opt-in de fase/eficiencia de combustión (ver sección Wiebe).
 
 ### `core/engine_components.py`
 - **Responsibilities:** Data model for engine parts with JSON serialization.
@@ -108,6 +109,7 @@ PyWaveDyn exposes a minimal headless CLI for reproducible runs without the GUI:
 - **Part-load map:** `python -m pywavedyn.cli map --engine presets/honda_k20.json --rpm-grid 2000,3000 --throttle-grid 0.2,0.6,1.0 --out map.json`
 - **Cut-list:** `python -m pywavedyn.cli cutlist --engine presets/honda_k20.json --out cutlist.json`
 - **Auto-calibration:** `python -m pywavedyn.cli calibrate --engine presets/honda_k20.json --target target.json --out calib_report.json --max-evals 40 --params ve_scale,friction_scale,burn_scale`
+  - **Calibrate BMEP (opt-in):** `python -m pywavedyn.cli calibrate-bmep --engine presets/v12_1710cc_15k_superbike_target.json --rpm 10000 --target-bmep 12.5 --ca50-range 6:12:1 --duration-range 14:26:2 --out bmep_report.json`
 
 The CLI outputs JSON with metadata (input_hash, timestamp, settings, coupling_mode) plus results for each command.
 
@@ -118,6 +120,13 @@ Minimal CLI examples for the new V12 preset:
 - **Dyno v2 (stable):** `python -m pywavedyn.cli dyno --engine presets/f1_screamer_v12_1710cc_15k.json --rpm 12000:15000:3000 --mode v2 --settle-cycles 1 --min-periodicity 0.6 --drop-invalid --rpm-start-safe --out v12_dyno_v2.json`
 - **Optional knock report:** `python -m pywavedyn.cli dyno --engine presets/f1_screamer_v12_1710cc_15k.json --rpm 12000:15000:3000 --mode v2 --knock-report v12_knock.json --out v12_dyno_v2.json`
 - **Schema validation (dyno JSON):** `python -m pytest -q tests/test_output_schema_dyno.py`
+
+### Preset: V12 1.71L Superbike Target (95 RON)
+Preset para BMEP objetivo con 95 octanos (opt-in).
+
+- **Dyno v1 (quick):** `python -m pywavedyn.cli dyno --engine presets/v12_1710cc_15k_superbike_target.json --rpm 10000:15000:2500 --out v12_superbike_v1.json`
+- **Dyno v2 (stable):** `python -m pywavedyn.cli dyno --engine presets/v12_1710cc_15k_superbike_target.json --rpm 10000:15000:2500 --mode v2 --settle-cycles 1 --min-periodicity 0.6 --drop-invalid --rpm-start-safe --out v12_superbike_v2.json`
+- **Calibrate BMEP (report):** `python -m pywavedyn.cli calibrate-bmep --engine presets/v12_1710cc_15k_superbike_target.json --rpm 10000 --target-bmep 12.5 --out bmep_report.json`
 
 ### Species transport (opt-in)
 El transporte conservativo de la especie `Y_fresh` en el solver 1D está deshabilitado por defecto. Para activarlo:
@@ -143,6 +152,38 @@ python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:4000:100
 ```
 
 El reporte se valida contra `schemas/knock_report.schema.json` y no altera `dyno.schema.json`.
+
+### Combustion Wiebe controls (opt-in)
+El bloque `combustion.wiebe` permite override explícito de fase/duración de combustión en 0D (sin cambiar defaults):
+
+```json
+{
+  "combustion": {
+    "wiebe": {
+      "enabled": true,
+      "ca50_deg_atdc": 9.0,
+      "burn_duration_deg": 24.0,
+      "a": 5.0,
+      "m": 2.0,
+      "eta_scale": 1.35
+    }
+  }
+}
+```
+
+- `ca50_deg_atdc` y `burn_duration_deg` sobreescriben los targets dinámicos cuando `enabled=true`.
+- `eta_scale` multiplica `thermal_efficiency` **solo** cuando Wiebe está habilitado (clamp a 1.0). Útil para representar combustión más rápida/eficiente sin cambiar defaults globales.
+- Opcionales: `start_deg_atdc`/`end_deg_atdc` para fijar ventana absoluta de combustión (BTDC permitido con valores negativos).
+
+Para diagnóstico, se puede imprimir balance energético por ciclo:
+
+```bash
+PYWAVEDYN_DEBUG_COMBUSTION=1 python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 3000 --out dyno.json
+```
+
+Muestra `Q_in`, `Q_rejected`, `W_ind`, pumping work, IMEP/BMEP y CA10/50/90.
+
+El reporte de calibración de BMEP se valida contra `schemas/calibrate_bmep.schema.json`.
 
 ### Legacy compatibility mode (opt-in)
 Para presets legacy, se puede forzar el perfil v1 con:

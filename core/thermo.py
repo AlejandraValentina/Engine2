@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import math
+import os
 from dataclasses import dataclass
 from typing import Dict, Tuple
 
@@ -12,6 +13,7 @@ from core.engine_components import Engine
 from core.units import bar_to_pa, cc_to_m3, mm_to_m
 
 logger = logging.getLogger(__name__)
+_DEBUG_COMBUSTION = os.getenv("PYWAVEDYN_DEBUG_COMBUSTION", "").strip() not in ("", "0", "false", "False")
 
 
 @dataclass(frozen=True)
@@ -275,6 +277,9 @@ class CylinderSimulator:
         wiebe_a = getattr(comb, "wiebe_a", 5.0)
         wiebe_m = getattr(comb, "wiebe_m", 2.0)
         target_ca50 = getattr(comb, "target_ca50_deg_atdc", None)
+        wiebe_cfg = getattr(comb, "wiebe", {}) or {}
+        start_angle_override = None
+        wiebe_eta_scale = None
 
         fuel_cfg = getattr(self.engine, "fuel", None)
         fuel_lhv = getattr(fuel_cfg, "energy_density", 44e6)
@@ -454,6 +459,30 @@ class CylinderSimulator:
             k_load = getattr(comb, "ca50_load_factor", 0.0)
             target_ca50 = base_ca50 + k_rpm * (rpm / 1000.0) + k_load * bmep_est_bar
 
+        if isinstance(wiebe_cfg, dict) and bool(wiebe_cfg.get("enabled", False)):
+            if "a" in wiebe_cfg:
+                wiebe_a = float(wiebe_cfg.get("a", wiebe_a))
+            if "m" in wiebe_cfg:
+                wiebe_m = float(wiebe_cfg.get("m", wiebe_m))
+            if "eta_scale" in wiebe_cfg:
+                wiebe_eta_scale = float(wiebe_cfg.get("eta_scale"))
+            duration_override = wiebe_cfg.get("burn_duration_deg", wiebe_cfg.get("duration_deg"))
+            if duration_override is not None:
+                burn_duration = float(duration_override)
+            ca50_override = wiebe_cfg.get("ca50_deg_atdc")
+            if ca50_override is not None:
+                target_ca50 = float(ca50_override)
+            start_override = wiebe_cfg.get("start_deg_atdc")
+            end_override = wiebe_cfg.get("end_deg_atdc")
+            if start_override is not None and end_override is not None:
+                start_angle_override = 360.0 + float(start_override)
+                burn_duration = float(end_override) - float(start_override)
+            elif start_override is not None:
+                start_angle_override = 360.0 + float(start_override)
+            elif end_override is not None:
+                start_angle_override = 360.0 + float(end_override) - float(burn_duration)
+            burn_duration = max(float(burn_duration), 1.0)
+
         required_cfm = (disp_cid * rpm) / 3456.0 * ve_prelim
         head_supply_cfm = self.engine.head.port_flow_cfm * self.engine.head.intake_valves * self.engine.block.num_cylinders
         throttle_capacity = getattr(self.engine.intake, "throttle_cfm", None)
@@ -496,6 +525,8 @@ class CylinderSimulator:
             residual_fraction_est = float(np.clip(overlap_deg / 720.0, 0.0, 1.0))
             residual_factor = float(np.clip(1.0 - k_residual * residual_fraction_est, min_factor, 1.0))
             eta_combustion = float(np.clip(eta_combustion * residual_factor, 0.0, 1.0))
+        if wiebe_eta_scale is not None:
+            eta_combustion = float(np.clip(eta_combustion * wiebe_eta_scale, 0.0, 1.0))
         Q_total = fuel_mass * fuel_lhv
 
         if target_ca50 is not None:
@@ -505,9 +536,34 @@ class CylinderSimulator:
             start_angle = ca50_abs - burn_duration * phi50
         else:
             start_angle = 360.0 - float(ignition)
+        if start_angle_override is not None:
+            start_angle = float(start_angle_override)
         x = wiebe_function(angle_arr, start_angle, burn_duration, a=wiebe_a, m=wiebe_m)
         Q_rel = Q_total * x
         dQ_chem = np.diff(Q_rel, prepend=0.0)
+        ca10 = None
+        ca50 = None
+        ca90 = None
+        if Q_total > 0.0:
+            x_norm = np.clip(Q_rel / max(Q_total, 1e-12), 0.0, 1.0)
+
+            def _find_ca(target: float) -> float | None:
+                if x_norm[0] >= target:
+                    return float(angle_arr[0])
+                if x_norm[-1] <= target:
+                    return float(angle_arr[-1])
+                idx = int(np.searchsorted(x_norm, target))
+                idx = max(min(idx, len(x_norm) - 1), 1)
+                x0 = float(x_norm[idx - 1])
+                x1 = float(x_norm[idx])
+                if x1 <= x0:
+                    return float(angle_arr[idx])
+                frac = (target - x0) / (x1 - x0)
+                return float(angle_arr[idx - 1] + frac * (angle_arr[idx] - angle_arr[idx - 1]))
+
+            ca10 = _find_ca(0.1)
+            ca50 = _find_ca(0.5)
+            ca90 = _find_ca(0.9)
 
         mask_intake = angle_arr < IVC
         mask_exhaust = angle_arr >= EVO
@@ -558,6 +614,7 @@ class CylinderSimulator:
             idx_evo = max(idx_ivc + 1, idx_evo)
 
         p_current = P_manifold * (V_IVC / max(volume[idx_ivc], 1e-9)) ** gamma_air
+        Q_loss_total = 0.0
         for idx in range(idx_ivc, idx_evo + 1):
             V_curr = max(volume[idx], 1e-9)
             x_disp = max((V_curr - Vc) / max(area, 1e-12), 0.0)
@@ -572,6 +629,7 @@ class CylinderSimulator:
                 * max(w_mean, 1e-6) ** 0.8
             )
             Q_loss = h_c * area_wall * max(T_gas - getattr(settings, "wall_temperature_k", 450.0), 0.0) * dt
+            Q_loss_total += Q_loss
 
             if cp_model == "nasa7":
                 Y_fresh = 1.0 if angle_arr[idx] < 360.0 else 0.0
@@ -650,6 +708,24 @@ class CylinderSimulator:
         bmep_bar = brake_torque * 4.0 * math.pi / displacement_m3 / 100000.0
 
         actual_cfm = (disp_cid * rpm) / 3456.0 * ve
+
+        if _DEBUG_COMBUSTION:
+            indicated_work = indicated_torque * 2.0 * math.pi
+            theta_step = math.radians(float(deg_step))
+            pumping_mask = mask_intake | mask_exhaust
+            pumping_work = float(np.sum(torque_trace[pumping_mask]) * theta_step)
+            imep_bar = indicated_torque * 4.0 * math.pi / displacement_m3 / 100000.0
+            Q_in = float(eta_combustion * Q_total)
+            Q_rejected = float(Q_loss_total)
+            ca10_s = f"{ca10:.1f}" if ca10 is not None else "n/a"
+            ca50_s = f"{ca50:.1f}" if ca50 is not None else "n/a"
+            ca90_s = f"{ca90:.1f}" if ca90 is not None else "n/a"
+            print(
+                f"[combustion-debug] rpm={rpm:.0f} Q_in={Q_in:.2f} Q_rejected={Q_rejected:.2f} "
+                f"W_ind={indicated_work:.2f} pumping_work={pumping_work:.2f} "
+                f"imep={imep_bar:.2f} bmep={bmep_bar:.2f} "
+                f"CA10={ca10_s} CA50={ca50_s} CA90={ca90_s}"
+            )
 
         logger.debug(
             "rpm=%.1f IVC=%.2f EVO=%.2f Vc=%.3e minV=%.3e V_IVC=%.3e ve=%.3f Ti=%.3f Tf=%.3f Tb=%.3f",

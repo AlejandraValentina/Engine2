@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "model_name": "V12 1.71L Superbike Target 95 RON",
+  "block": {
+    "bore": 63.5,
+    "stroke": 45.0,
+    "conrod_length": 95.0,
+    "num_cylinders": 12,
+    "config": "V",
+    "bank_angle": 60.0,
+    "firing_order": [1, 12, 5, 8, 3, 10, 6, 7, 4, 9, 2, 11],
+    "redline_rpm": 13500.0
+  },
+  "head": {
+    "compression_ratio": 12.0,
+    "intake_valves": 2,
+    "exhaust_valves": 2,
+    "intake_valve_diameter_mm": 27.5,
+    "exhaust_valve_diameter_mm": 23.5,
+    "port_flow_cfm": 110.0,
+    "port_flow_efficiency": 0.90,
+    "mach_tolerance": 0.90,
+    "gasket_thickness_mm": 1.0,
+    "gasket_bore_mm": 64.5,
+    "deck_clearance_mm": 0.0
+  },
+  "camshaft": {
+    "intake_lift": 10.5,
+    "exhaust_lift": 10.0,
+    "intake_duration": 285.0,
+    "exhaust_duration": 275.0,
+    "lobe_separation": 110.0,
+    "advance": 0.0,
+    "peak_rpm": 11000.0
+  },
+  "intake": {
+    "runner_length": 130.0,
+    "runner_diameter": 36.0,
+    "plenum_volume": 1.2,
+    "throttle_body_dia": 50.0,
+    "throttle_cfm": 1800.0,
+    "flow_loss_coefficient": 0.0
+  },
+  "exhaust": {
+    "header_primary_length": 480.0,
+    "header_primary_diameter": 30.0,
+    "collector_length": 300.0
+  },
+  "supercharger": {
+    "type": "NA",
+    "boost_pressure_bar": 0.0,
+    "intercooler_efficiency": 0.7
+  },
+  "combustion": {
+    "thermal_efficiency": 0.38,
+    "burn_duration": 24.0,
+    "ignition_advance": 26.0,
+    "use_dynamic_burn_duration": true,
+    "burn_duration_base": 24.0,
+    "afr": 12.9,
+    "wiebe_a": 5.0,
+    "wiebe_m": 2.0,
+    "chamber_type": "Modern Pentroof",
+    "residual_coupling": {
+      "enabled": true,
+      "k": 0.7,
+      "min_factor": 0.5,
+      "knock": {
+        "A": 17.0,
+        "B": 3800.0,
+        "threshold": 1.2,
+        "window_deg": 40.0,
+        "residual_hot_k": 1.0
+      }
+    },
+    "wiebe": {
+      "enabled": true,
+      "ca50_deg_atdc": 9.0,
+      "burn_duration_deg": 24.0,
+      "eta_scale": 1.35,
+      "a": 5.0,
+      "m": 2.0
+    }
+  },
+  "friction": {
+    "bottom_end_type": "Race",
+    "water_pump": false,
+    "alternator": false,
+    "power_steering": false,
+    "mechanical_fan": false,
+    "friction_base_kpa": 6.0,
+    "friction_linear_factor": 0.003,
+    "friction_quadratic_factor": 1.5e-7,
+    "global_scaling_factor": 1.0
+  },
+  "simulation_settings": {
+    "ignition_timing_btdc": 30.0,
+    "heat_loss_factor": 1.0,
+    "pipe_friction_factor": 1.0,
+    "tuning_sensitivity": 1.0,
+    "air_temperature_c": 25.0,
+    "air_pressure_bar": 1.013,
+    "exhaust_backpressure_factor": 1.05,
+    "fuel": {
+      "enabled": true,
+      "mode": "lambda",
+      "lambda_target": 0.88,
+      "afr_target": 12.9,
+      "afr_stoich": 14.7,
+      "lhv_j_per_kg": 44000000.0,
+      "eta_comb": 0.98,
+      "bsfc_units": "g_per_kwh",
+      "clamp_lambda_min": 0.6,
+      "clamp_lambda_max": 2.0
+    }
+  },
+  "fuel": {
+    "type_name": "PUMP_95",
+    "octane_rating": 95.0,
+    "energy_density": 44000000.0,
+    "stoich_afr": 14.7
+  }
+}
