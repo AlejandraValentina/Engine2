@@ -9,7 +9,7 @@ import pytest
 def test_release_v2_scope_docs_and_features_present() -> None:
     scope_doc = Path("docs/RELEASE_V2_SCOPE.md")
     checks_doc = Path("docs/RELEASE_V2_0_CHECKS.md")
-    features = Path("FEATURES.md")
+    features = Path("docs/internal/FEATURES.md")
 
     assert scope_doc.exists()
     assert checks_doc.exists()

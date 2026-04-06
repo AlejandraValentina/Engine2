@@ -16,5 +16,5 @@ No se aceptan features nuevas fuera de esta lista; solo bugfix/coverage.
 - CLI/command reproducible.
 - Test verde (unit o integration) con runtime acotado.
 - Schema JSON validado (jsonschema).
-- Evidencia actualizada en `FEATURES.md`.
+- Evidencia actualizada en `internal/FEATURES.md`.
 - Defaults intactos: opt-in => no-op cuando disabled.

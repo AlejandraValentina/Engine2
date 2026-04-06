@@ -6,8 +6,8 @@
 - **Backward compatibility:** presets JSON must remain compatible via defaults and tolerant parsing.
 
 ### 0.1 Status & Evidence
-- Implementation status and evidence live in `FEATURES.md`.
-- Canonical validation commands live in `VALIDATION_GUIDE.md`.
+- Implementation status and evidence live in `internal/FEATURES.md`.
+- Canonical validation commands live in `internal/VALIDATION_GUIDE.md`.
 
 ### 0.2 Phase Naming
 - **Phase 1:** baseline contract (static reservoir assumptions for totals when configured).

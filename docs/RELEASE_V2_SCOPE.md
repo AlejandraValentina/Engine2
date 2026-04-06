@@ -14,6 +14,6 @@ No se aceptan features nuevas fuera de esta lista; solo bugfix/coverage.
 
 ## Definition of Done (por item)
 - Test o comando reproducible.
-- Evidencia actualizada en `FEATURES.md`.
+- Evidencia actualizada en `internal/FEATURES.md`.
 - Docs minimas actualizadas.
 - Runtime razonable.

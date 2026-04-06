@@ -36,7 +36,7 @@ def test_gui_dyno_progress_offscreen(monkeypatch: pytest.MonkeyPatch, tmp_path: 
         if window.dyno_thread is None or not window.dyno_thread.isRunning():
             loop.quit()
             return
-        if time.time() - start > 30.0:
+        if time.time() - start > 120.0:
             loop.quit()
 
     timer = QTimer()

@@ -58,7 +58,7 @@
    - **Validación no estricta**: `Engine.validate_with_issues()` devuelve una lista ordenada de issues para carga GUI; `validate(strict=True)` levanta error si hay issues.
 3. **Ciclo 0D (core/thermo.py)**: calcula par/potencia/VE/knock usando backpressure heurística; alimenta Dyno, Analysis, Optimizer.
 4. **Onda 1D (core/simulator.py + core/numerics.py + core/junctions.py)**: consume perfiles de presión 0D (acoplamiento unidireccional) o impulsos sintéticos como BC de válvula para visualización y síntesis de audio; no retroalimenta al 0D.
-5. **Acústica (acoustics/audio_generator.py)**: remuestrea presión de salida 1D y mezcla por firing order para generar WAV. Estado: prototipo; verificación pendiente por CLI/tests (ver FEATURES.md).
+5. **Acústica (acoustics/audio_generator.py)**: remuestrea presión de salida 1D y mezcla por firing order para generar WAV. Estado: prototipo; verificación pendiente por CLI/tests (ver `FEATURES.md`).
 6. **Trazabilidad (CLI headless)**: `pywavedyn.cli` guarda JSON con `input_hash`, `timestamp`, `settings` y `coupling_mode` para reproducibilidad básica.
 
 ## 5. Contrato de Verificación

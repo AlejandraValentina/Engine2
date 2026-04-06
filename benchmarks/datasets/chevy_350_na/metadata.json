@@ -14,5 +14,6 @@
     "power_mape_max": 0.02,
     "bmep_mape_max": 0.05,
     "ve_mape_max": 0.05
-  }
+  },
+  "notes": "8-point regression golden dataset generated from current simulator. Regenerate with: python scripts/generate_chevy_350_benchmark.py"
 }

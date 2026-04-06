@@ -9,10 +9,10 @@ import pytest
 @pytest.mark.system
 def test_docs_consistency() -> None:
     readme = Path("README.md").read_text(encoding="utf-8")
-    documentation = Path("DOCUMENTATION.md").read_text(encoding="utf-8")
+    documentation = Path("docs/internal/DOCUMENTATION.md").read_text(encoding="utf-8")
 
-    assert "FEATURES.md" in readme
-    assert "VALIDATION_GUIDE.md" in readme
+    assert "docs/internal/FEATURES.md" in readme
+    assert "docs/internal/VALIDATION_GUIDE.md" in readme
 
     forbidden_tokens = ["not implemented", "no implementado", "not-implemented"]
     lowered = readme.lower()

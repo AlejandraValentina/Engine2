@@ -21,6 +21,7 @@ from PySide6.QtWidgets import (
     QDockWidget,
     QDoubleSpinBox,
     QFormLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -82,6 +83,7 @@ class MainWindow(QMainWindow):
         self.engine = Engine()
         self.audio_synth = AudioSynthesizer()
         self.current_project_path: Optional[str] = None
+        self._try_load_default_preset()
         self.block_displacement_label: Optional[QLabel] = None
         self.block_piston_speed_label: Optional[QLabel] = None
         self._update_window_title()
@@ -123,6 +125,7 @@ class MainWindow(QMainWindow):
         self.dyno_status_label = QLabel("")
         self.dyno_export_btn = QPushButton("Export Dyno JSON...")
         self.dyno_knock_export_checkbox = QCheckBox("Knock report (opt-in)")
+        self.dyno_advanced_group = QGroupBox("Advanced Dyno Options")
         self.last_dyno_payload: Optional[dict[str, Any]] = None
         self.dyno_thread: Optional[QThread] = None
         self.dyno_worker: Optional[DynoWorker] = None
@@ -259,16 +262,25 @@ class MainWindow(QMainWindow):
         self.dyno_export_btn.clicked.connect(self.export_dyno_json)
         dyno_controls.addWidget(QLabel("Mode"))
         dyno_controls.addWidget(self.dyno_mode_combo)
-        dyno_controls.addWidget(QLabel("Quality"))
-        dyno_controls.addWidget(self.dyno_quality_combo)
         dyno_controls.addWidget(self.dyno_run_btn)
         dyno_controls.addWidget(self.dyno_cancel_btn)
-        dyno_controls.addWidget(self.dyno_export_btn)
-        dyno_controls.addWidget(self.dyno_knock_export_checkbox)
         dyno_controls.addWidget(self.dyno_progress)
         dyno_controls.addWidget(self.dyno_status_label)
         dyno_controls.addStretch()
         dyno_layout.addLayout(dyno_controls)
+
+        self.dyno_advanced_group.setCheckable(True)
+        self.dyno_advanced_group.setChecked(False)
+        self.dyno_advanced_group.toggled.connect(self._set_dyno_advanced_visible)
+        dyno_advanced_layout = QHBoxLayout()
+        dyno_advanced_layout.addWidget(QLabel("Quality"))
+        dyno_advanced_layout.addWidget(self.dyno_quality_combo)
+        dyno_advanced_layout.addWidget(self.dyno_export_btn)
+        dyno_advanced_layout.addWidget(self.dyno_knock_export_checkbox)
+        dyno_advanced_layout.addStretch()
+        self.dyno_advanced_group.setLayout(dyno_advanced_layout)
+        dyno_layout.addWidget(self.dyno_advanced_group)
+        self._set_dyno_advanced_visible(False)
 
         self.dyno_plot.showGrid(x=True, y=True, alpha=0.2)
         self.dyno_plot.addLegend()
@@ -407,6 +419,14 @@ class MainWindow(QMainWindow):
         self.main_stack.addWidget(fabrication_tab)
         self.setCentralWidget(self.main_stack)
         self.main_stack.setCurrentIndex(0)
+
+    def _set_dyno_advanced_visible(self, visible: bool) -> None:
+        self.dyno_advanced_group.setFlat(not visible)
+        for idx in range(self.dyno_advanced_group.layout().count()):
+            item = self.dyno_advanced_group.layout().itemAt(idx)
+            widget = item.widget()
+            if widget is not None:
+                widget.setVisible(visible)
 
     def _init_wave_scope_ui(self) -> QWidget:
         container = QWidget()
@@ -1296,6 +1316,21 @@ class MainWindow(QMainWindow):
         self._update_window_title()
         self.update_overview()
         self.statusBar().showMessage("Engine saved.", 2000)
+
+    def _try_load_default_preset(self) -> None:
+        """Attempt to load honda_k20.json as default engine on startup."""
+        default = Path(__file__).resolve().parent.parent / "presets" / "honda_k20.json"
+        if not default.exists():
+            return
+        try:
+            with open(default, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            self.engine = Engine.from_dict(data)
+            self.current_project_path = str(default)
+        except Exception:
+            logging.getLogger(__name__).debug(
+                "Failed to load default preset, using empty engine", exc_info=True
+            )
 
     def load_project(self) -> None:
         filename, _ = QFileDialog.getOpenFileName(self, "Load Engine", "", "JSON Files (*.json)")

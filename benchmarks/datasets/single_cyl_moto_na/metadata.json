@@ -14,5 +14,6 @@
     "power_mape_max": 0.03,
     "bmep_mape_max": 0.08,
     "ve_mape_max": 0.08
-  }
+  },
+  "notes": "8-point regression golden dataset generated from current simulator. Regenerate with: python scripts/generate_single_cyl_moto_benchmark.py"
 }

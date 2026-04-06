@@ -1,7 +1,7 @@
 # PyWaveDyn Documentation
 
 ## Overview
-PyWaveDyn is a verification-focused 0D virtual dyno plus a 1D exhaust wave-scope (opt-in integration). This document describes the codebase and GUI workflows; "implemented" features are defined by reproducible commands/tests (see FEATURES.md and VALIDATION_GUIDE.md). The advanced core spec lives in `TECHNICAL_SPECS_V2.md`.
+PyWaveDyn is a verification-focused 0D virtual dyno plus a 1D exhaust wave-scope (opt-in integration). This document describes the codebase and GUI workflows; "implemented" features are defined by reproducible commands/tests (see `FEATURES.md` and `VALIDATION_GUIDE.md`). The advanced core spec lives in `../TECHNICAL_SPECS_V2.md`.
 
 ## Module Reference
 

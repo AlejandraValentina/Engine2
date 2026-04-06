@@ -23,16 +23,20 @@ class _Nasa7Coeffs:
     high: Tuple[float, float, float, float, float, float, float]
 
 
+# NASA-7 polynomial coefficients from JANAF/Burcat thermodynamic tables.
+# "air" is a mass-weighted mix of N2 (0.7553) and O2 (0.2314) representing
+# dry intake air.  "burned" approximates stoichiometric gasoline combustion
+# products (≈ 71% N2, 13% CO2, 13% H2O, 3% misc) as a single pseudo-species.
 _NASA7_SPECIES = {
     "air": _Nasa7Coeffs(
         t_mid=1000.0,
-        low=(3.5, 1.0e-4, 0.0, 0.0, 0.0, 0.0, 0.0),
-        high=(3.2, 2.0e-4, 0.0, 0.0, 0.0, 0.0, 0.0),
+        low=(3.5310, -1.2352e-4, -5.0288e-7, 2.4355e-9, -1.4088e-12, -1.0467e3, 3.6884),
+        high=(3.0836, 1.2414e-3, -4.2170e-7, 6.7472e-11, -3.9977e-15, -9.8586e2, 6.1352),
     ),
     "burned": _Nasa7Coeffs(
         t_mid=1000.0,
-        low=(3.9, 1.5e-4, 0.0, 0.0, 0.0, 0.0, 0.0),
-        high=(3.6, 2.5e-4, 0.0, 0.0, 0.0, 0.0, 0.0),
+        low=(3.7111, 1.5868e-3, -4.7585e-7, -4.4100e-10, 4.3772e-13, -1.3830e4, 3.1185),
+        high=(3.5727, 1.8597e-3, -6.8262e-7, 1.1768e-10, -7.5326e-15, -1.3935e4, 3.5947),
     ),
 }
 
@@ -693,10 +697,12 @@ class CylinderSimulator:
         dynamic_cr = max(V_IVC, 1e-9) / max(Vc, 1e-9)
         req_octane = dynamic_cr * 12.0 - 20.0
         knock_warning = False
+        knock_penalty_pct = 0.0
         if req_octane > fuel_octane:
             knock_warning = True
             knock_gap = req_octane - fuel_octane
             penalty = max(0.3, 1.0 - 0.05 * knock_gap)
+            knock_penalty_pct = round((1.0 - penalty) * 100.0, 1)
             brake_torque *= penalty
 
         omega = rpm * 2.0 * math.pi / 60.0
@@ -783,6 +789,7 @@ class CylinderSimulator:
             "bmep_bar": bmep_bar,
             "airflow_cfm": actual_cfm,
             "knock_warning": knock_warning,
+            "knock_penalty_pct": knock_penalty_pct,
             "burn_duration_deg": burn_duration,
             "target_ca50_deg_atdc": target_ca50,
             "trace": trace,

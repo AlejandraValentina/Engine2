@@ -14,6 +14,6 @@ Each item must include:
 - Stable JSON output with schema and schema test.
 - Deterministic tests marked appropriately (unit/integration/system/perf/stress).
 - Runtime bounded by max_steps/max_iters/time_budget where applicable.
-- Documented in FEATURES.md with evidence and command.
+- Documented in `internal/FEATURES.md` with evidence and command.
 
 Rule: No features outside this scope.

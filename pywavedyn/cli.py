@@ -263,9 +263,12 @@ def _dyno_results_v1(engine: Engine, rpm_values: list[float]) -> list[dict]:
             "pr_comp",
             "pr_turb",
             "wg_duty",
+            "knock_penalty_pct",
         ):
             if key in cycle:
                 entry[key] = float(cycle[key])
+        if "knock_warning" in cycle:
+            entry["knock_warning"] = bool(cycle["knock_warning"])
         results.append(entry)
     return results
 
@@ -301,6 +304,17 @@ def _dyno_results_v2(engine: Engine, rpm_values: list[float], v2_settings: dict 
             entry["reason"] = reason_series[idx]
         results.append(entry)
     return results
+
+
+def _warn_knock_penalties(results: list[dict]) -> None:
+    for entry in results:
+        pct = entry.get("knock_penalty_pct", 0.0)
+        if pct > 0:
+            rpm = entry.get("rpm", "?")
+            print(
+                f"WARNING: knock penalty {pct}% at {rpm} RPM",
+                file=sys.stderr,
+            )
 
 
 def _build_knock_report(
@@ -418,6 +432,7 @@ def run_dyno(
         }
     output = {"metadata": metadata, "results": results}
     _write_json(out_path, output)
+    _warn_knock_penalties(results)
 
     if knock_report is not None:
         report = _build_knock_report(

@@ -1,169 +1,104 @@
-# PyWaveDyn – Professional 1D Gas Dynamics & Engine Simulator
+# PyWaveDyn - Professional 1D Gas Dynamics & Engine Simulator
 
-PyWaveDyn is a verification-focused open-source tool for simulating internal combustion engines. It combines a 0D thermodynamic virtual dyno, a 1D wave solver (Euler 1D, finite-volume Lax–Wendroff + ghost cells), and headless tooling for sweeps, benchmarks, and reproducible outputs (see FEATURES.md).
+PyWaveDyn is a verification-focused engine simulation project with a 0D virtual dyno, a 1D gas-dynamics scope, and reproducible CLI workflows for benchmarks, selfcheck, sweeps, and reports.
 
-## Project Status (source of truth)
-“Implemented” means reproducible via a command and/or covered by green tests.
-See: FEATURES.md and VALIDATION_GUIDE.md.
+## What PyWaveDyn Is
+- 0D dyno for brake torque and power sweeps.
+- 1D wave tooling for scope-style pressure analysis.
+- CLI-first validation surface with schema-backed JSON outputs.
+- GUI available, but CLI/tests are the source of truth for validated behavior.
 
-## Estado actual verificado
-Capacidades reales (resumen corto):
-- Dyno 0D (CLI + GUI) con export JSON validado por schema.
-- Scope 1D (intake/exhaust) y full-scope headless.
-- Benchmarks, selfcheck y suites de validacion con schemas.
-- Audio multicilindro por CLI (opt-in).
-- Sweeps/map/cutlist/calibrate headless reproducibles.
+Project maturity is tracked in `docs/internal/FEATURES.md` and `docs/internal/VALIDATION_GUIDE.md`.
 
-Comandos reales (ejemplos):
+## Install Minimum
+Prerequisite: Python 3.10+
+
+Base install:
+```bash
+python -m pip install -r requirements.txt
+```
+
+Optional GUI install:
+```bash
+python -m pip install -e ".[gui]"
+```
+
+Optional dev/test install:
+```bash
+python -m pip install -r requirements-dev.txt
+```
+
+## First Result
+Generate a dyno JSON from the bundled K20 preset:
+
 ```bash
 python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:9000:250 --out out_dyno.json
-python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2500 --cycles 1 --out out_scope.json
+```
+
+This writes `out_dyno.json` with torque/power results in a schema-backed format.
+
+## Validation
+Public validation entry points:
+
+```bash
 python -m pywavedyn.cli benchmark --engine presets/honda_k20.json --dataset benchmarks/datasets/honda_k20_na --out bench_report.json
 python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json
-```
-Checklist y evidencia: ver FEATURES.md y VALIDATION_GUIDE.md.
-
-### Implemented & validated
-- 0D virtual dyno with verification-focused tests.
-- 1D exhaust scope solver available as an opt-in integration contract.
-- Physics identities/trends/sanity test suite and canonical presets audit.
-- Multi-cylinder audio synthesis via headless CLI/tests.
-- Headless parameter sweeps via CLI/tests.
-- Reproducible cut-list generation via CLI/tests.
-
-### GUI workflows
-- GUI-driven parameter sweeps/optimizer workflows (CLI/tests are the source of truth for validated features).
-- Fabrication UI/planner utilities (CLI cut-list is the validated path).
-
-## Key Features
-- **Virtual Dyno (0D)** – Otto-cycle solver with explicit combustion/loss models and verification tests to predict brake torque/HP across RPM.
-- **Wave Scope (1D)** - Pressure-wave visualization for exhaust networks (current scope: exhaust only; intake handled in 0D). Legacy scope is one-way; the advanced core provides an opt-in coupled 0D↔1D path (see `docs/TECHNICAL_SPECS_V2.md`).
-- **Acoustics** - Multi-cylinder WAV synthesis via headless CLI/tests.
-- **Optimizer** - Headless CLI sweeps for parameter studies (runner length grid).
-- **Fabrication** - Reproducible cut-list output via CLI/tests.
-- **Verification & Presets** – Canonical presets and regression/contract tests with a validation guide for reproducible runs.
-
-## Installation & Quickstart
-1. **Prerequisites:** Python 3.10+.
-2. **Install dependencies (deterministic order):**
-   ```bash
-   python -m pip install -r requirements.txt
-   ```
-   For development and tests:
-   ```bash
-   python -m pip install -r requirements-dev.txt
-   ```
-3. **Run the GUI:**
-   ```bash
-   python main.py
-   ```
-4. **Load a preset:** From the GUI, open an example JSON from `presets/` (e.g., K20/V8/V12).
-5. **Run a dyno sweep (CLI):**
-   ```bash
-   python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:9000:250 --out out_dyno.json
-   ```
-6. **Wave scope (CLI):**
-   ```bash
-   python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2500 --cycles 1 --out out_scope.json
-   ```
-7. **Intake scope (CLI):**
-   ```bash
-   python -m pywavedyn.cli intake-scope --engine presets/honda_k20.json --target-dx 0.05 --max-steps 200 --out intake_scope.json
-   ```
-7. **Export audio (CLI):**
-   ```bash
-   python -m pywavedyn.cli audio --engine presets/honda_k20.json --rpm 2500 --duration 0.5 --sample-rate 44100 --out out.wav
-   ```
-8. **Headless sweep (CLI):**
-   ```bash
-   python -m pywavedyn.cli sweep --engine presets/honda_k20.json --rpm 3000 --points 5 --out out_sweep.json
-   ```
-9. **Part-load map (CLI):**
-   ```bash
-   python -m pywavedyn.cli map --engine presets/honda_k20.json --rpm-grid 2000,3000 --throttle-grid 0.2,0.6,1.0 --out map.json
-   ```
-9. **Cut-list (CLI):**
-   ```bash
-   python -m pywavedyn.cli cutlist --engine presets/honda_k20.json --out cutlist.json
-   ```
-10. **Auto-calibration (CLI):**
-   ```bash
-   python -m pywavedyn.cli calibrate --engine presets/honda_k20.json --target target.json --out calib_report.json --max-evals 40 --params ve_scale,friction_scale,burn_scale
-   ```
-11. **Full network scope (CLI):**
-   ```bash
-   python -m pywavedyn.cli full-scope --engine presets/legacy/custom_twin_230cc.json --duration 0.02 --target-dx 0.05 --max-steps 200 --out full_scope.json
-   ```
-12. **Optimize runner length (CLI):**
-   ```bash
-   python -m pywavedyn.cli optimize --engine presets/legacy/custom_twin_230cc.json --target target.json --param intake.runner_length --bounds 0.20,0.60 --seed 123 --max-evals 30 --out opt_report.json
-   ```
-13. **Benchmark report (CLI):**
-   ```bash
-   python -m pywavedyn.cli benchmark --engine presets/honda_k20.json --dataset benchmarks/datasets/honda_k20_na --out bench_report.json
-   ```
-14. **Turbo dyno (CLI):**
-   ```bash
-   python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 4000 --turbo presets/turbo_simple.json --out dyno.json
-   ```
-15. **Run tests:**
-   ```bash
-   python -m pytest
-   ```
-16. **Run selfcheck (validation cases):**
-   ```bash
-   python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json
-   ```
-
-## Verificacion v2.3 FINAL
-```bash
-python -m pytest -q -W error::RuntimeWarning
-python -m pytest -q
-python -m pytest -q -m integration
-python -m pytest -q -m legacy
-python -m pytest -q -m perf
 python -m pytest -q -m system
-python -m pywavedyn.cli --help
-python -m pywavedyn.cli full-scope --help
-python -m pywavedyn.cli benchmark --help
-python -m pywavedyn.cli dyno --help
-python -m pywavedyn.cli optimize --help
 ```
 
-## Run Demo
-Preset: `presets/v2_full_features_demo.json`  
-```bash
-python examples/run_v2_full_features_demo.py
-```
-Writes `out_v2_demo.json`.
+Benchmark datasets currently shipped in-repo:
+
+| Engine | Preset | RPM Points | Metric | Contract | Source |
+|--------|--------|-----------|--------|----------|--------|
+| Honda K20 I4 | `presets/honda_k20.json` | 8 (2k-8k) | Torque + Power MAPE | <= 2% | `regression_golden` |
+| Chevy 350 V8 | `presets/chevy_350.json` | 8 (1.5k-5k) | Torque + Power MAPE | <= 2% | `regression_golden` |
+| Ferrari F1 V12 | `presets/ferrari_f1.json` | 3 (9k-17k) | Torque + Power MAPE | <= 2% | `regression_golden` |
+| Single-cyl Moto | `validation_cases/single_cyl_moto_like.json` | 8 (3k-10k) | Torque + Power MAPE | <= 3% | `regression_golden` |
+
+Limits:
+- These in-repo datasets are regression-golden, not external dyno measurements.
+- They are useful for regression detection, not for proving absolute fidelity to a real engine.
+- Dataset conventions live in `benchmarks/README.md` and `docs/BENCHMARKS_METHOD.md`.
 
 ## Docs
-- [TECHNICAL_DOCS.md](TECHNICAL_DOCS.md) – especificación técnica de modelos 0D/1D.
-- [DOCUMENTATION.md](DOCUMENTATION.md) – guía general y notas de arquitectura.
-- [VISION.md](VISION.md) – visión del proyecto.
-- [FEATURES.md](FEATURES.md) – checklist verificable de funcionalidades.
-- [VALIDATION_GUIDE.md](VALIDATION_GUIDE.md) – cómo ejecutar las validaciones y criterios de “implementado”.
-- [AUDIT_REPORT.md](AUDIT_REPORT.md) – inventario de presets y estado de pruebas.
-- [docs/BENCHMARKS_METHOD.md](docs/BENCHMARKS_METHOD.md) – contrato de benchmarks y tolerancias.
-- [docs/RUNBOOK.md](docs/RUNBOOK.md) – instalación y GUI/tests offscreen.
-- [docs/APP_SERIA_CHECKLIST.md](docs/APP_SERIA_CHECKLIST.md) – checklist end-to-end (GUI/CLI/core).
+- [docs/README.md](docs/README.md) - user-facing docs index
+- [docs/BENCHMARKS_METHOD.md](docs/BENCHMARKS_METHOD.md) - benchmark dataset contract
+- [docs/RUNBOOK.md](docs/RUNBOOK.md) - practical setup and execution notes
+- [docs/GUI_OVERVIEW.md](docs/GUI_OVERVIEW.md) - GUI overview
+- [docs/internal/README.md](docs/internal/README.md) - internal docs, validation detail, audit, and technical notes
+
+## More Commands
+```bash
+python main.py
+python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2500 --cycles 1 --out out_scope.json
+python -m pywavedyn.cli intake-scope --engine presets/honda_k20.json --target-dx 0.05 --max-steps 200 --out intake_scope.json
+python -m pywavedyn.cli audio --engine presets/honda_k20.json --rpm 2500 --duration 0.5 --sample-rate 44100 --out out.wav
+python -m pywavedyn.cli sweep --engine presets/honda_k20.json --rpm 3000 --points 5 --out out_sweep.json
+python -m pywavedyn.cli map --engine presets/honda_k20.json --rpm-grid 2000,3000 --throttle-grid 0.2,0.6,1.0 --out map.json
+python -m pywavedyn.cli cutlist --engine presets/honda_k20.json --out cutlist.json
+python -m pywavedyn.cli calibrate --engine presets/honda_k20.json --target target.json --out calib_report.json --max-evals 40 --params ve_scale,friction_scale,burn_scale
+python -m pywavedyn.cli full-scope --engine presets/legacy/custom_twin_230cc.json --duration 0.02 --target-dx 0.05 --max-steps 200 --out full_scope.json
+python -m pywavedyn.cli optimize --engine presets/legacy/custom_twin_230cc.json --target target.json --param intake.runner_length --bounds 0.20,0.60 --seed 123 --max-evals 30 --out opt_report.json
+python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 4000 --turbo presets/turbo_simple.json --out dyno.json
+```
 
 ## Testing
-- Instalar dependencias base: `python -m pip install -r requirements.txt`
-- Dependencias de desarrollo/tests: `python -m pip install -r requirements-dev.txt`
-- Suite completa: `python -m pytest`
-- Unit tests: `python -m pytest tests/unit`
-- Integracion (opt-in): `python -m pytest -m integration -q`
-- Legacy (opt-in): `python -m pytest -m legacy -q`
-- Contratos rápidos: `python -m pytest -q tests/test_contract_*.py`
-- Identidades/Tendencias/Sanidad: `python -m pytest -q tests/test_identities.py` | `tests/test_trends.py` | `tests/test_sanity_bands.py`
+```bash
+python -m pytest
+python -m pytest tests/unit
+python -m pytest -m integration -q
+python -m pytest -m legacy -q
+python -m pytest -q tests/test_contract_*.py
+```
 
 ## Advanced Core (v2)
 The v2.0 Advanced Physics Core lives in `core/advanced/` and runs in parallel with v1 (Quick Dyno).
 
-**Toy demo:**\n`python scripts/run_v2_toy.py`
+**Toy demo:** `python scripts/run_v2_toy.py`
 
-**Tests:**\n- Unit: `pytest -q`\n- Integration (opt-in): `pytest -q -m integration`
+**Tests:**
+- Unit: `pytest -q`
+- Integration (opt-in): `pytest -q -m integration`
 
 **Spec & flags:** see `docs/TECHNICAL_SPECS_V2.md` for the coupling contract and optional flags
 (`use_numba_1d`, `combustion.enabled`, `heat_transfer.enabled`, `outlet_mode`, under-relaxation).
@@ -242,17 +177,17 @@ PY
 ```
 
 ## Physics Overview
-- **Thermodynamics (0D):** Four-stroke phasing with Wiebe combustion (configurable a/m, burn duration, ignition advance), Woschni wall heat transfer, Chen–Flynn FMEP (A/B/C coefficients with user scaling), and Mach-index flow choking tied to valve geometry/port flow efficiency.
-- **Wave Dynamics (1D):** Euler equations with Lax-Wendroff integration, Darcy-Weisbach friction source, and ghost-cell boundaries for valves/outlets plus junction collectors for multi-cylinder exhausts. Legacy coupling is one-way; the advanced core adds an opt-in coupled 0D↔1D path (see `docs/TECHNICAL_SPECS_V2.md`).
+- **Thermodynamics (0D):** Four-stroke phasing with Wiebe combustion (configurable a/m, burn duration, ignition advance), Woschni wall heat transfer, Chen-Flynn FMEP (A/B/C coefficients with user scaling), and Mach-index flow choking tied to valve geometry/port flow efficiency.
+- **Wave Dynamics (1D):** Euler equations with Lax-Wendroff integration, Darcy-Weisbach friction source, and ghost-cell boundaries for valves/outlets plus junction collectors for multi-cylinder exhausts. Legacy coupling is one-way; the advanced core adds an opt-in coupled 0D<->1D path (see `docs/TECHNICAL_SPECS_V2.md`).
 - **Airflow & Environment:** Configurable intake temp/pressure, intercooler efficiency, throttle/port flow limits, and Mach tolerance to capture altitude and hardware effects.
-- **Coupling:** Legacy dyno operates independently for torque/HP; the advanced core provides a coupled path for 0D↔1D exchange (opt-in).
+- **Coupling:** Legacy dyno operates independently for torque/HP; the advanced core provides a coupled path for 0D<->1D exchange (opt-in).
 
 ## Project Structure
-- **core/** – Physics and data models (`thermo.py` for 0D cycle, `simulator.py`/`junctions.py` for 1D wave network, `numerics.py` for jitted flux/solver kernels, `engine_components.py` for serialized engine schema).
-- **gui/** – PySide6 application with project explorer, properties editor, dyno/optimizer, wave scope, fabrication planner, and audio controls.
-- **acoustics/** – WAV synthesis utilities.
-- **tests/** – Unit/integration suites covering physics identities, trends, and engine presets.
-- **presets/** – Example engine configurations (NA/turbo, small/large displacement) ready to load in the GUI.
+- **core/** - Physics and data models (`thermo.py` for 0D cycle, `simulator.py`/`junctions.py` for 1D wave network, `numerics.py` for jitted flux/solver kernels, `engine_components.py` for serialized engine schema).
+- **gui/** - PySide6 application with project explorer, properties editor, dyno/optimizer, wave scope, fabrication planner, and audio controls.
+- **acoustics/** - WAV synthesis utilities.
+- **tests/** - Unit/integration suites covering physics identities, trends, and engine presets.
+- **presets/** - Example engine configurations (NA/turbo, small/large displacement) ready to load in the GUI.
 
 ## Screenshots
 _Add your screenshots here to showcase the interface._
