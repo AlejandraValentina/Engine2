@@ -40,3 +40,27 @@ def test_wall_thermal_disabled_no_change() -> None:
 
     assert twall_next == twall
     assert qdot == 0.0
+
+
+def test_wall_thermal_long_horizon_remains_finite_and_bounded() -> None:
+    cfg = WallThermalConfig(
+        enabled=True,
+        m_wall_kg=2.0,
+        cp_wall_j_per_kgk=1000.0,
+        h_w_per_m2k=150.0,
+        area_m2=0.5,
+        twall_init_k=300.0,
+        twall_min_k=200.0,
+        twall_max_k=800.0,
+    )
+    twall = init_wall_temperature(cfg)
+
+    previous = twall
+    for _ in range(500):
+        twall, qdot = wall_thermal_step(twall, 600.0, 0.1, cfg)
+        assert cfg.twall_min_k <= twall <= cfg.twall_max_k
+        assert twall >= previous
+        assert qdot >= 0.0
+        previous = twall
+
+    assert twall < 600.0

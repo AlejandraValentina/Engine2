@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "validation_compare.schema.json",
+  "type": "object",
+  "required": ["metadata", "cases", "summary"],
+  "properties": {
+    "report_type": {"type": "string"},
+    "report_format_version": {"type": "integer"},
+    "report_family": {"type": "string"},
+    "generated_at_utc": {"type": "string"},
+    "context": {
+      "type": "object",
+      "properties": {
+        "dataset_id": {"type": "string"},
+        "engine_id": {"type": "string"},
+        "preset_path": {"type": "string"},
+        "engine_path": {"type": "string"},
+        "base_engine_path": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["base_engine_path", "datasets_evaluated", "features_requested", "version"],
+      "properties": {
+        "base_engine_path": {"type": "string"},
+        "datasets_evaluated": {"type": "array", "items": {"type": "string"}},
+        "features_requested": {"type": "object"},
+        "version": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["dataset", "signal_coverage", "baseline", "features"],
+        "properties": {
+          "dataset": {"type": "object"},
+          "signal_coverage": {"type": "object"},
+          "signal_evidence": {"type": "object"},
+          "baseline": {"type": "object"},
+          "features": {"type": "object"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["feature_summary"],
+      "properties": {
+        "feature_summary": {"type": "object"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -77,10 +77,21 @@ class ProDynoV2Runner:
     def _combustion_from_engine(self) -> CombustionConfig:
         comb = self.engine.combustion
         fuel_cfg = self.engine.simulation_settings.fuel
+        top_level_fuel = self.engine.fuel
+        afr_stoich = (
+            float(fuel_cfg.afr_stoich)
+            if fuel_cfg.enabled and fuel_cfg.afr_stoich > 0.0
+            else float(getattr(top_level_fuel, "stoich_afr", 14.7))
+        )
+        fuel_lhv = (
+            float(fuel_cfg.lhv_j_per_kg)
+            if fuel_cfg.enabled and fuel_cfg.lhv_j_per_kg > 0.0
+            else float(getattr(top_level_fuel, "energy_density", 43e6))
+        )
         cfg = CombustionConfig(
             enabled=True,
-            afr_stoich=float(comb.afr) if comb.afr > 0.0 else 14.7,
-            fuel_lhv=float(fuel_cfg.lhv_j_per_kg) if fuel_cfg.lhv_j_per_kg > 0.0 else 43e6,
+            afr_stoich=afr_stoich if afr_stoich > 0.0 else 14.7,
+            fuel_lhv=fuel_lhv if fuel_lhv > 0.0 else 43e6,
             eta_comb_base=float(min(max(comb.thermal_efficiency, 0.0), 1.0)),
             wiebe_a=float(comb.wiebe_a),
             wiebe_m=float(comb.wiebe_m),

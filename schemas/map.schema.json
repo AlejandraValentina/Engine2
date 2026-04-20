@@ -4,6 +4,23 @@
   "type": "object",
   "required": ["metadata", "grid", "points"],
   "properties": {
+    "observable_semantics": {
+      "type": "object",
+      "properties": {
+        "ve_actual": {
+          "type": "object",
+          "properties": {
+            "available_in_modes": {"type": "array", "items": {"type": "string"}},
+            "cross_mode_relation": {"type": "string"},
+            "v1_meaning": {"type": "string"},
+            "v2_meaning": {"type": "string"},
+            "interpretation_note": {"type": "string"}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
     "metadata": {
       "type": "object",
       "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],

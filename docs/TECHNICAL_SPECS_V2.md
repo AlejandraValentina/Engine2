@@ -39,6 +39,12 @@ When loading from an engine JSON, `cp_model`, `fuel`, `intake_plenum`, and `exha
 are read from `simulation_settings`. Wall thermal and shock CFL settings are also read from
 `simulation_settings` when provided.
 
+Compatibility policy for these flags is conservative:
+- all advanced features remain opt-in unless explicitly enabled;
+- disabled defaults must preserve existing runtime behavior;
+- legacy presets should continue to load through tolerant parsing plus explicit legacy-compat modes when requested;
+- any future default change should be treated as a compatibility event and covered by regression tests.
+
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `throttle.enabled` | `False` | Enable throttle boundary (opt-in). |
@@ -671,6 +677,7 @@ pr = \frac{p_{down}}{p_0}
 \]
 
 These equations compute \(\dot{m}_{mag}\); the signed \(\dot{m}\) is assigned by the backflow swap rule in §4.2.
+The implemented hysteresis is a numerical direction-selection guardrail, not a separate empirical valve-history model.
 
 ### 4.3 Boundary Flux Application (Phase 1 Recipe)
 **Option B (selected): ghost-cell construction + Rusanov flux.**
@@ -1031,20 +1038,50 @@ Stop when **both** are satisfied:
   For multi-cylinder, compute per-cylinder VE and report the average.
   - **v1 vs v2:** v1 `ve_actual` is a modeled estimate of the same definition (based on cam/tuning
     correlations), while v2 `ve_actual` is computed from trapped fresh mass at IVC. Numbers are
-    comparable but may differ if the modeled intake flow diverges from the coupled solution.
+    comparable for trend and gross plausibility checks, but they are not strictly identical observables.
+    In practice, v1 `ve_actual` should be read as a correlation-backed estimate, while v2 `ve_actual`
+    should be read as a coupled trapped-mass result. Divergence is expected whenever the 0D intake-flow
+    estimate departs from the coupled 0D/1D solution.
+  - **Artifact note:** dyno-style CLI/GUI exports that include `ve_actual` now also carry the same caveat in `observable_semantics.ve_actual`.
 - **Residual fraction:**
   \[
   res\_frac = 1 - \frac{m_{fresh}}{m_{total}}\Big|_{IVC}
   \]
 
-### 6.1 Indicated Work Discretization
+### 6.1 Model-Limit Notes For Interpretation
+- **0D plenums and junctions:** intake plenums, exhaust plenums, and junction capacitance blocks are
+  0D control-volume / capacitance approximations. They conserve bulk mass and energy, but they do not
+  resolve the full spatial wave structure, phase-local recirculation, or detailed mixing fields that a
+  richer 1D network with resolved junction geometry would capture.
+- **Wall thermal in pulsating flow:** the optional wall-thermal layer is a lumped trend/stability model.
+  It is useful for directional studies and for avoiding unrealistic thermal drift, but the project does
+  not currently claim a broadly validated phase-resolved heat-transfer envelope for strongly pulsating
+  flow. Treat it as a coarse engineering model, not as a calibrated transient HTC correlation set.
+- **Combustion tuning knobs:** the public combustion controls exposed today are the implemented fields in
+  the engine schema, such as `burn_duration_base`, `burn_duration_rpm_factor`,
+  `burn_duration_load_factor`, `ca50_base_deg_atdc`, `ca50_rpm_factor`, `ca50_load_factor`,
+  `wiebe_a`, `wiebe_m`, and `combustion.wiebe.eta_scale`. External names like `k_dur` or `k_eta`
+  should be mapped to these actual fields rather than treated as separate hidden parameters.
+- **Adaptive combustion (0D, opt-in):** the legacy 0D combustion schedule can be extended with
+  `combustion.adaptive_model.enabled=true`. This mode keeps the same Wiebe framework but perturbs
+  effective burn duration and CA50 target from signals already available in the 0D path:
+  `rpm`, load proxy (`bmep_est_bar`), compression ratio, manifold boost, configured lambda
+  (from `combustion.afr` relative to fuel stoich), overlap-based residual proxy, and charge temperature.
+  The adjustment is coefficient-based and traceable in output metadata; it is not a black-box fit.
+  The current integration is intentionally narrow and explicit:
+  - `dyno`, `benchmark`, `dyno-compare`, and `calibrate-staged` may override the mode as `as_is`, `on`, or `off`
+    without mutating the preset on disk;
+  - staged calibration may tune only `adaptive_duration_scale` and `adaptive_ca50_offset_deg`;
+  - coefficient-level auto-calibration of every adaptive term remains out of scope for stability and traceability.
+  When disabled, runtime behavior remains on the legacy path.
+### 6.2 Indicated Work Discretization
 Per cylinder:
 \[
 W_{ind} = \sum_i 0.5\,(p_i + p_{i+1})\,(V_{i+1} - V_i)
 \]
 Total indicated work (multi-cylinder): multiply by `num_cylinders`.
 
-### 6.2 Histories & Probes
+### 6.3 Histories & Probes
 Provide histories for:
 - \(p_{cyl}, T_{cyl}, \dot{m}_{intake}, \dot{m}_{exhaust}, Y_{cyl}\)
 - Selected pipe probes (pressure, velocity, \(Y_{fresh}\)).
@@ -1074,6 +1111,26 @@ python3 -m pytest -q -W error::RuntimeWarning -k pro_dyno
 ### Integration Tests (marker: `integration`)
 - Intake pipe + cylinder shows ram charging (VE > 1 possible).
 - Exhaust blowdown yields expected wave travel time (no NaN/inf).
+
+### Validation Scope Notes
+- `selfcheck` is intended for deterministic scenario validation, schema-level sanity, and lightweight
+  physical invariants. It is useful for catching broken wiring, non-physical outputs, or silent default
+  drift, but it is not a substitute for external dyno validation.
+- regression-golden benchmark datasets are intended for reproducibility and change detection under known
+  project baselines.
+- real-data benchmark / calibration workflows are the appropriate path when comparing the simulator
+  against imported external dyno measurements.
+- Cross-mode v1 vs v2 comparison is intentionally narrow in the current automated suite: the visible
+  expectation is a stable-point plausibility band on `ve_actual`, not a blanket parity promise for all
+  output channels at all operating points.
+- `outlet_mode="impedance"` is covered by a dedicated outlet-response unit test. Current resolution
+  coverage is limited to small local sensitivity smoke tests on simple 1D pulse cases; the project does
+  not currently claim a formal mesh-convergence envelope.
+- Fuel accounting supports configurable `afr_stoich` and `lhv_j_per_kg`, and the automated suite now
+  includes a small alternative-fuel sanity check. This should be interpreted as accounting-level support,
+  not as a claim of fully validated multi-fuel combustion physics.
+- Thermal evidence now includes a cheap long-horizon boundedness sanity test for the standalone lumped
+  wall model. This still falls well short of a validated long-duration coupled thermal envelope.
 
 ---
 **Document Version:** v2.0 (Phase 1)

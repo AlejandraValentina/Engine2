@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 import json
 import logging
 import math
@@ -21,7 +22,9 @@ from PySide6.QtWidgets import (
     QDockWidget,
     QDoubleSpinBox,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
+    QHeaderView,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -29,6 +32,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QProgressBar,
     QTextBrowser,
+    QTextEdit,
     QPushButton,
     QSplitter,
     QSlider,
@@ -59,6 +63,14 @@ from core.engine_components import (
     IntakeSystem,
     SimulationSettings,
     Supercharger,
+    Turbo,
+)
+from core.engine_wizard import (
+    COMPLEXITY_FIELDS,
+    WizardSpec,
+    build_engine_from_wizard,
+    review_wizard_spec,
+    summarize_engine_for_wizard,
 )
 from core.junctions import Junction
 from core.model import Pipe
@@ -68,9 +80,328 @@ from core.simulator import Engine1DSolver
 from core.thermo import CylinderSimulator
 from core.units import cc_to_m3
 from core.wave_utils import compute_image_levels, compute_pressure_matrix
+from pywavedyn.analysis_contract import OBSERVABLE_VE_ACTUAL, apply_observable_semantics
 from pywavedyn.cli import _metadata as cli_metadata
 from core.knock import KnockConfig, compute_knock_index
+from gui.real_dyno_workbench import RealDynoWorkbench
 from gui.widgets.scope_widget import ScopeWidget
+
+FUEL_PRESET_DEFINITIONS = {
+    "Súper 95": {
+        "type_name": "Gasoline",
+        "octane_rating": 95.0,
+        "energy_density": 44e6,
+        "stoich_afr": 14.7,
+        "match_names": {"super 95", "súper 95", "pump_95"},
+    },
+    "Premium 97": {
+        "type_name": "Gasoline",
+        "octane_rating": 97.0,
+        "energy_density": 44e6,
+        "stoich_afr": 14.7,
+        "match_names": {"premium 97", "premium", "premium_97"},
+    },
+    "Race Gas (100)": {
+        "type_name": "Race Gas",
+        "octane_rating": 100.0,
+        "energy_density": 44e6,
+        "stoich_afr": 14.7,
+        "match_names": {"race gas 100"},
+    },
+    "Race Gas (110)": {
+        "type_name": "Race Gas",
+        "octane_rating": 110.0,
+        "energy_density": 46e6,
+        "stoich_afr": 14.2,
+        "match_names": {"race gas 110", "race gas"},
+    },
+    "E85": {
+        "type_name": "E85",
+        "octane_rating": 105.0,
+        "energy_density": 29e6,
+        "stoich_afr": 9.8,
+        "match_names": {"e85"},
+    },
+    "Methanol": {
+        "type_name": "Methanol",
+        "octane_rating": 110.0,
+        "energy_density": 20e6,
+        "stoich_afr": 6.4,
+        "match_names": {"methanol"},
+    },
+    "Custom": {
+        "type_name": "Custom",
+        "match_names": {"custom"},
+    },
+}
+
+FUEL_PRESET_GROUPS = (
+    ("primary", ("Súper 95", "Premium 97")),
+    ("advanced", ("Race Gas (100)", "Race Gas (110)", "E85", "Methanol", "Custom")),
+)
+
+FUEL_PRESET_LEGACY_ALIASES = {
+    "Regular (87)": {
+        "type_name": "Regular",
+        "octane_rating": 87.0,
+        "energy_density": 44e6,
+        "stoich_afr": 14.7,
+    },
+    "Premium (93)": {
+        "type_name": "Premium",
+        "octane_rating": 93.0,
+        "energy_density": 44e6,
+        "stoich_afr": 14.7,
+    },
+}
+
+
+class GuidedEngineWizardDialog(QDialog):
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("New Guided Engine")
+        self.resize(760, 620)
+        self.generated_engine: Optional[Engine] = None
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        self.complexity_combo = QComboBox()
+        self.complexity_combo.addItems(["Basic", "Advanced", "Expert"])
+        self.use_case_combo = QComboBox()
+        self.use_case_combo.addItems(["Street", "Track", "Tow", "Prototype"])
+        self.architecture_combo = QComboBox()
+        self.architecture_combo.addItems(["Inline-4", "V6", "V8", "Single Cylinder"])
+        self.aspiration_combo = QComboBox()
+        self.aspiration_combo.addItems(["Naturally Aspirated", "Turbo"])
+        self.objective_combo = QComboBox()
+        self.objective_combo.addItem("Torque Mean", "torque_mean")
+        self.objective_combo.addItem("Peak Power", "peak_power")
+        self.objective_combo.addItem("Spool", "spool")
+        self.objective_combo.addItem("Efficiency", "efficiency")
+        self.objective_combo.addItem("Sound", "sound")
+        self.rpm_start_spin = QSpinBox()
+        self.rpm_start_spin.setRange(1000, 20000)
+        self.rpm_start_spin.setSingleStep(250)
+        self.rpm_start_spin.setValue(2000)
+        self.rpm_end_spin = QSpinBox()
+        self.rpm_end_spin.setRange(1500, 22000)
+        self.rpm_end_spin.setSingleStep(250)
+        self.rpm_end_spin.setValue(8000)
+
+        form.addRow("Complexity", self.complexity_combo)
+        form.addRow("Use case", self.use_case_combo)
+        form.addRow("Architecture", self.architecture_combo)
+        form.addRow("Aspiration", self.aspiration_combo)
+        form.addRow("Primary objective", self.objective_combo)
+        form.addRow("Target RPM start", self.rpm_start_spin)
+        form.addRow("Target RPM end", self.rpm_end_spin)
+        layout.addLayout(form)
+
+        self.advanced_group = QGroupBox("Advanced")
+        advanced_form = QFormLayout(self.advanced_group)
+        self.displacement_spin = self._make_spin(2000.0, 100.0, 12000.0, 10.0, " cc")
+        self.compression_spin = self._make_spin(11.0, 5.0, 18.0, 0.1, ":1")
+        self.runner_length_spin = self._make_spin(320.0, 50.0, 1000.0, 5.0, " mm")
+        self.header_length_spin = self._make_spin(650.0, 50.0, 2000.0, 10.0, " mm")
+        advanced_form.addRow("Displacement", self.displacement_spin)
+        advanced_form.addRow("Compression ratio", self.compression_spin)
+        advanced_form.addRow("Runner length", self.runner_length_spin)
+        advanced_form.addRow("Header length", self.header_length_spin)
+        layout.addWidget(self.advanced_group)
+
+        self.expert_group = QGroupBox("Expert")
+        expert_form = QFormLayout(self.expert_group)
+        self.runner_diameter_spin = self._make_spin(45.0, 10.0, 120.0, 1.0, " mm")
+        self.header_diameter_spin = self._make_spin(38.0, 10.0, 120.0, 1.0, " mm")
+        self.port_flow_eff_spin = self._make_spin(0.70, 0.2, 1.0, 0.01)
+        self.thermal_eff_spin = self._make_spin(0.50, 0.2, 0.8, 0.01)
+        self.peak_rpm_spin = self._make_spin(5500.0, 500.0, 22000.0, 100.0, " rpm")
+        self.redline_spin = self._make_spin(8000.0, 1000.0, 22000.0, 100.0, " rpm")
+        self.intake_duration_spin = self._make_spin(260.0, 180.0, 360.0, 1.0, " deg")
+        self.exhaust_duration_spin = self._make_spin(264.0, 180.0, 360.0, 1.0, " deg")
+        self.intake_lift_spin = self._make_spin(10.5, 4.0, 20.0, 0.1, " mm")
+        self.exhaust_lift_spin = self._make_spin(10.0, 4.0, 20.0, 0.1, " mm")
+        self.lsa_spin = self._make_spin(110.0, 90.0, 130.0, 0.5, " deg")
+        self.ignition_spin = self._make_spin(28.0, 0.0, 60.0, 0.5, " deg BTDC")
+        self.boost_spin = self._make_spin(70.0, 5.0, 200.0, 1.0, " kPa")
+        expert_form.addRow("Runner diameter", self.runner_diameter_spin)
+        expert_form.addRow("Header diameter", self.header_diameter_spin)
+        expert_form.addRow("Port flow efficiency", self.port_flow_eff_spin)
+        expert_form.addRow("Thermal efficiency", self.thermal_eff_spin)
+        expert_form.addRow("Cam peak RPM", self.peak_rpm_spin)
+        expert_form.addRow("Redline RPM", self.redline_spin)
+        expert_form.addRow("Intake duration", self.intake_duration_spin)
+        expert_form.addRow("Exhaust duration", self.exhaust_duration_spin)
+        expert_form.addRow("Intake lift", self.intake_lift_spin)
+        expert_form.addRow("Exhaust lift", self.exhaust_lift_spin)
+        expert_form.addRow("Lobe separation", self.lsa_spin)
+        expert_form.addRow("Ignition advance", self.ignition_spin)
+        expert_form.addRow("Target boost", self.boost_spin)
+        layout.addWidget(self.expert_group)
+
+        layout.addWidget(QLabel("Generated preset summary"))
+        self.summary_browser = QTextBrowser()
+        self.summary_browser.setReadOnly(True)
+        layout.addWidget(self.summary_browser, 1)
+
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.export_button = self.button_box.addButton("Export JSON...", QDialogButtonBox.ActionRole)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        self.export_button.clicked.connect(self.export_json)
+        layout.addWidget(self.button_box)
+
+        widgets = [
+            self.complexity_combo,
+            self.use_case_combo,
+            self.architecture_combo,
+            self.aspiration_combo,
+            self.objective_combo,
+            self.rpm_start_spin,
+            self.rpm_end_spin,
+            self.displacement_spin,
+            self.compression_spin,
+            self.runner_length_spin,
+            self.header_length_spin,
+            self.runner_diameter_spin,
+            self.header_diameter_spin,
+            self.port_flow_eff_spin,
+            self.thermal_eff_spin,
+            self.peak_rpm_spin,
+            self.redline_spin,
+            self.intake_duration_spin,
+            self.exhaust_duration_spin,
+            self.intake_lift_spin,
+            self.exhaust_lift_spin,
+            self.lsa_spin,
+            self.ignition_spin,
+            self.boost_spin,
+        ]
+        for widget in widgets:
+            if hasattr(widget, "currentIndexChanged"):
+                widget.currentIndexChanged.connect(lambda *_: self._refresh_preview())
+            elif hasattr(widget, "valueChanged"):
+                widget.valueChanged.connect(lambda *_: self._refresh_preview())
+        self.complexity_combo.currentIndexChanged.connect(lambda *_: self._update_complexity_visibility())
+        self.aspiration_combo.currentIndexChanged.connect(lambda *_: self._update_complexity_visibility())
+
+        self._update_complexity_visibility()
+        self._refresh_preview()
+
+    def _make_spin(
+        self,
+        value: float,
+        minimum: float,
+        maximum: float,
+        step: float,
+        suffix: str = "",
+    ) -> QDoubleSpinBox:
+        spin = QDoubleSpinBox()
+        spin.setRange(minimum, maximum)
+        spin.setSingleStep(step)
+        spin.setDecimals(2 if step < 1.0 else 1)
+        spin.setValue(value)
+        spin.setSuffix(suffix)
+        return spin
+
+    def _update_complexity_visibility(self) -> None:
+        complexity = self.complexity_combo.currentText()
+        self.advanced_group.setVisible(complexity in {"Advanced", "Expert"})
+        self.expert_group.setVisible(complexity == "Expert")
+        self.boost_spin.setEnabled(self.aspiration_combo.currentText() == "Turbo")
+
+    def _build_spec(self) -> WizardSpec:
+        complexity = self.complexity_combo.currentText()
+        advanced = complexity in {"Advanced", "Expert"}
+        expert = complexity == "Expert"
+        return WizardSpec(
+            complexity=complexity,
+            use_case=self.use_case_combo.currentText(),
+            architecture=self.architecture_combo.currentText(),
+            aspiration=self.aspiration_combo.currentText(),
+            rpm_start=self.rpm_start_spin.value(),
+            rpm_end=self.rpm_end_spin.value(),
+            objective=str(self.objective_combo.currentData()),
+            displacement_cc=self.displacement_spin.value() if advanced else None,
+            compression_ratio=self.compression_spin.value() if advanced else None,
+            runner_length_mm=self.runner_length_spin.value() if advanced else None,
+            header_length_mm=self.header_length_spin.value() if advanced else None,
+            runner_diameter_mm=self.runner_diameter_spin.value() if expert else None,
+            header_diameter_mm=self.header_diameter_spin.value() if expert else None,
+            peak_rpm=self.peak_rpm_spin.value() if expert else None,
+            redline_rpm=self.redline_spin.value() if expert else None,
+            thermal_efficiency=self.thermal_eff_spin.value() if expert else None,
+            port_flow_efficiency=self.port_flow_eff_spin.value() if expert else None,
+            intake_duration_deg=self.intake_duration_spin.value() if expert else None,
+            exhaust_duration_deg=self.exhaust_duration_spin.value() if expert else None,
+            intake_lift_mm=self.intake_lift_spin.value() if expert else None,
+            exhaust_lift_mm=self.exhaust_lift_spin.value() if expert else None,
+            lobe_separation_deg=self.lsa_spin.value() if expert else None,
+            ignition_advance_deg=self.ignition_spin.value() if expert else None,
+            target_boost_kpa=self.boost_spin.value()
+            if expert and self.aspiration_combo.currentText() == "Turbo"
+            else None,
+        )
+
+    def _refresh_preview(self) -> None:
+        spec = self._build_spec()
+        spec_review = review_wizard_spec(spec)
+        lines = [
+            "<h3>Level behavior</h3>",
+            f"<p><b>{spec.complexity}</b> exposes: {', '.join(COMPLEXITY_FIELDS.get(spec.complexity, []))}</p>",
+        ]
+        if spec_review["errors"]:
+            lines.append("<p><b>Wizard input errors</b></p><ul>")
+            for issue in spec_review["errors"]:
+                lines.append(f"<li>{issue}</li>")
+            lines.append("</ul>")
+            self.summary_browser.setHtml("".join(lines))
+            self.generated_engine = None
+            ok_button = self.button_box.button(QDialogButtonBox.Ok)
+            if ok_button is not None:
+                ok_button.setEnabled(False)
+            self.export_button.setEnabled(False)
+            return
+
+        engine = build_engine_from_wizard(spec)
+        preflight = engine.preflight_review(operation="dyno", mode="v1")
+        summary = summarize_engine_for_wizard(engine, spec)
+        lines.append("<h3>Engineering summary</h3><ul>")
+        for key, value in summary.items():
+            lines.append(f"<li><b>{key}:</b> {value}</li>")
+        lines.append("</ul>")
+        if spec_review["warnings"]:
+            lines.append("<p><b>Wizard guidance</b></p><ul>")
+            for issue in spec_review["warnings"]:
+                lines.append(f"<li>{issue}</li>")
+            lines.append("</ul>")
+        if preflight["errors"]:
+            lines.append("<p><b>Preflight blockers</b></p><ul>")
+            for issue in preflight["errors"]:
+                lines.append(f"<li>{issue}</li>")
+            lines.append("</ul>")
+        if preflight["warnings"]:
+            lines.append("<p><b>Preflight warnings</b></p><ul>")
+            for issue in preflight["warnings"]:
+                lines.append(f"<li>{issue}</li>")
+            lines.append("</ul>")
+        if not preflight["errors"] and not preflight["warnings"]:
+            lines.append("<p><b>Preflight:</b> ready to export or apply.</p>")
+        self.summary_browser.setHtml("".join(lines))
+        self.generated_engine = engine
+        ok_button = self.button_box.button(QDialogButtonBox.Ok)
+        if ok_button is not None:
+            ok_button.setEnabled(not preflight["errors"])
+        self.export_button.setEnabled(not preflight["errors"])
+
+    def export_json(self) -> None:
+        if self.generated_engine is None:
+            return
+        filename, _ = QFileDialog.getSaveFileName(self, "Export Generated Engine", "guided_engine.json", "JSON Files (*.json)")
+        if not filename:
+            return
+        self.generated_engine.save_to_file(filename)
 
 
 class MainWindow(QMainWindow):
@@ -83,6 +414,7 @@ class MainWindow(QMainWindow):
         self.engine = Engine()
         self.audio_synth = AudioSynthesizer()
         self.current_project_path: Optional[str] = None
+        self.real_dyno_widget: Optional[RealDynoWorkbench] = None
         self._try_load_default_preset()
         self.block_displacement_label: Optional[QLabel] = None
         self.block_piston_speed_label: Optional[QLabel] = None
@@ -90,21 +422,66 @@ class MainWindow(QMainWindow):
 
         self.navigation_tree = QTreeWidget()
         self.navigation_tree.setHeaderHidden(True)
+        self.navigation_tree.setIndentation(18)
+        self.navigation_tree.setUniformRowHeights(True)
+        self.navigation_tree.setStyleSheet(
+            """
+            QTreeWidget {
+                background: #fbfcfe;
+                border: none;
+                padding: 8px 6px;
+            }
+            QTreeWidget::item {
+                padding: 6px 8px;
+                margin: 1px 0;
+            }
+            QTreeWidget::item:selected {
+                background: #dce9f7;
+                color: #102030;
+                border-radius: 6px;
+            }
+            """
+        )
         self.navigation_tree.currentItemChanged.connect(self.update_properties_panel)
+        self.left_dock: Optional[QDockWidget] = None
 
         self.property_widget = QWidget()
         self.property_form = QFormLayout()
         self.property_widget.setLayout(self.property_form)
 
         self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.setStyleSheet(
+            """
+            QTabWidget::pane {
+                border: 1px solid #d6dde8;
+                border-radius: 10px;
+                background: white;
+                top: -1px;
+            }
+            QTabBar::tab {
+                background: #eef2f7;
+                border: 1px solid #d6dde8;
+                border-bottom: none;
+                padding: 8px 14px;
+                margin-right: 4px;
+                color: #415164;
+            }
+            QTabBar::tab:selected {
+                background: white;
+                color: #18212f;
+                font-weight: 600;
+            }
+            """
+        )
         self.main_stack = QStackedWidget()
         self.wave_plot = pg.PlotWidget()
         self.wave_image = pg.ImageItem()
         self.wave_rpm_spin = QDoubleSpinBox()
         self.wave_scrub_slider = QSlider(Qt.Horizontal)
-        self.wave_record_btn = QPushButton("🔴 Record")
+        self.wave_record_btn = QPushButton("Record")
         self.wave_record_btn.setCheckable(True)
-        self.wave_save_btn = QPushButton("💾 Save Audio")
+        self.wave_save_btn = QPushButton("Save Audio")
         self.wave_save_btn.setEnabled(False)
         self.wave_frame_indicator: Optional[pg.InfiniteLine] = None
         self.wave_scope = ScopeWidget()
@@ -119,13 +496,35 @@ class MainWindow(QMainWindow):
         self.invalid_torque_curve = None
         self.dyno_mode_combo = QComboBox()
         self.dyno_quality_combo = QComboBox()
-        self.dyno_run_btn = QPushButton("Run Power Sweep")
+        self.dyno_run_btn = QPushButton("Run Dyno")
         self.dyno_cancel_btn = QPushButton("Cancel")
         self.dyno_progress = QProgressBar()
         self.dyno_status_label = QLabel("")
         self.dyno_export_btn = QPushButton("Export Dyno JSON...")
         self.dyno_knock_export_checkbox = QCheckBox("Knock report (opt-in)")
-        self.dyno_advanced_group = QGroupBox("Advanced Dyno Options")
+        self.dyno_advanced_group = QGroupBox("Advanced Dyno Options (optional)")
+        self.dyno_context_label = QLabel("")
+        self.dyno_plot_caption_label = QLabel("")
+        self.dyno_plot_notice_label = QLabel("")
+        self.dyno_settings_sweep_value = QLabel("")
+        self.dyno_settings_quality_value = QLabel("")
+        self.dyno_status_value_label = QLabel("Status: Ready")
+        self.dyno_result_state_label = QLabel("Last run: Not run yet")
+        self.dyno_result_value_label = QLabel("Result: No result available")
+        self.dyno_summary_peak_power_value = QLabel("-")
+        self.dyno_summary_peak_power_rpm_value = QLabel("-")
+        self.dyno_summary_peak_torque_value = QLabel("-")
+        self.dyno_summary_peak_torque_rpm_value = QLabel("-")
+        self.dyno_summary_sweep_value = QLabel("-")
+        self.dyno_summary_detail_label = QLabel("Run a dyno sweep to populate peak values and exportable results.")
+        self.analysis_context_label = QLabel("")
+        self._dyno_run_state = "Idle"
+        self.analysis_detail_label = QLabel("Run a dyno sweep to populate the analysis view.")
+        self.analysis_peak_power_value_label = QLabel("-")
+        self.analysis_peak_power_rpm_label = QLabel("-")
+        self.analysis_peak_torque_value_label = QLabel("-")
+        self.analysis_peak_torque_rpm_label = QLabel("-")
+        self.analysis_knock_notice_label = QLabel("")
         self.last_dyno_payload: Optional[dict[str, Any]] = None
         self.dyno_thread: Optional[QThread] = None
         self.dyno_worker: Optional[DynoWorker] = None
@@ -171,16 +570,25 @@ class MainWindow(QMainWindow):
         self._create_toolbar()
         self._create_menu()
         self._create_left_panel()
+        self.main_stack.currentChanged.connect(lambda _index: self._sync_navigation_state())
+        self.tabs.currentChanged.connect(lambda _index: self._sync_navigation_state())
 
         self.refresh_tree()
         self._show_placeholder("Select a component to edit its properties")
         self.update_overview()
         self.tabs.setCurrentIndex(0)
+        self._sync_navigation_state()
 
     # -------------------------- UI Construction ---------------------------
     def _create_menu(self) -> None:
         menu_bar = self.menuBar()
         file_menu = menu_bar.addMenu("File")
+
+        guided_action = QAction("New Guided Engine...", self)
+        guided_action.triggered.connect(self.launch_guided_engine_wizard)
+        file_menu.addAction(guided_action)
+
+        file_menu.addSeparator()
 
         save_action = QAction("Save", self)
         save_action.triggered.connect(self.save_engine)
@@ -199,45 +607,118 @@ class MainWindow(QMainWindow):
         save_action = QAction(save_icon, "Save", self)
         save_action.triggered.connect(self.save_engine)
         self.toolbar.addAction(save_action)
+        self.toolbar.setMovable(False)
 
         self.toolbar.addSeparator()
 
-        nav_container = QWidget()
-        nav_layout = QHBoxLayout()
-        nav_layout.setContentsMargins(6, 0, 6, 0)
-        nav_layout.setSpacing(8)
-        nav_container.setLayout(nav_layout)
+        workspace_label = QLabel("View")
+        workspace_label.setStyleSheet("color: #506072;")
+        self.toolbar.addWidget(workspace_label)
+        self.workspace_combo = QComboBox()
+        self.workspace_combo.addItems(["Standard View", "Pro Dyno", "Wave Sim", "Fabrication"])
+        self.workspace_combo.setMinimumWidth(150)
+        self.workspace_combo.setToolTip("Switch the active workspace")
+        self.workspace_combo.currentIndexChanged.connect(self._set_workspace_index)
+        self.toolbar.addWidget(self.workspace_combo)
 
-        btn_standard = QPushButton("🏠 Standard View")
-        btn_standard.clicked.connect(lambda: self.main_stack.setCurrentIndex(0))
-        nav_layout.addWidget(btn_standard)
-
-        btn_pro = QPushButton("🧠 Pro Dyno")
-        btn_pro.clicked.connect(lambda: self.main_stack.setCurrentIndex(1))
-        nav_layout.addWidget(btn_pro)
-
-        btn_wave = QPushButton("🌊 Wave Sim")
-        btn_wave.clicked.connect(lambda: self.main_stack.setCurrentIndex(2))
-        nav_layout.addWidget(btn_wave)
-
-        btn_fabrication = QPushButton("🛠️ Fabrication")
-        btn_fabrication.clicked.connect(lambda: self.main_stack.setCurrentIndex(3))
-        nav_layout.addWidget(btn_fabrication)
-
-        self.toolbar.addWidget(nav_container)
+        self.toolbar.addSeparator()
+        self.toolbar_context_label = QLabel()
+        self.toolbar_context_label.setStyleSheet("color: #5f6b7a; padding-left: 2px;")
+        self.toolbar.addWidget(self.toolbar_context_label)
 
     def _create_left_panel(self) -> None:
-        left_dock = QDockWidget("Project Explorer", self)
-        left_dock.setWidget(self.navigation_tree)
-        left_dock.setAllowedAreas(Qt.LeftDockWidgetArea)
-        self.addDockWidget(Qt.LeftDockWidgetArea, left_dock)
+        self.left_dock = QDockWidget("Engine Explorer", self)
+        self.left_dock.setWidget(self.navigation_tree)
+        self.left_dock.setAllowedAreas(Qt.LeftDockWidgetArea)
+        self.left_dock.setMinimumWidth(240)
+        self.addDockWidget(Qt.LeftDockWidgetArea, self.left_dock)
+        self.resizeDocks([self.left_dock], [280], Qt.Horizontal)
 
     def _setup_views(self) -> None:
         overview_tab = QWidget()
         overview_layout = QVBoxLayout()
+        overview_layout.setContentsMargins(18, 18, 18, 18)
+        overview_layout.setSpacing(12)
+
+        overview_header = QWidget()
+        overview_header.setObjectName("overviewHeader")
+        overview_header.setStyleSheet(
+            """
+            QWidget#overviewHeader {
+                background: #f7f9fc;
+                border: 1px solid #d6dde8;
+                border-radius: 10px;
+            }
+            """
+        )
+        overview_header_layout = QHBoxLayout()
+        overview_header_layout.setContentsMargins(14, 14, 14, 14)
+        overview_header_layout.setSpacing(14)
+
+        overview_text_layout = QVBoxLayout()
+        overview_text_layout.setSpacing(4)
+        self.overview_title_label = QLabel("Project")
+        self.overview_title_label.setStyleSheet("font-size: 20px; font-weight: 700; color: #18212f;")
+        self.overview_title_label.setWordWrap(True)
+        self.overview_subtitle_label = QLabel("")
+        self.overview_subtitle_label.setStyleSheet("font-size: 12px; color: #314154; font-weight: 600;")
+        self.overview_subtitle_label.setWordWrap(True)
+        self.overview_context_label = QLabel("")
+        self.overview_context_label.setStyleSheet("font-size: 11px; color: #506072;")
+        self.overview_context_label.setTextFormat(Qt.RichText)
+        self.overview_context_label.setWordWrap(True)
+        self.overview_status_label = QLabel("")
+        self.overview_status_label.setStyleSheet("font-size: 11px; color: #506072;")
+        self.overview_status_label.setTextFormat(Qt.RichText)
+        self.overview_status_label.setWordWrap(True)
+        self.overview_guidance_label = QLabel("")
+        self.overview_guidance_label.setStyleSheet("font-size: 11px; color: #18212f; font-weight: 600;")
+        self.overview_guidance_label.setWordWrap(True)
+        overview_text_layout.addWidget(self.overview_title_label)
+        overview_text_layout.addWidget(self.overview_subtitle_label)
+        overview_text_layout.addWidget(self.overview_context_label)
+        overview_text_layout.addWidget(self.overview_status_label)
+        overview_text_layout.addWidget(self.overview_guidance_label)
+
+        overview_actions_layout = QVBoxLayout()
+        overview_actions_layout.setSpacing(6)
+        self.overview_run_dyno_btn = QPushButton("Run Dyno")
+        self.overview_run_dyno_btn.setMinimumWidth(150)
+        self.overview_run_dyno_btn.setStyleSheet(
+            "QPushButton { background: #1f5ea8; color: white; border: none; border-radius: 8px; padding: 9px 16px; font-weight: 700; }"
+            "QPushButton:hover { background: #184b85; }"
+        )
+        self.overview_run_dyno_btn.clicked.connect(self._run_dyno_from_overview)
+        self.overview_edit_btn = QPushButton("Edit Properties")
+        self.overview_edit_btn.clicked.connect(self._open_properties_from_overview)
+        self.overview_real_dyno_btn = QPushButton("Open Real Dyno")
+        self.overview_real_dyno_btn.clicked.connect(self._open_real_dyno_from_overview)
+        overview_actions_layout.addWidget(self.overview_run_dyno_btn)
+        overview_secondary_actions = QHBoxLayout()
+        overview_secondary_actions.setSpacing(6)
+        overview_secondary_actions.addWidget(self.overview_edit_btn)
+        overview_secondary_actions.addWidget(self.overview_real_dyno_btn)
+        overview_actions_layout.addLayout(overview_secondary_actions)
+        overview_actions_layout.addStretch()
+
+        overview_header_layout.addLayout(overview_text_layout, 1)
+        overview_header_layout.addLayout(overview_actions_layout)
+        overview_header.setLayout(overview_header_layout)
+        overview_layout.addWidget(overview_header)
+
         self.overview_browser = QTextBrowser()
         self.overview_browser.setOpenExternalLinks(False)
         self.overview_browser.setReadOnly(True)
+        self.overview_browser.setStyleSheet(
+            """
+            QTextBrowser {
+                background: white;
+                border: 1px solid #d6dde8;
+                border-radius: 12px;
+                padding: 8px;
+            }
+            """
+        )
         overview_layout.addWidget(self.overview_browser)
         overview_tab.setLayout(overview_layout)
 
@@ -249,51 +730,373 @@ class MainWindow(QMainWindow):
 
         dyno_tab = QWidget()
         dyno_layout = QVBoxLayout()
-        dyno_controls = QHBoxLayout()
+        dyno_layout.setContentsMargins(18, 18, 18, 18)
+        dyno_layout.setSpacing(10)
         self.dyno_run_btn.clicked.connect(self.run_dyno_sweep)
         self.dyno_cancel_btn.clicked.connect(self.cancel_dyno_sweep)
         self.dyno_cancel_btn.setEnabled(False)
+        self.dyno_cancel_btn.setVisible(False)
+        self.dyno_run_btn.setMinimumWidth(150)
+        self.dyno_run_btn.setStyleSheet(
+            "QPushButton { background: #1f5ea8; color: white; border: none; border-radius: 8px; padding: 9px 16px; font-weight: 700; }"
+            "QPushButton:hover { background: #184b85; }"
+            "QPushButton:disabled { background: #a7bbd4; color: #eef3f9; }"
+        )
+        self.dyno_cancel_btn.setMinimumWidth(96)
+        self.dyno_cancel_btn.setStyleSheet(
+            "QPushButton { background: #eef2f7; color: #415164; border: 1px solid #d6dde8; border-radius: 8px; padding: 9px 14px; font-weight: 600; }"
+            "QPushButton:hover { background: #e4ebf4; }"
+            "QPushButton:disabled { color: #8d99a8; background: #f6f8fb; border-color: #e0e7f0; }"
+        )
         self.dyno_progress.setRange(0, 100)
+        self.dyno_progress.setMinimumWidth(220)
+        self.dyno_progress.setFixedHeight(12)
+        self.dyno_progress.setTextVisible(True)
+        self.dyno_progress.setFormat("%p%")
+        self.dyno_progress.setStyleSheet(
+            "QProgressBar {"
+            " background: #edf2f8;"
+            " border: 1px solid #d6dde8;"
+            " border-radius: 6px;"
+            " color: #17385d;"
+            " font-size: 9px;"
+            " font-weight: 700;"
+            " text-align: center;"
+            "}"
+            "QProgressBar::chunk {"
+            " background: #2d6eb5;"
+            " border-radius: 5px;"
+            "}"
+        )
         self.dyno_progress.setVisible(False)
         self.dyno_mode_combo.addItem("v1 (Quick 0D)", "v1")
         self.dyno_mode_combo.addItem("v2 (Pro Coupled)", "v2")
         self.dyno_quality_combo.addItem("Fast", "fast")
         self.dyno_quality_combo.addItem("Stable", "stable")
         self.dyno_export_btn.clicked.connect(self.export_dyno_json)
-        dyno_controls.addWidget(QLabel("Mode"))
-        dyno_controls.addWidget(self.dyno_mode_combo)
-        dyno_controls.addWidget(self.dyno_run_btn)
-        dyno_controls.addWidget(self.dyno_cancel_btn)
-        dyno_controls.addWidget(self.dyno_progress)
-        dyno_controls.addWidget(self.dyno_status_label)
-        dyno_controls.addStretch()
-        dyno_layout.addLayout(dyno_controls)
+        self.dyno_status_label.setWordWrap(False)
+        self.dyno_status_label.setMinimumWidth(360)
+        self.dyno_status_label.setStyleSheet("color: #314154; font-size: 11px; font-weight: 600;")
+        self.dyno_mode_note_label = QLabel(
+            "Cross-mode note: `ve_actual` is a modeled estimate in v1 and a trapped-mass result in v2. "
+            "Use it for trend/plausibility checks rather than strict parity."
+        )
+        self.dyno_mode_note_label.setWordWrap(True)
+        self.dyno_mode_note_label.setStyleSheet(
+            "color: #506072; font-size: 10px; background: #f6f8fb; border: 1px solid #d6dde8; border-radius: 7px; padding: 4px 8px;"
+        )
+
+        section_kicker_style = "font-size: 10px; font-weight: 700; color: #5b6b7c;"
+        section_divider_style = "background: #d6dde8; border-radius: 1px;"
+
+        self.dyno_top_panel = QWidget()
+        self.dyno_top_panel.setObjectName("quickDynoTopBand")
+        self.dyno_top_panel.setStyleSheet(
+            """
+            QWidget#quickDynoTopBand {
+                background: #f8fafc;
+                border: 1px solid #d6dde8;
+                border-radius: 10px;
+            }
+            """
+        )
+        dyno_top_panel_layout = QVBoxLayout()
+        dyno_top_panel_layout.setContentsMargins(12, 10, 12, 10)
+        dyno_top_panel_layout.setSpacing(8)
+
+        dyno_context_row = QHBoxLayout()
+        dyno_context_row.setSpacing(8)
+        dyno_context_title = QLabel("Run Context")
+        dyno_context_title.setStyleSheet(section_kicker_style)
+        self.dyno_context_label.setTextFormat(Qt.RichText)
+        self.dyno_context_label.setWordWrap(True)
+        self.dyno_context_label.setStyleSheet("font-size: 10px; color: #314154;")
+        dyno_context_row.addWidget(dyno_context_title)
+        dyno_context_row.addWidget(self.dyno_context_label, 1)
+        dyno_top_panel_layout.addLayout(dyno_context_row)
+
+        dyno_context_controls_divider = QWidget()
+        dyno_context_controls_divider.setFixedHeight(1)
+        dyno_context_controls_divider.setStyleSheet(section_divider_style)
+        dyno_top_panel_layout.addWidget(dyno_context_controls_divider)
+
+        dyno_controls_summary_row = QHBoxLayout()
+        dyno_controls_summary_row.setSpacing(10)
+
+        dyno_controls_panel = QWidget()
+        dyno_controls_layout = QVBoxLayout()
+        dyno_controls_layout.setContentsMargins(0, 0, 0, 0)
+        dyno_controls_layout.setSpacing(6)
+
+        dyno_controls_header = QLabel("Run Controls")
+        dyno_controls_header.setStyleSheet(section_kicker_style)
+
+        dyno_mode_row = QHBoxLayout()
+        dyno_mode_row.setSpacing(6)
+        dyno_mode_label = QLabel("Mode")
+        dyno_mode_label.setStyleSheet("font-size: 10px; color: #6b7888;")
+        dyno_mode_row.addWidget(dyno_mode_label)
+        dyno_mode_row.addWidget(self.dyno_mode_combo)
+        dyno_mode_row.addStretch(1)
+
+        dyno_controls_meta_row = QHBoxLayout()
+        dyno_controls_meta_row.setSpacing(4)
+        dyno_settings_quality_title = QLabel("Quality")
+        dyno_settings_quality_title.setStyleSheet("font-size: 10px; color: #6b7888;")
+        self.dyno_settings_quality_value.setStyleSheet("font-size: 10px; font-weight: 700; color: #18212f;")
+        dyno_settings_sweep_title = QLabel("Sweep")
+        dyno_settings_sweep_title.setStyleSheet("font-size: 10px; color: #6b7888;")
+        self.dyno_settings_sweep_value.setStyleSheet("font-size: 10px; font-weight: 700; color: #18212f;")
+        dyno_controls_sep = QLabel("|")
+        dyno_controls_sep.setStyleSheet("font-size: 10px; color: #90a0b3;")
+        dyno_controls_meta_row.addWidget(dyno_settings_quality_title)
+        dyno_controls_meta_row.addWidget(self.dyno_settings_quality_value)
+        dyno_controls_meta_row.addWidget(dyno_controls_sep)
+        dyno_controls_meta_row.addWidget(dyno_settings_sweep_title)
+        dyno_controls_meta_row.addWidget(self.dyno_settings_sweep_value)
+        dyno_controls_meta_row.addStretch(1)
+
+        dyno_actions_row = QHBoxLayout()
+        dyno_actions_row.setSpacing(6)
+        dyno_action_buttons = QHBoxLayout()
+        dyno_action_buttons.setSpacing(6)
+        dyno_action_buttons.addWidget(self.dyno_run_btn)
+        dyno_action_buttons.addWidget(self.dyno_cancel_btn)
+        dyno_action_status = QVBoxLayout()
+        dyno_action_status.setSpacing(2)
+        dyno_action_status.addWidget(self.dyno_progress)
+        dyno_action_status.addWidget(self.dyno_status_label)
+        dyno_actions_row.addLayout(dyno_action_buttons)
+        dyno_actions_row.addLayout(dyno_action_status)
+        dyno_actions_row.addStretch(1)
+
+        dyno_controls_layout.addWidget(dyno_controls_header)
+        dyno_controls_layout.addLayout(dyno_mode_row)
+        dyno_controls_layout.addLayout(dyno_controls_meta_row)
+        dyno_controls_layout.addLayout(dyno_actions_row)
+        dyno_controls_panel.setLayout(dyno_controls_layout)
+        dyno_controls_summary_row.addWidget(dyno_controls_panel, 3)
+
+        dyno_controls_summary_divider = QWidget()
+        dyno_controls_summary_divider.setFixedWidth(1)
+        dyno_controls_summary_divider.setStyleSheet(section_divider_style)
+        dyno_controls_summary_row.addWidget(dyno_controls_summary_divider)
+
+        dyno_summary_panel = QWidget()
+        dyno_summary_layout = QVBoxLayout()
+        dyno_summary_layout.setContentsMargins(0, 0, 0, 0)
+        dyno_summary_layout.setSpacing(4)
+        dyno_summary_header = QLabel("Result Summary")
+        dyno_summary_header.setStyleSheet(section_kicker_style)
+        for label in (
+            self.dyno_status_value_label,
+            self.dyno_result_state_label,
+            self.dyno_result_value_label,
+        ):
+            label.setWordWrap(False)
+            label.setStyleSheet("font-size: 10px; font-weight: 700; color: #18212f;")
+        self.dyno_summary_detail_label.setWordWrap(False)
+        self.dyno_summary_detail_label.setStyleSheet("font-size: 10px; color: #506072;")
+
+        self.dyno_summary_peak_power_value.setStyleSheet("font-size: 11px; font-weight: 700; color: #18212f;")
+        self.dyno_summary_peak_power_value.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.dyno_summary_peak_torque_value.setStyleSheet("font-size: 11px; font-weight: 700; color: #18212f;")
+        self.dyno_summary_peak_torque_value.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        dyno_summary_status_row = QHBoxLayout()
+        dyno_summary_status_row.setSpacing(8)
+        dyno_summary_status_row.addWidget(self.dyno_status_value_label)
+        dyno_summary_status_row.addWidget(self.dyno_result_state_label)
+        dyno_summary_status_row.addWidget(self.dyno_result_value_label, 1)
+        dyno_summary_metrics_row = QHBoxLayout()
+        dyno_summary_metrics_row.setSpacing(10)
+        dyno_summary_power_title = QLabel("Peak power")
+        dyno_summary_power_title.setStyleSheet("font-size: 10px; color: #6b7888;")
+        dyno_summary_torque_title = QLabel("Peak torque")
+        dyno_summary_torque_title.setStyleSheet("font-size: 10px; color: #6b7888;")
+        dyno_summary_metrics_row.addWidget(dyno_summary_power_title)
+        dyno_summary_metrics_row.addWidget(self.dyno_summary_peak_power_value)
+        dyno_summary_metrics_row.addWidget(dyno_summary_torque_title)
+        dyno_summary_metrics_row.addWidget(self.dyno_summary_peak_torque_value, 1)
+        dyno_summary_layout.addWidget(dyno_summary_header)
+        dyno_summary_layout.addLayout(dyno_summary_status_row)
+        dyno_summary_layout.addLayout(dyno_summary_metrics_row)
+        dyno_summary_layout.addWidget(self.dyno_summary_detail_label)
+        dyno_summary_panel.setLayout(dyno_summary_layout)
+        dyno_controls_summary_row.addWidget(dyno_summary_panel, 2)
+
+        dyno_top_panel_layout.addLayout(dyno_controls_summary_row)
+        self.dyno_top_panel.setLayout(dyno_top_panel_layout)
+        dyno_layout.addWidget(self.dyno_top_panel)
 
         self.dyno_advanced_group.setCheckable(True)
         self.dyno_advanced_group.setChecked(False)
+        self.dyno_advanced_group.setStyleSheet(
+            """
+            QGroupBox {
+                color: #5f6b7a;
+                font-size: 11px;
+                font-weight: 600;
+                border: 1px solid #d6dde8;
+                border-radius: 8px;
+                margin-top: 10px;
+                padding-top: 6px;
+                background: #fbfcfe;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 4px;
+            }
+            """
+        )
         self.dyno_advanced_group.toggled.connect(self._set_dyno_advanced_visible)
-        dyno_advanced_layout = QHBoxLayout()
-        dyno_advanced_layout.addWidget(QLabel("Quality"))
-        dyno_advanced_layout.addWidget(self.dyno_quality_combo)
-        dyno_advanced_layout.addWidget(self.dyno_export_btn)
-        dyno_advanced_layout.addWidget(self.dyno_knock_export_checkbox)
-        dyno_advanced_layout.addStretch()
+        dyno_advanced_layout = QFormLayout()
+        dyno_advanced_layout.setSpacing(8)
+        dyno_advanced_layout.addRow("Quality", self.dyno_quality_combo)
+        dyno_export_row = QWidget()
+        dyno_export_layout = QHBoxLayout()
+        dyno_export_layout.setContentsMargins(0, 0, 0, 0)
+        dyno_export_layout.setSpacing(8)
+        dyno_export_layout.addWidget(self.dyno_export_btn)
+        dyno_export_layout.addWidget(self.dyno_knock_export_checkbox)
+        dyno_export_layout.addStretch()
+        dyno_export_row.setLayout(dyno_export_layout)
+        dyno_advanced_layout.addRow("Export", dyno_export_row)
         self.dyno_advanced_group.setLayout(dyno_advanced_layout)
         dyno_layout.addWidget(self.dyno_advanced_group)
         self._set_dyno_advanced_visible(False)
 
-        self.dyno_plot.showGrid(x=True, y=True, alpha=0.2)
+        self.dyno_mode_combo.currentIndexChanged.connect(lambda _index: self._refresh_quick_dyno_panel())
+        self.dyno_quality_combo.currentIndexChanged.connect(lambda _index: self._refresh_quick_dyno_panel())
+
+        dyno_plot_meta_panel = QWidget()
+        dyno_plot_meta_layout = QVBoxLayout()
+        dyno_plot_meta_layout.setContentsMargins(0, 0, 0, 0)
+        dyno_plot_meta_layout.setSpacing(4)
+        dyno_plot_meta_top_row = QHBoxLayout()
+        dyno_plot_meta_top_row.setContentsMargins(0, 0, 0, 0)
+        dyno_plot_meta_top_row.setSpacing(8)
+        self.dyno_plot_notice_label.setVisible(False)
+        self.dyno_plot_notice_label.setWordWrap(False)
+        self.dyno_plot_notice_label.setStyleSheet(
+            "font-size: 10px; font-weight: 700; color: #a53b2f; background: #fff2ef; border: 1px solid #f1c5bd; border-radius: 7px; padding: 3px 8px;"
+        )
+        dyno_plot_meta_top_row.addWidget(self.dyno_plot_notice_label)
+        dyno_plot_meta_top_row.addWidget(self.dyno_mode_note_label, 1)
+        self.dyno_plot_caption_label.setWordWrap(False)
+        self.dyno_plot_caption_label.setStyleSheet("font-size: 10px; color: #5f6b7a;")
+        dyno_plot_meta_layout.addLayout(dyno_plot_meta_top_row)
+        dyno_plot_meta_layout.addWidget(self.dyno_plot_caption_label)
+        dyno_plot_meta_panel.setLayout(dyno_plot_meta_layout)
+
+        self.dyno_plot.showGrid(x=True, y=True, alpha=0.15)
         self.dyno_plot.addLegend()
         self.dyno_plot.setLabel("bottom", "RPM")
         self.dyno_plot.setLabel("left", "Output")
-        dyno_layout.addWidget(self.dyno_plot)
+        self.dyno_plot.setMinimumHeight(360)
+        dyno_layout.addWidget(dyno_plot_meta_panel)
+        dyno_layout.addWidget(self.dyno_plot, 1)
         dyno_tab.setLayout(dyno_layout)
+        self.quick_dyno_tab = dyno_tab
 
         analysis_tab = QWidget()
         analysis_layout = QVBoxLayout()
+        analysis_layout.setContentsMargins(16, 16, 16, 14)
+        analysis_layout.setSpacing(8)
+
+        analysis_top_panel = QWidget()
+        analysis_top_panel.setObjectName("analysisTopPanel")
+        analysis_top_panel.setStyleSheet(
+            """
+            QWidget#analysisTopPanel {
+                background: #f8fafc;
+                border: 1px solid #d6dde8;
+                border-radius: 10px;
+            }
+            """
+        )
+        analysis_top_layout = QVBoxLayout()
+        analysis_top_layout.setContentsMargins(12, 7, 12, 7)
+        analysis_top_layout.setSpacing(5)
+
+        analysis_context_title = QLabel("Analysis Context")
+        analysis_context_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #5b6b7c;")
+        self.analysis_context_label.setTextFormat(Qt.RichText)
+        self.analysis_context_label.setWordWrap(True)
+        self.analysis_context_label.setStyleSheet("font-size: 10px; color: #314154;")
+        analysis_top_layout.addWidget(analysis_context_title)
+        analysis_top_layout.addWidget(self.analysis_context_label)
+
+        analysis_summary_panel = QWidget()
+        analysis_summary_layout = QVBoxLayout()
+        analysis_summary_layout.setContentsMargins(0, 0, 0, 0)
+        analysis_summary_layout.setSpacing(4)
+
         self.analysis_summary_label = QLabel("No dyno data yet")
-        self.analysis_summary_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-        analysis_layout.addWidget(self.analysis_summary_label)
+        self.analysis_summary_label.setTextFormat(Qt.RichText)
+        self.analysis_summary_label.setWordWrap(True)
+        self.analysis_summary_label.setStyleSheet(
+            "font-size: 10px; color: #314154; background: #eef3f8; border: 1px solid #d6dde8; border-radius: 7px; padding: 3px 7px;"
+        )
+        analysis_summary_layout.addWidget(self.analysis_summary_label)
+
+        analysis_peak_row = QHBoxLayout()
+        analysis_peak_row.setSpacing(0)
+
+        analysis_peak_power_panel = QWidget()
+        analysis_peak_power_layout = QVBoxLayout()
+        analysis_peak_power_layout.setContentsMargins(0, 0, 10, 0)
+        analysis_peak_power_layout.setSpacing(1)
+        analysis_peak_power_title = QLabel("Peak power")
+        analysis_peak_power_title.setStyleSheet("font-size: 9px; color: #6b7888;")
+        self.analysis_peak_power_value_label.setStyleSheet("font-size: 15px; font-weight: 700; color: #18212f;")
+        self.analysis_peak_power_rpm_label.setStyleSheet("font-size: 10px; color: #506072;")
+        analysis_peak_power_layout.addWidget(analysis_peak_power_title)
+        analysis_peak_power_layout.addWidget(self.analysis_peak_power_value_label)
+        analysis_peak_power_layout.addWidget(self.analysis_peak_power_rpm_label)
+        analysis_peak_power_panel.setLayout(analysis_peak_power_layout)
+        analysis_peak_row.addWidget(analysis_peak_power_panel)
+
+        analysis_peak_divider = QWidget()
+        analysis_peak_divider.setFixedWidth(1)
+        analysis_peak_divider.setStyleSheet("background: #d6dde8;")
+        analysis_peak_row.addWidget(analysis_peak_divider)
+
+        analysis_peak_torque_panel = QWidget()
+        analysis_peak_torque_layout = QVBoxLayout()
+        analysis_peak_torque_layout.setContentsMargins(10, 0, 0, 0)
+        analysis_peak_torque_layout.setSpacing(1)
+        analysis_peak_torque_title = QLabel("Peak torque")
+        analysis_peak_torque_title.setStyleSheet("font-size: 9px; color: #6b7888;")
+        self.analysis_peak_torque_value_label.setStyleSheet("font-size: 15px; font-weight: 700; color: #18212f;")
+        self.analysis_peak_torque_rpm_label.setStyleSheet("font-size: 10px; color: #506072;")
+        analysis_peak_torque_layout.addWidget(analysis_peak_torque_title)
+        analysis_peak_torque_layout.addWidget(self.analysis_peak_torque_value_label)
+        analysis_peak_torque_layout.addWidget(self.analysis_peak_torque_rpm_label)
+        analysis_peak_torque_panel.setLayout(analysis_peak_torque_layout)
+        analysis_peak_row.addWidget(analysis_peak_torque_panel)
+
+        analysis_summary_layout.addLayout(analysis_peak_row)
+        self.analysis_detail_label.setWordWrap(True)
+        self.analysis_detail_label.setStyleSheet("font-size: 10px; color: #506072;")
+        analysis_summary_layout.addWidget(self.analysis_detail_label)
+        analysis_summary_panel.setLayout(analysis_summary_layout)
+        analysis_top_layout.addWidget(analysis_summary_panel)
+        analysis_top_panel.setLayout(analysis_top_layout)
+        analysis_layout.addWidget(analysis_top_panel)
+
+        self.analysis_knock_notice_label.setWordWrap(True)
+        self.analysis_knock_notice_label.setVisible(False)
+        self.analysis_knock_notice_label.setStyleSheet(
+            "font-size: 10px; font-weight: 700; color: #a53b2f; background: #fff2ef; border: 1px solid #f1c5bd; border-radius: 7px; padding: 4px 8px;"
+        )
+        analysis_layout.addWidget(self.analysis_knock_notice_label)
+
+        analysis_table_title = QLabel("Detailed Sweep Metrics")
+        analysis_table_title.setStyleSheet("font-size: 10px; font-weight: 700; color: #5b6b7c;")
+        analysis_layout.addWidget(analysis_table_title)
+
         self.analysis_table = QTableWidget()
         self.analysis_table.setColumnCount(10)
         self.analysis_table.setHorizontalHeaderLabels(
@@ -310,7 +1113,49 @@ class MainWindow(QMainWindow):
                 "Knock?",
             ]
         )
-        analysis_layout.addWidget(self.analysis_table)
+        self.analysis_table.setAlternatingRowColors(True)
+        self.analysis_table.setShowGrid(False)
+        self.analysis_table.verticalHeader().setVisible(False)
+        self.analysis_table.setStyleSheet(
+            """
+            QTableWidget {
+                background: #ffffff;
+                alternate-background-color: #f8fafc;
+                border: 1px solid #d6dde8;
+                border-radius: 10px;
+                color: #243243;
+                gridline-color: #e5ebf2;
+                padding-top: 0px;
+            }
+            QHeaderView::section {
+                background: #eef3f8;
+                color: #506072;
+                border: none;
+                border-bottom: 1px solid #d6dde8;
+                padding: 7px 8px;
+                font-size: 10px;
+                font-weight: 600;
+            }
+            """
+        )
+        analysis_header = self.analysis_table.horizontalHeader()
+        analysis_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        analysis_header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        analysis_header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        analysis_header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
+        analysis_header.setSectionResizeMode(9, QHeaderView.ResizeToContents)
+        for idx, width in ((3, 96), (5, 116), (6, 86), (7, 98), (8, 108)):
+            self.analysis_table.setColumnWidth(idx, width)
+        for idx in range(self.analysis_table.columnCount()):
+            header_item = self.analysis_table.horizontalHeaderItem(idx)
+            if header_item is None:
+                continue
+            header_font = header_item.font()
+            header_font.setBold(idx in {0, 1, 2, 4})
+            header_item.setFont(header_font)
+            if idx in {0, 1, 2, 4}:
+                header_item.setForeground(QBrush(QColor("#18212f")))
+        analysis_layout.addWidget(self.analysis_table, 1)
         analysis_tab.setLayout(analysis_layout)
 
         optimizer_tab = QWidget()
@@ -365,6 +1210,13 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.properties_tab, "Properties")
         self.tabs.addTab(dyno_tab, "Quick Dyno")
         self.tabs.addTab(analysis_tab, "Analysis")
+        self.real_dyno_widget = RealDynoWorkbench(
+            engine_provider=lambda: self.engine,
+            engine_path_provider=lambda: self.current_project_path,
+            status_message=self.statusBar().showMessage,
+            parent=self,
+        )
+        self.tabs.addTab(self.real_dyno_widget, "Real Dyno")
         self.tabs.addTab(optimizer_tab, "Optimizer")
 
         standard_container = QWidget()
@@ -375,7 +1227,7 @@ class MainWindow(QMainWindow):
 
         pro_dyno_tab = QWidget()
         pro_dyno_layout = QVBoxLayout()
-        pro_run_button = QPushButton("Run Pro Simulation (Slower)")
+        pro_run_button = QPushButton("Run Pro Dyno")
         pro_run_button.clicked.connect(self.run_pro_dyno_sweep)
         pro_dyno_layout.addWidget(pro_run_button)
 
@@ -408,7 +1260,7 @@ class MainWindow(QMainWindow):
         collector_layout.addRow("Tailpipe Length", self.tailpipe_length_label)
         fabrication_layout.addLayout(collector_layout)
 
-        report_btn = QPushButton("📄 Generate Fabrication Report")
+        report_btn = QPushButton("Generate Fabrication Report")
         report_btn.clicked.connect(self._generate_fabrication_report)
         fabrication_layout.addWidget(report_btn)
         fabrication_tab.setLayout(fabrication_layout)
@@ -419,6 +1271,7 @@ class MainWindow(QMainWindow):
         self.main_stack.addWidget(fabrication_tab)
         self.setCentralWidget(self.main_stack)
         self.main_stack.setCurrentIndex(0)
+        self._refresh_quick_dyno_panel()
 
     def _set_dyno_advanced_visible(self, visible: bool) -> None:
         self.dyno_advanced_group.setFlat(not visible)
@@ -427,6 +1280,57 @@ class MainWindow(QMainWindow):
             widget = item.widget()
             if widget is not None:
                 widget.setVisible(visible)
+
+    def _workspace_name(self, index: int) -> str:
+        workspaces = ["Standard View", "Pro Dyno", "Wave Sim", "Fabrication"]
+        if 0 <= index < len(workspaces):
+            return workspaces[index]
+        return workspaces[0]
+
+    def _current_mode_summary(self) -> str:
+        workspace = self._workspace_name(self.main_stack.currentIndex())
+        if self.main_stack.currentIndex() == 0 and self.tabs.count():
+            tab_index = self.tabs.currentIndex()
+            if tab_index >= 0:
+                return f"{workspace} / {self.tabs.tabText(tab_index)}"
+        return workspace
+
+    def _set_workspace_index(self, index: int) -> None:
+        self.main_stack.setCurrentIndex(index)
+        if index == 0 and self.tabs.currentIndex() < 0 and self.tabs.count():
+            self.tabs.setCurrentIndex(0)
+        self._sync_navigation_state()
+
+    def _open_standard_tab(self, tab_index: int) -> None:
+        self.main_stack.setCurrentIndex(0)
+        if 0 <= tab_index < self.tabs.count():
+            self.tabs.setCurrentIndex(tab_index)
+        self._sync_navigation_state()
+
+    def _open_properties_from_overview(self) -> None:
+        self._open_standard_tab(self.tabs.indexOf(self.properties_tab))
+        current_item = self.navigation_tree.currentItem()
+        if current_item is not None:
+            self.update_properties_panel(current_item)
+
+    def _open_real_dyno_from_overview(self) -> None:
+        if self.real_dyno_widget is not None:
+            self._open_standard_tab(self.tabs.indexOf(self.real_dyno_widget))
+
+    def _run_dyno_from_overview(self) -> None:
+        self._open_standard_tab(self.tabs.indexOf(self.quick_dyno_tab))
+        QTimer.singleShot(0, self.run_dyno_sweep)
+
+    def _sync_navigation_state(self) -> None:
+        current_mode = self._current_mode_summary()
+        if hasattr(self, "workspace_combo"):
+            self.workspace_combo.blockSignals(True)
+            self.workspace_combo.setCurrentIndex(self.main_stack.currentIndex())
+            self.workspace_combo.blockSignals(False)
+        if hasattr(self, "toolbar_context_label"):
+            self.toolbar_context_label.setText(f"Mode: {current_mode}")
+        if self.main_stack.currentIndex() == 0 and self.tabs.currentIndex() == 0:
+            self.update_overview()
 
     def _init_wave_scope_ui(self) -> QWidget:
         container = QWidget()
@@ -439,7 +1343,7 @@ class MainWindow(QMainWindow):
         self.wave_rpm_spin.setSingleStep(100.0)
         self.wave_rpm_spin.setValue(max(self.engine.camshaft.peak_rpm, 1000.0))
 
-        calc_btn = QPushButton("⚡ Calculate Waves")
+        calc_btn = QPushButton("Calculate Waves")
         calc_btn.clicked.connect(self.run_wave_calculation)
         self.wave_save_btn.clicked.connect(self.save_wave_audio)
 
@@ -519,9 +1423,10 @@ class MainWindow(QMainWindow):
         exhaust_item.setData(0, Qt.UserRole, self.engine.exhaust)
         root_item.addChild(exhaust_item)
 
-        sc_item = QTreeWidgetItem(["Supercharger"])
-        sc_item.setData(0, Qt.UserRole, self.engine.supercharger)
-        root_item.addChild(sc_item)
+        induction_item = QTreeWidgetItem([self.engine.induction_tree_label()])
+        induction_item.setData(0, Qt.UserRole, self.engine.turbo)
+        root_item.addChild(induction_item)
+        self.induction_tree_item = induction_item
 
         fuel_item = QTreeWidgetItem(["Fuel"])
         fuel_item.setData(0, Qt.UserRole, self.engine.fuel)
@@ -578,8 +1483,10 @@ class MainWindow(QMainWindow):
             self._build_intake_form(component)
         elif isinstance(component, ExhaustSystem):
             self._build_exhaust_form(component)
+        elif isinstance(component, Turbo):
+            self._build_induction_form()
         elif isinstance(component, Supercharger):
-            self._build_supercharger_form(component)
+            self._build_induction_form()
         elif isinstance(component, Fuel):
             self._build_fuel_form(component)
         elif isinstance(component, SimulationSettings):
@@ -910,22 +1817,185 @@ class MainWindow(QMainWindow):
         self._bind_spin(collector_len, lambda val: self._update_value(exhaust, "collector_length", val), "collector_length")
         self.property_form.addRow("Collector Length (mm)", collector_len)
 
-    def _build_supercharger_form(self, supercharger: Supercharger) -> None:
+    def _build_induction_form(self) -> None:
         self._clear_property_form()
 
+        induction_state = self.engine.induction_classification()
+        induction_name = self.engine.induction_mode_name()
+
+        title = QLabel(f"Induction System: {induction_name}")
+        title.setStyleSheet("font-size: 15px; font-weight: 700; color: #18212f;")
+        title.setWordWrap(True)
+        self.property_form.addRow(title)
+
+        note = QLabel()
+        note.setWordWrap(True)
+        note.setStyleSheet("font-size: 11px; color: #506072;")
+        if induction_state == "Turbo":
+            note.setText(
+                "Turbo mode is driven by `turbo.enabled=true`. This panel edits `turbo.*` directly and keeps the legacy "
+                "`supercharger` block neutral so preflight stays valid."
+            )
+        elif induction_state == "Supercharger":
+            note.setText(
+                "Mechanical boost mode edits the legacy `supercharger` block and forces `turbo.enabled=false` so the "
+                "engine cannot end up with two active boost systems."
+            )
+        else:
+            note.setText(
+                "Naturally aspirated mode keeps both boost systems disabled. Stored `turbo.*` data is preserved until "
+                "you switch back to Turbo."
+            )
+        self.property_form.addRow(note)
+
         type_combo = QComboBox()
-        type_combo.addItems(["NA", "Turbo", "Roots"])
-        type_combo.setCurrentText(supercharger.type)
-        type_combo.currentTextChanged.connect(lambda text: self._update_value(supercharger, "type", text))
-        self.property_form.addRow("Type", type_combo)
+        available_modes = ["NA", "Turbo", "Roots"]
+        supercharger_type = str(self.engine.supercharger.type or "NA").strip()
+        if supercharger_type and supercharger_type not in {"NA", "Turbo", "Roots"}:
+            available_modes.append(supercharger_type)
+        type_combo.addItems(available_modes)
+        if induction_state == "Turbo":
+            current_mode = "Turbo"
+        elif induction_state == "Supercharger":
+            current_mode = supercharger_type if supercharger_type != "NA" else "Roots"
+        else:
+            current_mode = "NA"
+        type_combo.setCurrentText(current_mode)
+        type_combo.currentTextChanged.connect(self._apply_induction_mode_change)
+        self.property_form.addRow("Mode", type_combo)
 
-        boost_spin = self._double_spin(supercharger.boost_pressure_bar, 0.0, 3.0, 0.05)
-        self._bind_spin(boost_spin, lambda val: self._update_value(supercharger, "boost_pressure_bar", val), "boost_pressure_bar")
-        self.property_form.addRow("Boost (bar)", boost_spin)
+        if induction_state == "Turbo":
+            target_boost_spin = self._double_spin(float(self.engine.turbo.target_boost_kpa or 0.0), 0.0, 400.0, 1.0)
+            target_boost_spin.setSuffix(" kPa")
+            target_boost_spin.setSpecialValueText("None")
+            self._bind_spin(
+                target_boost_spin,
+                lambda val: self._update_value(
+                    self.engine.turbo,
+                    "target_boost_kpa",
+                    float(val) if float(val) > 0.0 else None,
+                ),
+                "turbo.target_boost_kpa",
+            )
+            self.property_form.addRow("Target Boost", target_boost_spin)
 
-        ic_spin = self._double_spin(supercharger.intercooler_efficiency, 0.0, 1.0, 0.01)
-        self._bind_spin(ic_spin, lambda val: self._update_value(supercharger, "intercooler_efficiency", val), "intercooler_efficiency")
-        self.property_form.addRow("Intercooler Eff", ic_spin)
+            target_pr_spin = self._double_spin(float(self.engine.turbo.target_pr or 0.0), 0.0, 5.0, 0.01)
+            target_pr_spin.setSpecialValueText("None")
+            self._bind_spin(
+                target_pr_spin,
+                lambda val: self._update_value(
+                    self.engine.turbo,
+                    "target_pr",
+                    float(val) if float(val) > 0.0 else None,
+                ),
+                "turbo.target_pr",
+            )
+            self.property_form.addRow("Target PR", target_pr_spin)
+
+            wastegate_box = QCheckBox("Enable wastegate target control")
+            wastegate_box.setChecked(bool(self.engine.turbo.wastegate_enabled))
+            wastegate_box.stateChanged.connect(
+                lambda state: self._update_value(self.engine.turbo, "wastegate_enabled", bool(state))
+            )
+            self.property_form.addRow("Wastegate", wastegate_box)
+
+            wastegate_gain = self._double_spin(self.engine.turbo.wastegate_gain, 0.01, 5.0, 0.01)
+            self._bind_spin(
+                wastegate_gain,
+                lambda val: self._update_value(self.engine.turbo, "wastegate_gain", val),
+                "turbo.wastegate_gain",
+            )
+            self.property_form.addRow("Wastegate Gain", wastegate_gain)
+
+            max_iters = QSpinBox()
+            max_iters.setRange(1, 50)
+            max_iters.setValue(int(self.engine.turbo.max_iters))
+            self._bind_spin(
+                max_iters,
+                lambda val: self._update_value(self.engine.turbo, "max_iters", int(val)),
+                "turbo.max_iters",
+            )
+            self.property_form.addRow("Solver Iterations", max_iters)
+
+            comp_eff = self._double_spin(self.engine.turbo.compressor_efficiency, 0.0, 1.0, 0.01)
+            self._bind_spin(
+                comp_eff,
+                lambda val: self._update_value(self.engine.turbo, "compressor_efficiency", val),
+                "turbo.compressor_efficiency",
+            )
+            self.property_form.addRow("Compressor Eff", comp_eff)
+
+            turbine_eff = self._double_spin(self.engine.turbo.turbine_efficiency, 0.0, 1.0, 0.01)
+            self._bind_spin(
+                turbine_eff,
+                lambda val: self._update_value(self.engine.turbo, "turbine_efficiency", val),
+                "turbo.turbine_efficiency",
+            )
+            self.property_form.addRow("Turbine Eff", turbine_eff)
+
+            ic_spin = self._double_spin(self.engine.turbo.intercooler_efficiency, 0.0, 1.0, 0.01)
+            self._bind_spin(
+                ic_spin,
+                lambda val: self._update_value(self.engine.turbo, "intercooler_efficiency", val),
+                "turbo.intercooler_efficiency",
+            )
+            self.property_form.addRow("Intercooler Eff", ic_spin)
+
+            compressor_row = self._build_json_editor_row(
+                self.engine.turbo.compressor_map,
+                expected_type=list,
+                setter=lambda payload: self._update_value(self.engine.turbo, "compressor_map", payload),
+                label="turbo.compressor_map",
+                placeholder='[{"pr": 1.6, "flow": 0.18, "eff": 0.72}]',
+            )
+            self.property_form.addRow("Compressor Map", compressor_row)
+
+            turbine_row = self._build_json_editor_row(
+                self.engine.turbo.turbine_map,
+                expected_type=list,
+                setter=lambda payload: self._update_value(self.engine.turbo, "turbine_map", payload),
+                label="turbo.turbine_map",
+                placeholder='[{"pr": 1.8, "flow": 0.16, "eff": 0.70}]',
+            )
+            self.property_form.addRow("Turbine Map", turbine_row)
+
+            response_row = self._build_json_editor_row(
+                self.engine.turbo.response_model,
+                expected_type=dict,
+                setter=lambda payload: self._update_value(self.engine.turbo, "response_model", payload),
+                label="turbo.response_model",
+                placeholder='{"enabled": true, "spool_width_rpm": 900.0}',
+            )
+            self.property_form.addRow("Response Model", response_row)
+            return
+
+        if induction_state == "Supercharger":
+            boost_spin = self._double_spin(self.engine.supercharger.boost_pressure_bar, 0.0, 3.0, 0.05)
+            self._bind_spin(
+                boost_spin,
+                lambda val: self._update_value(self.engine.supercharger, "boost_pressure_bar", val),
+                "supercharger.boost_pressure_bar",
+            )
+            self.property_form.addRow("Boost (bar)", boost_spin)
+
+            ic_spin = self._double_spin(self.engine.supercharger.intercooler_efficiency, 0.0, 1.0, 0.01)
+            self._bind_spin(
+                ic_spin,
+                lambda val: self._update_value(self.engine.supercharger, "intercooler_efficiency", val),
+                "supercharger.intercooler_efficiency",
+            )
+            self.property_form.addRow("Intercooler Eff", ic_spin)
+            return
+
+        idle_note = QLabel(
+            "No boost hardware is active. Select `Turbo` to edit `turbo.*`, or `Roots` to edit the mechanical supercharger block."
+        )
+        idle_note.setWordWrap(True)
+        idle_note.setStyleSheet("font-size: 11px; color: #506072;")
+        self.property_form.addRow(idle_note)
+
+    def _build_supercharger_form(self, supercharger: Supercharger) -> None:
+        self._build_induction_form()
 
     def _build_friction_form(self, friction: Friction) -> None:
         self._clear_property_form()
@@ -999,27 +2069,70 @@ class MainWindow(QMainWindow):
         _checkbox_row("Power Steering", "power_steering")
         _checkbox_row("Mechanical Fan", "mechanical_fan")
 
+    def _resolve_fuel_preset_definition(self, preset: str) -> Optional[dict[str, Any]]:
+        if preset in FUEL_PRESET_DEFINITIONS:
+            return FUEL_PRESET_DEFINITIONS[preset]
+        if preset in FUEL_PRESET_LEGACY_ALIASES:
+            return FUEL_PRESET_LEGACY_ALIASES[preset]
+        return None
+
     def _apply_fuel_preset(self, fuel: Fuel, preset: str) -> None:
-        presets = {
-            "Regular (87)": ("Regular", 87.0, 44e6, 14.7),
-            "Premium (93)": ("Premium", 93.0, 44e6, 14.7),
-            "Race Gas (110)": ("Race Gas", 110.0, 46e6, 14.2),
-            "E85": ("E85", 105.0, 29e6, 9.8),
-            "Methanol": ("Methanol", 110.0, 20e6, 6.4),
-        }
-        if preset in presets:
-            name, octane, energy, afr = presets[preset]
-            fuel.type_name = name
-            fuel.octane_rating = octane
-            fuel.energy_density = energy
-            fuel.stoich_afr = afr
+        definition = self._resolve_fuel_preset_definition(preset)
+        if definition is None:
+            return
+        fuel.type_name = str(definition["type_name"])
+        if preset == "Custom":
+            return
+        fuel.octane_rating = float(definition["octane_rating"])
+        fuel.energy_density = float(definition["energy_density"])
+        fuel.stoich_afr = float(definition["stoich_afr"])
+
+    def _populate_fuel_preset_combo(self, combo: QComboBox) -> None:
+        primary_items = FUEL_PRESET_GROUPS[0][1]
+        advanced_items = FUEL_PRESET_GROUPS[1][1]
+        combo.addItems(primary_items)
+        combo.insertSeparator(combo.count())
+        combo.addItem("Advanced / Special Fuels")
+        advanced_header = combo.model().item(combo.count() - 1)
+        if advanced_header is not None:
+            advanced_header.setEnabled(False)
+        combo.addItems(advanced_items)
+
+    def _matches_fuel_preset(self, fuel: Fuel, preset: str) -> bool:
+        definition = FUEL_PRESET_DEFINITIONS[preset]
+        if preset == "Custom":
+            return False
+        current_name = (fuel.type_name or "").strip().lower()
+        match_names = {name.lower() for name in definition.get("match_names", set())}
+        name_matches = current_name in match_names or current_name == str(definition["type_name"]).strip().lower()
+        octane_matches = abs(fuel.octane_rating - float(definition["octane_rating"])) <= 0.6
+        energy_matches = abs(fuel.energy_density - float(definition["energy_density"])) <= 0.25e6
+        afr_matches = abs(fuel.stoich_afr - float(definition["stoich_afr"])) <= 0.15
+        return (name_matches and octane_matches) or (octane_matches and energy_matches and afr_matches)
+
+    def _matching_fuel_preset_label(self, fuel: Fuel) -> str:
+        for _, preset_names in FUEL_PRESET_GROUPS:
+            for preset in preset_names:
+                if preset == "Custom":
+                    continue
+                if self._matches_fuel_preset(fuel, preset):
+                    return preset
+        return "Custom"
+
+    def _sync_fuel_preset_combo(self, combo: QComboBox, fuel: Fuel) -> None:
+        match = self._matching_fuel_preset_label(fuel)
+        index = combo.findText(match)
+        if index >= 0 and combo.currentIndex() != index:
+            combo.blockSignals(True)
+            combo.setCurrentIndex(index)
+            combo.blockSignals(False)
 
     def _build_fuel_form(self, fuel: Fuel) -> None:
         self._clear_property_form()
 
         preset_combo = QComboBox()
-        presets = ["Regular (87)", "Premium (93)", "Race Gas (110)", "E85", "Methanol"]
-        preset_combo.addItems(presets)
+        self._populate_fuel_preset_combo(preset_combo)
+        self._sync_fuel_preset_combo(preset_combo, fuel)
 
         name_edit = QLineEdit(fuel.type_name)
         octane_spin = self._double_spin(fuel.octane_rating, 70.0, 130.0, 0.5)
@@ -1039,16 +2152,32 @@ class MainWindow(QMainWindow):
         preset_combo.currentTextChanged.connect(apply_and_refresh)
         self.property_form.addRow("Presets", preset_combo)
 
-        name_edit.editingFinished.connect(lambda: self._update_value(fuel, "type_name", name_edit.text()))
+        def update_fuel_name() -> None:
+            self._update_value(fuel, "type_name", name_edit.text())
+            self._sync_fuel_preset_combo(preset_combo, fuel)
+
+        name_edit.editingFinished.connect(update_fuel_name)
         self.property_form.addRow("Fuel Type", name_edit)
 
-        self._bind_spin(octane_spin, lambda val: self._update_value(fuel, "octane_rating", val), "octane_rating")
+        self._bind_spin(
+            octane_spin,
+            lambda val: (self._update_value(fuel, "octane_rating", val), self._sync_fuel_preset_combo(preset_combo, fuel)),
+            "octane_rating",
+        )
         self.property_form.addRow("Octane Rating", octane_spin)
 
-        self._bind_spin(energy_spin, lambda val: self._update_value(fuel, "energy_density", val), "energy_density")
+        self._bind_spin(
+            energy_spin,
+            lambda val: (self._update_value(fuel, "energy_density", val), self._sync_fuel_preset_combo(preset_combo, fuel)),
+            "energy_density",
+        )
         self.property_form.addRow("Energy Density", energy_spin)
 
-        self._bind_spin(afr_spin, lambda val: self._update_value(fuel, "stoich_afr", val), "stoich_afr")
+        self._bind_spin(
+            afr_spin,
+            lambda val: (self._update_value(fuel, "stoich_afr", val), self._sync_fuel_preset_combo(preset_combo, fuel)),
+            "stoich_afr",
+        )
         self.property_form.addRow("Stoich AFR", afr_spin)
 
     def _build_sim_settings_form(self, settings: SimulationSettings) -> None:
@@ -1126,6 +2255,61 @@ class MainWindow(QMainWindow):
         container.setLayout(layout)
         return container
 
+    def _build_json_editor_row(
+        self,
+        value: Any,
+        *,
+        expected_type: type,
+        setter: Any,
+        label: str,
+        placeholder: str,
+    ) -> QWidget:
+        container = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        editor = QTextEdit()
+        editor.setAcceptRichText(False)
+        editor.setPlaceholderText(placeholder)
+        editor.setMinimumHeight(90)
+        editor.setPlainText(json.dumps(value, indent=2))
+
+        apply_button = QPushButton("Apply JSON")
+        apply_button.setMaximumWidth(120)
+
+        def apply_json() -> None:
+            try:
+                raw_text = editor.toPlainText().strip()
+                payload = json.loads(raw_text) if raw_text else expected_type()
+                if not isinstance(payload, expected_type):
+                    raise ValueError(f"Expected {expected_type.__name__} JSON payload")
+                setter(payload)
+                editor.setPlainText(json.dumps(payload, indent=2))
+                self.statusBar().showMessage(f"Updated {label}", 2000)
+            except Exception as exc:
+                message = f"Failed to update {label}: {exc}"
+                self.statusBar().showMessage(message, 4000)
+                QMessageBox.critical(self, "JSON Update Error", message)
+
+        apply_button.clicked.connect(apply_json)
+        layout.addWidget(editor)
+        layout.addWidget(apply_button, 0, Qt.AlignLeft)
+        container.setLayout(layout)
+        return container
+
+    def _refresh_induction_tree_item(self) -> None:
+        item = getattr(self, "induction_tree_item", None)
+        if item is not None:
+            item.setText(0, self.engine.induction_tree_label())
+
+    def _apply_induction_mode_change(self, mode: str) -> None:
+        self.engine.set_induction_mode(mode)
+        self._refresh_induction_tree_item()
+        self.update_overview()
+        if self.navigation_tree.currentItem() is getattr(self, "induction_tree_item", None):
+            QTimer.singleShot(0, self._build_induction_form)
+
     def _update_value(self, obj: Any, attr: str, value: Any) -> None:
         setattr(obj, attr, value)
         current_item = self.navigation_tree.currentItem()
@@ -1133,6 +2317,8 @@ class MainWindow(QMainWindow):
             self._update_block_derived_labels(obj)
             if attr in {"config"}:
                 self._schedule_block_form_rebuild(obj)
+        if obj is self.engine.supercharger or obj is self.engine.turbo:
+            self._refresh_induction_tree_item()
         self.update_overview()
 
     def _update_block_derived_labels(self, block: Block) -> None:
@@ -1170,9 +2356,376 @@ class MainWindow(QMainWindow):
             pass
         self.update_overview()
 
+    def _engine_architecture_label(self, block: Block) -> str:
+        config = str(block.config).strip().upper()
+        count = int(block.num_cylinders)
+        if config == "L":
+            return f"L{count}"
+        if config == "V":
+            return f"V{count}"
+        if config == "BOXER":
+            return f"Boxer {count}"
+        return f"{block.config} {count}"
+
+    def _overview_card_html(self, title: str, rows: list[tuple[str, str]]) -> str:
+        row_html = "".join(
+            "<tr>"
+            f"<td class='label'>{html.escape(label)}</td>"
+            f"<td class='value'>{html.escape(str(value))}</td>"
+            "</tr>"
+            for label, value in rows
+        )
+        return (
+            "<table class='card' width='100%' cellspacing='0' cellpadding='0'>"
+            "<tr><td>"
+            f"<div class='card-title'>{html.escape(title)}</div>"
+            "<table class='kv' width='100%' cellspacing='0' cellpadding='0'>"
+            f"{row_html}"
+            "</table>"
+            "</td></tr>"
+            "</table>"
+        )
+
+    def _overview_inline_summary_html(self, title: str, items: list[tuple[str, str]]) -> str:
+        separator = " <span style='color: #90a0b3;'>&bull;</span> "
+        content = separator.join(
+            "<span style='color: #506072;'>"
+            f"{html.escape(label)}</span> "
+            "<span style='color: #18212f; font-weight: 600;'>"
+            f"{html.escape(str(value))}</span>"
+            for label, value in items
+        )
+        return (
+            "<span style='color: #314154; font-weight: 700;'>"
+            f"{html.escape(title)}:</span> "
+            f"{content}"
+        )
+
+    def _overview_dataset_status(self) -> str:
+        if self.real_dyno_widget is None or self.real_dyno_widget.dataset_dir is None:
+            return "None"
+        dataset_meta = self.real_dyno_widget.dataset_meta or {}
+        dataset_id = str(dataset_meta.get("dataset_id", "")).strip()
+        if dataset_id:
+            return dataset_id
+        return self.real_dyno_widget.dataset_dir.name
+
+    def _overview_last_dyno_status(self) -> str:
+        if not self.last_dyno_payload:
+            return "None"
+        metadata = self.last_dyno_payload.get("metadata", {})
+        coupling_mode = str(metadata.get("coupling_mode", "")).strip().lower()
+        mode_label = "v2" if coupling_mode == "v2_orchestrator" else (self._dyno_mode_running or self._dyno_mode())
+        point_count = len(list(self.last_dyno_payload.get("results", [])))
+        if math.isfinite(self._dyno_max_hp_value) and self._dyno_max_hp_value > 0.0 and self._dyno_max_hp_rpm > 0:
+            dyno_summary = f"{mode_label} | {self._dyno_max_hp_value:.1f} hp @ {self._dyno_max_hp_rpm:.0f} rpm"
+            if point_count:
+                dyno_summary += f" | {point_count} pts"
+            return dyno_summary
+        if point_count:
+            return f"{mode_label} | {point_count} pts"
+        return f"{mode_label} ready"
+
+    def _overview_report_status(self) -> str:
+        if self.real_dyno_widget is None:
+            return "None"
+        report_names = [
+            label
+            for label, payload in (
+                ("compare", self.real_dyno_widget.compare_report),
+                ("staged", self.real_dyno_widget.staged_report),
+                ("validation", self.real_dyno_widget.validation_report),
+                ("A/B", self.real_dyno_widget.ab_report),
+                ("sensitivity", self.real_dyno_widget.sensitivity_report),
+                ("optimize", self.real_dyno_widget.optimize_report),
+            )
+            if payload is not None
+        ]
+        if not report_names:
+            return "None"
+        if len(report_names) <= 3:
+            return ", ".join(report_names)
+        return f"{len(report_names)} available"
+
+    def _overview_calibration_status(self) -> str:
+        if self.real_dyno_widget is None or self.real_dyno_widget.staged_report is None:
+            return "Not run"
+        stages = list(self.real_dyno_widget.staged_report.get("stages", []))
+        if not stages:
+            return "Report ready"
+        counts: dict[str, int] = {}
+        for stage in stages:
+            status = str(stage.get("status", "unknown")).strip().lower()
+            counts[status] = counts.get(status, 0) + 1
+        parts = [f"{counts[key]} {key}" for key in ("accepted", "rejected", "omitted") if counts.get(key)]
+        return ", ".join(parts) if parts else "Report ready"
+
+    def _quick_dyno_project_name(self) -> str:
+        if self.current_project_path:
+            return Path(self.current_project_path).name
+        return "Unsaved Project"
+
+    def _quick_dyno_engine_name(self) -> str:
+        architecture = self._engine_architecture_label(self.engine.block)
+        displacement_l = self.engine.block.displacement_cc / 1000.0
+        return f"{architecture} | {displacement_l:.2f} L | {self.engine.induction_summary()}"
+
+    def _quick_dyno_mode_label(self) -> str:
+        return "v2 (Pro Coupled)" if self._dyno_mode() == "v2" else "v1 (Quick 0D)"
+
+    def _quick_dyno_quality_label(self) -> str:
+        return "Stable" if self._dyno_quality() == "stable" else "Fast"
+
+    def _analysis_mode_label(self) -> str:
+        if self.last_dyno_payload is not None:
+            metadata = self.last_dyno_payload.get("metadata", {})
+            coupling_mode = str(metadata.get("coupling_mode", "")).strip().lower()
+            if coupling_mode == "v2_orchestrator":
+                return "v2 (Pro Coupled)"
+            return "v1 (Quick 0D)"
+        mode = self._dyno_mode_running or self._dyno_mode()
+        return "v2 (Pro Coupled)" if mode == "v2" else "v1 (Quick 0D)"
+
+    def _quick_dyno_requested_rpm_values(self) -> list[int]:
+        max_rpm = int(self.engine.block.redline_rpm)
+        return list(range(1000, max_rpm + 500, 500))
+
+    def _quick_dyno_sweep_text(self) -> str:
+        rpm_values = self._dyno_rpm_values or self._quick_dyno_requested_rpm_values()
+        if not rpm_values:
+            return "No sweep range"
+        return f"{min(rpm_values)}-{max(rpm_values)} rpm ({len(rpm_values)} pts)"
+
+    def _quick_dyno_result_count(self) -> int:
+        if self.last_dyno_payload is not None:
+            return len(list(self.last_dyno_payload.get("results", [])))
+        return len(self._dyno_results)
+
+    def _quick_dyno_point_label(self, count: int) -> str:
+        return "point" if count == 1 else "points"
+
+    def _quick_dyno_status_value(self) -> str:
+        if self._dyno_run_state == "Cancelling":
+            return "Cancelling"
+        if self._dyno_run_state == "Running":
+            return "Running"
+        return "Ready"
+
+    def _quick_dyno_last_run_value(self) -> str:
+        if self._dyno_run_state in {"Running", "Cancelling"}:
+            return "In progress"
+        if self.last_dyno_payload is not None:
+            return "Completed"
+        if self._dyno_run_state == "Cancelled":
+            return "Cancelled"
+        if self._dyno_run_state == "Error":
+            return "Failed"
+        return "Not run yet"
+
+    def _quick_dyno_result_status_value(self) -> str:
+        result_count = self._quick_dyno_result_count()
+        requested = len(self._dyno_rpm_values or self._quick_dyno_requested_rpm_values())
+        if self._dyno_run_state in {"Running", "Cancelling"}:
+            return f"{result_count}/{requested} points collected"
+        if self.last_dyno_payload is not None:
+            if result_count:
+                return f"{result_count} {self._quick_dyno_point_label(result_count)} available"
+            return "No valid points saved"
+        return "No result available"
+
+    def _quick_dyno_result_availability(self) -> str:
+        result_count = self._quick_dyno_result_count()
+        requested = len(self._dyno_rpm_values or self._quick_dyno_requested_rpm_values())
+        if self.dyno_thread and self.dyno_thread.isRunning():
+            return f"In progress ({result_count}/{requested} pts)"
+        if self.last_dyno_payload is not None:
+            if result_count:
+                return f"Available ({result_count} pts)"
+            return "No valid points saved"
+        if self._dyno_run_state == "Cancelled":
+            return "Cancelled"
+        if self._dyno_run_state == "Error":
+            return "Failed"
+        return "None yet"
+
+    def _refresh_quick_dyno_panel(self) -> None:
+        if not hasattr(self, "dyno_context_label"):
+            return
+
+        self.dyno_settings_quality_value.setText(self._quick_dyno_quality_label())
+        self.dyno_settings_sweep_value.setText(self._quick_dyno_sweep_text())
+        project_name = self._quick_dyno_project_name()
+        engine_name = self._quick_dyno_engine_name()
+        mode_label = self._quick_dyno_mode_label()
+        quality_label = self._quick_dyno_quality_label()
+        sweep_text = self._quick_dyno_sweep_text()
+        status_value = self._quick_dyno_status_value()
+
+        def _context_line(items: list[tuple[str, str]]) -> str:
+            return " <span style='color: #90a0b3;'>&bull;</span> ".join(
+                (
+                    "<span style='color: #5f6b7a; font-weight: 700;'>"
+                    f"{html.escape(label)}:</span> "
+                    f"<span style='color: #18212f;'>{html.escape(value)}</span>"
+                )
+                for label, value in items
+            )
+
+        context_html = (
+            _context_line([("Project", project_name), ("Engine", engine_name)])
+            + "<br>"
+            + _context_line([("Solver", mode_label), ("Quality", quality_label), ("Sweep", sweep_text)])
+        )
+        self.dyno_context_label.setText(context_html)
+        self.dyno_status_value_label.setText(f"Status: {status_value}")
+        self.dyno_result_state_label.setText(f"Last run: {self._quick_dyno_last_run_value()}")
+        self.dyno_result_value_label.setText(f"Result: {self._quick_dyno_result_status_value()}")
+        self.dyno_plot_caption_label.setText(
+            f"Plot context: {project_name} / {engine_name} | {mode_label} | {sweep_text} | {status_value}"
+        )
+        if self._dyno_knock_detected:
+            self.dyno_plot_notice_label.setText("Knock warning: low octane for this compression")
+            self.dyno_plot_notice_label.setVisible(True)
+        else:
+            self.dyno_plot_notice_label.clear()
+            self.dyno_plot_notice_label.setVisible(False)
+
+        peak_power_ready = math.isfinite(self._dyno_max_hp_value) and self._dyno_max_hp_value > 0.0 and self._dyno_max_hp_rpm > 0
+        peak_torque_ready = math.isfinite(self._dyno_max_tq_value) and self._dyno_max_tq_value > 0.0 and self._dyno_max_tq_rpm > 0
+        self.dyno_summary_peak_power_value.setText(
+            f"{self._dyno_max_hp_value:.1f} hp @ {self._dyno_max_hp_rpm:.0f} rpm" if peak_power_ready else "-"
+        )
+        self.dyno_summary_peak_power_rpm_value.setText(f"{self._dyno_max_hp_rpm:.0f} rpm" if peak_power_ready else "-")
+        self.dyno_summary_peak_torque_value.setText(
+            f"{self._dyno_max_tq_value:.1f} Nm @ {self._dyno_max_tq_rpm:.0f} rpm" if peak_torque_ready else "-"
+        )
+        self.dyno_summary_peak_torque_rpm_value.setText(f"{self._dyno_max_tq_rpm:.0f} rpm" if peak_torque_ready else "-")
+        self.dyno_summary_sweep_value.setText(self._quick_dyno_sweep_text())
+
+        if self.dyno_thread and self.dyno_thread.isRunning():
+            self.dyno_summary_detail_label.setText(
+                f"Collecting points in {self._quick_dyno_mode_label()}: {self._quick_dyno_result_count()} so far."
+            )
+            self._refresh_analysis_panel()
+            return
+
+        if self.last_dyno_payload is not None:
+            result_count = self._quick_dyno_result_count()
+            invalid_count = len(self._dyno_invalid_rpms)
+            if result_count:
+                detail = f"{result_count} point(s) ready in {self._quick_dyno_mode_label()}."
+            else:
+                detail = f"Sweep completed in {self._quick_dyno_mode_label()}, but no exportable points were kept."
+            if invalid_count:
+                detail += f" {invalid_count} invalid point(s) stayed out of the main legend."
+            self.dyno_summary_detail_label.setText(detail)
+            self._refresh_analysis_panel()
+            return
+
+        if self._dyno_run_state == "Cancelled":
+            self.dyno_summary_detail_label.setText("No exportable dyno result is currently stored.")
+            self._refresh_analysis_panel()
+            return
+
+        if self._dyno_run_state == "Error":
+            self.dyno_summary_detail_label.setText("Check the error dialog, then retry once the engine setup is valid.")
+            self._refresh_analysis_panel()
+            return
+
+        self.dyno_summary_detail_label.setText("Run a dyno sweep to populate peak values and exportable results.")
+        self._refresh_analysis_panel()
+
+    def _refresh_analysis_panel(self) -> None:
+        if not hasattr(self, "analysis_context_label"):
+            return
+
+        project_name = self._quick_dyno_project_name()
+        engine_name = self._quick_dyno_engine_name()
+        mode_label = self._analysis_mode_label()
+        sweep_text = self._quick_dyno_sweep_text()
+        row_count = self.analysis_table.rowCount()
+
+        def _context_line(items: list[tuple[str, str]]) -> str:
+            return " <span style='color: #90a0b3;'>&bull;</span> ".join(
+                (
+                    "<span style='color: #5f6b7a; font-weight: 700;'>"
+                    f"{html.escape(label)}:</span> "
+                    f"<span style='color: #18212f;'>{html.escape(value)}</span>"
+                )
+                for label, value in items
+            )
+
+        if self.dyno_thread and self.dyno_thread.isRunning():
+            result_context = "Current quick dyno run"
+        elif self.last_dyno_payload is not None and mode_label.startswith("v1"):
+            result_context = "Current analysis result"
+        elif self.last_dyno_payload is not None:
+            result_context = "Analysis table is not tied to the current v2 result"
+        elif self._dyno_run_state == "Cancelled":
+            result_context = "No stored analysis result"
+        elif self._dyno_run_state == "Error":
+            result_context = "Analysis unavailable after failed run"
+        else:
+            result_context = "Awaiting a quick dyno result"
+
+        context_html = (
+            _context_line([("Project", project_name), ("Engine", engine_name), ("Solver", mode_label)])
+            + "<br>"
+            + _context_line([("Sweep", sweep_text), ("Points", str(row_count)), ("Result", result_context)])
+        )
+        self.analysis_context_label.setText(context_html)
+
+        self.analysis_summary_label.setText(
+            self._overview_inline_summary_html(
+                "Run status",
+                [
+                    ("Status", self._quick_dyno_status_value()),
+                    ("Last run", self._quick_dyno_last_run_value()),
+                    ("Result", self._quick_dyno_result_status_value()),
+                ],
+            )
+        )
+
+        peak_power_ready = math.isfinite(self._dyno_max_hp_value) and self._dyno_max_hp_value > 0.0 and self._dyno_max_hp_rpm > 0
+        peak_torque_ready = math.isfinite(self._dyno_max_tq_value) and self._dyno_max_tq_value > 0.0 and self._dyno_max_tq_rpm > 0
+        self.analysis_peak_power_value_label.setText(f"{self._dyno_max_hp_value:.1f} hp" if peak_power_ready else "-")
+        self.analysis_peak_power_rpm_label.setText(f"at {self._dyno_max_hp_rpm:.0f} rpm" if peak_power_ready else "No peak recorded yet")
+        self.analysis_peak_torque_value_label.setText(f"{self._dyno_max_tq_value:.1f} Nm" if peak_torque_ready else "-")
+        self.analysis_peak_torque_rpm_label.setText(f"at {self._dyno_max_tq_rpm:.0f} rpm" if peak_torque_ready else "No peak recorded yet")
+
+        if self.dyno_thread and self.dyno_thread.isRunning():
+            self.analysis_detail_label.setText(
+                f"{row_count} point(s) collected so far."
+            )
+        elif self.last_dyno_payload is not None and mode_label.startswith("v2"):
+            self.analysis_detail_label.setText(
+                "v2 result active. This table remains a v1-oriented cycle-detail view."
+            )
+        elif self.last_dyno_payload is not None and row_count:
+            self.analysis_detail_label.setText(
+                f"{row_count} point(s) ready for detailed review."
+            )
+        elif self._dyno_run_state == "Cancelled":
+            self.analysis_detail_label.setText("Dyno cancelled. No current analysis result is stored.")
+        elif self._dyno_run_state == "Error":
+            self.analysis_detail_label.setText("Dyno failed. Rerun to populate the analysis view.")
+        else:
+            self.analysis_detail_label.setText("Run a dyno sweep to populate the analysis view.")
+
+        if self._dyno_knock_detected:
+            self.analysis_knock_notice_label.setText(
+                "Knock warning detected in the current analysis result. Review octane, compression, or timing before trusting the upper-load trend."
+            )
+            self.analysis_knock_notice_label.setVisible(True)
+        else:
+            self.analysis_knock_notice_label.clear()
+            self.analysis_knock_notice_label.setVisible(False)
+
     def update_overview(self) -> None:
         if not hasattr(self, "overview_browser"):
             return
+
+        self._refresh_quick_dyno_panel()
 
         project_name = "Unsaved Project"
         if self.current_project_path:
@@ -1183,7 +2736,6 @@ class MainWindow(QMainWindow):
         cam = self.engine.camshaft
         intake = self.engine.intake
         exhaust = self.engine.exhaust
-        sc = self.engine.supercharger
         fuel = getattr(self.engine, "fuel", None)
         combustion = getattr(self.engine, "combustion", None)
         friction = getattr(self.engine, "friction", None)
@@ -1201,91 +2753,229 @@ class MainWindow(QMainWindow):
         except Exception:
             geo_cr = head.compression_ratio
 
-        induction = "Naturally Aspirated"
-        if sc.type != "NA" or sc.boost_pressure_bar > 0.0:
-            induction = f"{sc.type} @ {sc.boost_pressure_bar:.2f} bar"
+        architecture = self._engine_architecture_label(block)
+        induction = self.engine.induction_summary()
+        self.overview_title_label.setText(project_name)
+        self.overview_subtitle_label.setText(f"{architecture}  |  {displacement_l:.2f} L  |  {induction}")
+        self.overview_context_label.setText(
+            self._overview_inline_summary_html(
+                "Technical baseline",
+                [
+                    ("Redline", f"{redline:.0f} rpm"),
+                    ("CR", f"{geo_cr:.2f}:1"),
+                    ("Cam peak", f"{cam.peak_rpm:.0f} rpm"),
+                    ("Port flow", f"{head.port_flow_cfm:.1f} cfm"),
+                ],
+            )
+        )
+        self.overview_status_label.setText(
+            self._overview_inline_summary_html(
+                "Project state",
+                [
+                    ("Dataset", self._overview_dataset_status()),
+                    ("Last dyno", self._overview_last_dyno_status()),
+                    ("Reports", self._overview_report_status()),
+                    ("Calibration", self._overview_calibration_status()),
+                ],
+            )
+        )
+        self.overview_guidance_label.setText(
+            "Next: run a dyno baseline, then adjust properties or move into Real Dyno when measured data is available."
+        )
 
-        fuel_html = []
-        if fuel:
-            fuel_html = [
-                "<h3>Fuel</h3>",
-                "<ul>",
-                f"<li><b>Type:</b> {fuel.type_name}</li>",
-                f"<li><b>Octane:</b> {fuel.octane_rating:.1f}</li>",
-                f"<li><b>Energy Density:</b> {fuel.energy_density/1e6:.2f} MJ/kg</li>",
-                f"<li><b>Stoich AFR:</b> {fuel.stoich_afr:.2f}</li>",
-                "</ul>",
-            ]
-
-        html_parts = [
-            f"<h2>Project: {project_name}</h2>",
-            "<h3>Short Block</h3>",
-            "<ul>",
-            f"<li><b>Config:</b> {block.config} {block.num_cylinders}</li>",
-            f"<li><b>Bore:</b> {bore:.1f} mm</li>",
-            f"<li><b>Stroke:</b> {stroke:.1f} mm</li>",
-            f"<li><b>Displacement:</b> {displacement_cc:.1f} cc ({displacement_l:.2f} L)</li>",
-            f"<li><b>Rod Length:</b> {rod:.1f} mm</li>",
-            f"<li><b>Redline:</b> {redline:.0f} rpm</li>",
-            f"<li><b>Mean Piston Speed @ Redline:</b> {mean_piston_speed:.2f} m/s</li>",
-            "</ul>",
-            "<h3>Cylinder Head</h3>",
-            "<ul>",
-            f"<li><b>Compression Ratio (geom):</b> {geo_cr:.2f}:1</li>",
-            f"<li><b>Intake Valve Dia:</b> {head.intake_valve_diameter:.1f} mm</li>",
-            f"<li><b>Exhaust Valve Dia:</b> {head.exhaust_valve_diameter:.1f} mm</li>",
-            f"<li><b>Port Flow:</b> {head.port_flow_cfm:.1f} cfm</li>",
-            f"<li><b>Port Flow Efficiency:</b> {head.port_flow_efficiency:.2f}</li>",
-            f"<li><b>Mach Tolerance:</b> {head.mach_tolerance:.2f}</li>",
-            "</ul>",
-            "<h3>Camshaft</h3>",
-            "<ul>",
-            f"<li><b>Durations (I/E):</b> {cam.intake_duration:.1f} / {cam.exhaust_duration:.1f} deg</li>",
-            f"<li><b>Lifts (I/E):</b> {cam.intake_lift:.2f} / {cam.exhaust_lift:.2f} mm</li>",
-            f"<li><b>LSA:</b> {cam.lobe_separation:.1f} deg</li>",
-            f"<li><b>Advance:</b> {cam.advance:.1f} deg</li>",
-            f"<li><b>Peak RPM:</b> {cam.peak_rpm:.0f}</li>",
-            "</ul>",
-            "<h3>Induction</h3>",
-            "<ul>",
-            f"<li><b>Runner:</b> {intake.runner_length:.1f} mm x {intake.runner_diameter:.1f} mm</li>",
-            f"<li><b>Plenum:</b> {intake.plenum_volume:.2f} L</li>",
-            f"<li><b>Throttle:</b> {intake.throttle_body_dia:.1f} mm ({intake.throttle_cfm:.1f} cfm)</li>",
-            f"<li><b>Induction:</b> {induction}</li>",
-            "</ul>",
-            "<h3>Exhaust</h3>",
-            "<ul>",
-            f"<li><b>Primary:</b> {exhaust.header_primary_length:.1f} mm x {exhaust.header_primary_diameter:.1f} mm</li>",
-            f"<li><b>Collector Length:</b> {exhaust.collector_length:.1f} mm</li>",
-            "</ul>",
+        cards = [
+            (
+                "Short Block",
+                [
+                    ("Architecture", architecture),
+                    ("Displacement", f"{displacement_cc:.1f} cc ({displacement_l:.2f} L)"),
+                    ("Bore x Stroke", f"{bore:.1f} x {stroke:.1f} mm"),
+                    ("Rod Length", f"{rod:.1f} mm"),
+                    ("Redline", f"{redline:.0f} rpm"),
+                    ("Mean Piston Speed", f"{mean_piston_speed:.2f} m/s"),
+                ],
+            ),
+            (
+                "Cylinder Head",
+                [
+                    ("Geometric CR", f"{geo_cr:.2f}:1"),
+                    ("Intake Valve", f"{head.intake_valve_diameter:.1f} mm"),
+                    ("Exhaust Valve", f"{head.exhaust_valve_diameter:.1f} mm"),
+                    ("Port Flow", f"{head.port_flow_cfm:.1f} cfm"),
+                    ("Flow Efficiency", f"{head.port_flow_efficiency:.2f}"),
+                    ("Mach Tolerance", f"{head.mach_tolerance:.2f}"),
+                ],
+            ),
+            (
+                "Camshaft",
+                [
+                    ("Intake Duration", f"{cam.intake_duration:.1f} deg"),
+                    ("Exhaust Duration", f"{cam.exhaust_duration:.1f} deg"),
+                    ("Lifts", f"{cam.intake_lift:.2f} / {cam.exhaust_lift:.2f} mm"),
+                    ("LSA", f"{cam.lobe_separation:.1f} deg"),
+                    ("Advance", f"{cam.advance:.1f} deg"),
+                    ("Peak RPM", f"{cam.peak_rpm:.0f} rpm"),
+                ],
+            ),
+            (
+                "Induction",
+                [
+                    ("Mode", induction),
+                    ("Runner", f"{intake.runner_length:.1f} mm x {intake.runner_diameter:.1f} mm"),
+                    ("Plenum", f"{intake.plenum_volume:.2f} L"),
+                    ("Throttle", f"{intake.throttle_body_dia:.1f} mm"),
+                    ("Throttle Flow", f"{intake.throttle_cfm:.1f} cfm"),
+                ],
+            ),
+            (
+                "Exhaust",
+                [
+                    ("Primary", f"{exhaust.header_primary_length:.1f} mm x {exhaust.header_primary_diameter:.1f} mm"),
+                    ("Collector Length", f"{exhaust.collector_length:.1f} mm"),
+                ],
+            ),
         ]
 
-        html_parts.extend(fuel_html)
+        if fuel:
+            cards.append(
+                (
+                    "Fuel",
+                    [
+                        ("Type", fuel.type_name),
+                        ("Octane", f"{fuel.octane_rating:.1f}"),
+                        ("Energy Density", f"{fuel.energy_density / 1e6:.2f} MJ/kg"),
+                        ("Stoich AFR", f"{fuel.stoich_afr:.2f}"),
+                    ],
+                )
+            )
 
         if combustion:
-            html_parts.extend(
-                [
-                    "<h3>Combustion</h3>",
-                    "<ul>",
-                    f"<li><b>Thermal Efficiency:</b> {combustion.thermal_efficiency:.2f}</li>",
-                    f"<li><b>Burn Duration:</b> {combustion.burn_duration:.1f} deg</li>",
-                    f"<li><b>Ignition Advance:</b> {combustion.ignition_advance:.1f} deg BTDC</li>",
-                    f"<li><b>AFR:</b> {combustion.afr:.2f}</li>",
-                    "</ul>",
-                ]
+            cards.append(
+                (
+                    "Combustion",
+                    [
+                        ("Thermal Efficiency", f"{combustion.thermal_efficiency:.2f}"),
+                        ("Burn Duration", f"{combustion.burn_duration:.1f} deg"),
+                        ("Ignition Advance", f"{combustion.ignition_advance:.1f} deg BTDC"),
+                        ("AFR", f"{combustion.afr:.2f}"),
+                    ],
+                )
             )
 
         if friction:
-            html_parts.extend(
-                [
-                    "<h3>Friction</h3>",
-                    "<ul>",
-                    f"<li><b>Base FMEP:</b> {friction.friction_base_kpa:.1f} kPa</li>",
-                    "</ul>",
-                ]
+            cards.append(
+                (
+                    "Mechanical Losses",
+                    [
+                        ("Base FMEP", f"{friction.friction_base_kpa:.1f} kPa"),
+                    ],
+                )
             )
 
-        self.overview_browser.setHtml("\n".join(html_parts))
+        grid_rows = []
+        for idx in range(0, len(cards), 2):
+            left_card = self._overview_card_html(*cards[idx])
+            right_card = ""
+            if idx + 1 < len(cards):
+                right_card = self._overview_card_html(*cards[idx + 1])
+            grid_rows.append(
+                "<tr>"
+                f"<td width='50%' valign='top'>{left_card}</td>"
+                f"<td width='50%' valign='top'>{right_card}</td>"
+                "</tr>"
+            )
+
+        overview_html = f"""
+        <html>
+        <head>
+        <style>
+            body {{
+                font-family: 'Segoe UI';
+                color: #1a2433;
+                background: #f7f9fc;
+                margin: 0;
+            }}
+            .summary-shell {{
+                background: #ffffff;
+                border: 1px solid #d6dde8;
+                border-radius: 12px;
+                padding: 14px;
+            }}
+            .summary-header {{
+                margin: 0 0 10px 0;
+            }}
+            .summary-kicker {{
+                color: #1f5ea8;
+                font-size: 10px;
+                font-weight: 700;
+                letter-spacing: 0.08em;
+                text-transform: uppercase;
+            }}
+            .summary-note {{
+                color: #506072;
+                font-size: 12px;
+                margin-top: 4px;
+            }}
+            table.grid {{
+                border-collapse: separate;
+                border-spacing: 10px;
+            }}
+            table.card {{
+                background: #fbfcfe;
+                border: 1px solid #d6dde8;
+                border-radius: 10px;
+            }}
+            .card-title {{
+                font-size: 15px;
+                font-weight: 700;
+                color: #18212f;
+                padding: 12px 14px 4px 14px;
+            }}
+            table.kv {{
+                padding: 2px 14px 12px 14px;
+            }}
+            td.label {{
+                width: 42%;
+                color: #506072;
+                font-size: 12px;
+                padding: 3px 0;
+            }}
+            td.value {{
+                color: #18212f;
+                font-size: 12px;
+                font-weight: 600;
+                padding: 3px 0 3px 12px;
+            }}
+            .summary-title {{
+                color: #314154;
+                font-weight: 700;
+            }}
+            .summary-label {{
+                color: #506072;
+            }}
+            .summary-value {{
+                color: #18212f;
+                font-weight: 600;
+            }}
+            .summary-sep {{
+                color: #90a0b3;
+            }}
+        </style>
+        </head>
+        <body>
+            <div class="summary-shell">
+                <div class="summary-header">
+                    <div class="summary-kicker">Technical overview</div>
+                    <div class="summary-note">Grouped by subsystem for a faster read before dyno, calibration, or fabrication work.</div>
+                </div>
+                <table class="grid" width="100%" cellspacing="0" cellpadding="0">
+                    {"".join(grid_rows)}
+                </table>
+            </div>
+        </body>
+        </html>
+        """
+        self.overview_browser.setHtml(overview_html)
 
     def _open_compression_dialog(self, head: CylinderHead, cr_spin: QDoubleSpinBox) -> None:
         dialog = CompressionDialog(self.engine, head, cr_spin, self)
@@ -1315,7 +3005,49 @@ class MainWindow(QMainWindow):
         self.current_project_path = filename
         self._update_window_title()
         self.update_overview()
+        if self.real_dyno_widget is not None:
+            self.real_dyno_widget.refresh_base_engine_label()
         self.statusBar().showMessage("Engine saved.", 2000)
+
+    def launch_guided_engine_wizard(self) -> None:
+        dialog = GuidedEngineWizardDialog(self)
+        if dialog.exec() != QDialog.Accepted or dialog.generated_engine is None:
+            return
+        self.engine = dialog.generated_engine
+        self.current_project_path = None
+        self.audio_synth = AudioSynthesizer()
+        self.timer.stop()
+        self.refresh_tree()
+        self.update_properties_panel(self.navigation_tree.currentItem())
+        self._update_window_title()
+        self.update_overview()
+        if self.real_dyno_widget is not None:
+            self.real_dyno_widget.refresh_base_engine_label()
+        self.main_stack.setCurrentIndex(0)
+        self.tabs.setCurrentIndex(0)
+        self.statusBar().showMessage("Guided engine preset generated.", 3000)
+
+    def _show_preflight_issues(self, operation: str, mode: str = "v1") -> bool:
+        review = self.engine.preflight_review(operation=operation, mode=mode)
+        if review["errors"]:
+            issue_text = "\n".join(f"- {issue}" for issue in review["errors"])
+            QMessageBox.critical(
+                self,
+                "Preflight validation failed",
+                f"Cannot run {operation} until the configuration is corrected:\n{issue_text}",
+            )
+            self.statusBar().showMessage(f"{operation} blocked by preflight validation.", 4000)
+            return False
+        if review["warnings"]:
+            warning_text = "\n".join(f"- {issue}" for issue in review["warnings"])
+            QMessageBox.warning(
+                self,
+                "Preflight warnings",
+                f"{operation} can run, but the configuration should be reviewed:\n{warning_text}",
+            )
+            self.statusBar().showMessage(f"{operation} started with preflight warnings.", 4000)
+            return True
+        return True
 
     def _try_load_default_preset(self) -> None:
         """Attempt to load honda_k20.json as default engine on startup."""
@@ -1327,6 +3059,8 @@ class MainWindow(QMainWindow):
                 data = json.load(f)
             self.engine = Engine.from_dict(data)
             self.current_project_path = str(default)
+            if self.real_dyno_widget is not None:
+                self.real_dyno_widget.refresh_base_engine_label()
         except Exception:
             logging.getLogger(__name__).debug(
                 "Failed to load default preset, using empty engine", exc_info=True
@@ -1348,6 +3082,8 @@ class MainWindow(QMainWindow):
             self.current_project_path = filename
             self._update_window_title()
             self.update_overview()
+            if self.real_dyno_widget is not None:
+                self.real_dyno_widget.refresh_base_engine_label()
             self.main_stack.setCurrentIndex(0)
             self.tabs.setCurrentIndex(0)
             if issues:
@@ -1441,6 +3177,8 @@ class MainWindow(QMainWindow):
         self.wave_time_vector = []
 
     def run_wave_calculation(self) -> None:
+        if not self._show_preflight_issues("scope", mode="v1"):
+            return
         if self.wave_solver is None:
             self._init_wave_solver()
         if self.wave_solver is None:
@@ -1586,10 +3324,11 @@ class MainWindow(QMainWindow):
     def _build_dyno_payload(self, mode: str, results: list[dict[str, float]]) -> dict[str, Any]:
         raw = self.engine.to_dict()
         coupling_mode = "v2_orchestrator" if mode == "v2" else "none"
-        return {
+        payload = {
             "metadata": cli_metadata(self.engine, raw, coupling_mode=coupling_mode),
             "results": results,
         }
+        return apply_observable_semantics(payload, OBSERVABLE_VE_ACTUAL)
 
     def _build_knock_report_payload(self, rpm_values: list[int], mode: str) -> dict[str, Any]:
         residual_cfg = getattr(self.engine.combustion, "residual_coupling", {}) or {}
@@ -1633,8 +3372,9 @@ class MainWindow(QMainWindow):
     def run_dyno_sweep(self) -> None:
         if self.dyno_thread and self.dyno_thread.isRunning():
             return
-
         mode = self._dyno_mode()
+        if not self._show_preflight_issues("dyno", mode=mode):
+            return
         v2_settings = self._dyno_v2_settings() if mode == "v2" else {}
         max_rpm = int(self.engine.block.redline_rpm)
         rpm_values = list(range(1000, max_rpm + 500, 500))
@@ -1660,6 +3400,7 @@ class MainWindow(QMainWindow):
         self._dyno_max_tq_value = -float("inf")
         self._dyno_max_tq_rpm = 0
         self._dyno_knock_detected = False
+        self._dyno_run_state = "Running"
 
         self.analysis_table.setRowCount(0)
         self.analysis_summary_label.setText("Running dyno...")
@@ -1673,7 +3414,6 @@ class MainWindow(QMainWindow):
             pen=None,
             symbol="x",
             symbolBrush=pg.mkBrush(150, 150, 150),
-            name="Power (invalid)",
         )
         self.invalid_torque_curve = self.dyno_plot.plot(
             [],
@@ -1681,7 +3421,6 @@ class MainWindow(QMainWindow):
             pen=None,
             symbol="x",
             symbolBrush=pg.mkBrush(120, 120, 120),
-            name="Torque (invalid)",
         )
         self.dyno_plot.setLabel("bottom", "RPM")
         self.dyno_plot.setLabel("left", "Power (HP) / Torque (Nm)")
@@ -1689,6 +3428,7 @@ class MainWindow(QMainWindow):
 
         self.last_dyno_payload = None
         self._set_dyno_ui_running(True)
+        self._refresh_quick_dyno_panel()
         self.dyno_elapsed.restart()
 
         engine_data = self.engine.to_dict()
@@ -1705,7 +3445,9 @@ class MainWindow(QMainWindow):
 
     def cancel_dyno_sweep(self) -> None:
         if self.dyno_worker:
-            self.dyno_status_label.setText("Cancelling...")
+            self._dyno_run_state = "Cancelling"
+            self.dyno_status_label.setText("Cancellation requested...")
+            self._refresh_quick_dyno_panel()
             self.dyno_worker.request_cancel()
 
     def _set_dyno_ui_running(self, running: bool) -> None:
@@ -1715,10 +3457,12 @@ class MainWindow(QMainWindow):
         self.dyno_mode_combo.setEnabled(not running)
         self.dyno_quality_combo.setEnabled(not running)
         self.dyno_cancel_btn.setEnabled(running)
+        self.dyno_cancel_btn.setVisible(running)
         self.dyno_progress.setVisible(running)
         if not running:
             self.dyno_progress.setValue(0)
             self.dyno_status_label.setText("")
+        self._refresh_quick_dyno_panel()
 
     def _update_dyno_plot(self) -> None:
         if not self._dyno_rpm_values:
@@ -1736,7 +3480,9 @@ class MainWindow(QMainWindow):
         self._dyno_progress_count += 1
         elapsed_ms = self.dyno_elapsed.elapsed()
         self.dyno_progress.setValue(percent)
-        self.dyno_status_label.setText(f"{msg} | {elapsed_ms / 1000.0:.1f}s")
+        compact_msg = msg.replace(": RPM ", " RPM ").replace(" | ", " · ")
+        self.dyno_status_label.setText(f"{compact_msg} · {elapsed_ms / 1000.0:.1f} s")
+        self._refresh_quick_dyno_panel()
 
     def _on_dyno_point(self, payload: dict[str, Any]) -> None:
         self._dyno_point_count += 1
@@ -1785,11 +3531,13 @@ class MainWindow(QMainWindow):
             if torque_val > self._dyno_max_tq_value:
                 self._dyno_max_tq_value = torque_val
                 self._dyno_max_tq_rpm = int(rpm_val)
+        self._refresh_quick_dyno_panel()
 
     def _on_dyno_finished(self, payload: dict[str, Any]) -> None:
         mode = payload.get("mode", "v1")
         results = payload.get("results", [])
         self.last_dyno_payload = self._build_dyno_payload(mode, results)
+        self._dyno_run_state = "Completed"
 
         if mode == "v1" and results:
             summary = (
@@ -1800,9 +3548,6 @@ class MainWindow(QMainWindow):
             if self._dyno_knock_detected:
                 warning_html = (
                     "<br><span style='color:red; font-weight:bold;'>WARNING: ENGINE KNOCK DETECTED - Low Octane for this Compression</span>"
-                )
-                self.dyno_plot.setTitle(
-                    "<span style='color:red; font-weight:bold;'>WARNING: ENGINE KNOCK DETECTED - Low Octane for this Compression</span>"
                 )
                 self.statusBar().showMessage(
                     "WARNING: ENGINE KNOCK DETECTED - Low Octane for this Compression", 5000
@@ -1815,17 +3560,22 @@ class MainWindow(QMainWindow):
 
         self._set_dyno_ui_running(False)
         self._cleanup_dyno_thread()
+        self._refresh_quick_dyno_panel()
 
     def _on_dyno_cancelled(self) -> None:
         self.last_dyno_payload = None
+        self._dyno_run_state = "Cancelled"
         self.analysis_summary_label.setText("Dyno cancelled.")
         self._set_dyno_ui_running(False)
         self._cleanup_dyno_thread()
+        self._refresh_quick_dyno_panel()
 
     def _on_dyno_error(self, message: str) -> None:
         self.last_dyno_payload = None
+        self._dyno_run_state = "Error"
         self._set_dyno_ui_running(False)
         self._cleanup_dyno_thread()
+        self._refresh_quick_dyno_panel()
         QMessageBox.critical(self, "Dyno error", message)
 
     def _cleanup_dyno_thread(self) -> None:
@@ -1920,16 +3670,33 @@ class MainWindow(QMainWindow):
 
         for col, val in enumerate(row_data):
             if col == 9:
-                text = "YES" if knock else "No"
+                text = "Warn" if knock else "Clear"
                 item = QTableWidgetItem(text)
-                color = QColor(200, 0, 0) if knock else QColor(0, 150, 0)
+                color = QColor(184, 47, 47) if knock else QColor(95, 107, 122)
                 item.setForeground(QBrush(color))
                 if knock:
                     font = QFont(item.font())
                     font.setBold(True)
                     item.setFont(font)
             else:
-                item = QTableWidgetItem(f"{val:.2f}" if isinstance(val, (int, float)) else str(val))
+                if isinstance(val, (int, float)):
+                    if col == 0:
+                        text = f"{val:.0f}"
+                    elif col in {1, 2, 3, 4, 5, 7, 8}:
+                        text = f"{val:.1f}"
+                    else:
+                        text = f"{val:.2f}"
+                else:
+                    text = str(val)
+                item = QTableWidgetItem(text)
+                if col in {0, 1, 2, 4}:
+                    font = QFont(item.font())
+                    font.setBold(True)
+                    item.setFont(font)
+                    item.setForeground(QBrush(QColor("#18212f")))
+                else:
+                    item.setForeground(QBrush(QColor("#5f6b7a")))
+            item.setTextAlignment(Qt.AlignCenter)
             self.analysis_table.setItem(row, col, item)
 
         return knock
@@ -2013,6 +3780,8 @@ class MainWindow(QMainWindow):
         QMessageBox.information(self, "Fabrication Report", "\n".join(report_lines))
 
     def run_pro_dyno_sweep(self) -> None:
+        if not self._show_preflight_issues("dyno", mode="v2"):
+            return
         max_rpm = int(self.engine.block.redline_rpm)
         rpm_values = list(range(1000, max_rpm + 500, 500))
         runner = ProDynoV2Runner(self.engine)
@@ -2080,7 +3849,11 @@ class MainWindow(QMainWindow):
             "Exhaust: Primary Diameter (mm)": (self.engine.exhaust, "header_primary_diameter"),
             "Head: Compression Ratio": (self.engine.head, "compression_ratio"),
             "Head: Port Flow (CFM)": (self.engine.head, "port_flow_cfm"),
-            "Turbo: Boost Pressure (Bar)": (
+            "Turbo: Target Boost (kPa)": (
+                self.engine.turbo,
+                "target_boost_kpa",
+            ),
+            "Supercharger: Boost Pressure (Bar)": (
                 self.engine.supercharger,
                 "boost_pressure_bar",
             ),
@@ -2096,6 +3869,8 @@ class MainWindow(QMainWindow):
         return peak_hp
 
     def run_optimization_sweep(self) -> None:
+        if not self._show_preflight_issues("sweep", mode="v1"):
+            return
         mapping = self._parameter_mapping()
         target = self.optimizer_param_combo.currentText()
         if target not in mapping:
@@ -2157,7 +3932,8 @@ class MainWindow(QMainWindow):
             "Intake: Throttle Flow (CFM)": "CFM",
             "Exhaust: Primary Length (mm)": "mm",
             "Exhaust: Primary Diameter (mm)": "mm",
-            "Turbo: Boost Pressure (Bar)": "Bar",
+            "Turbo: Target Boost (kPa)": "kPa",
+            "Supercharger: Boost Pressure (Bar)": "Bar",
         }
         x_label = unit_map.get(target, "Parameter Value")
 

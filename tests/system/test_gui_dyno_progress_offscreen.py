@@ -16,18 +16,23 @@ def test_gui_dyno_progress_offscreen(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     monkeypatch.setenv("QT_QPA_PLATFORM", "offscreen")
 
     from PySide6.QtCore import QEventLoop, QTimer
-    from PySide6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication, QMessageBox
     from gui.main_window import MainWindow
 
     app = QApplication.instance() or QApplication([])
     window = MainWindow()
     window.engine.block.redline_rpm = 1000.0
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args, **kwargs: QMessageBox.Ok)
 
     idx = window.dyno_mode_combo.findData("v2")
     if idx >= 0:
         window.dyno_mode_combo.setCurrentIndex(idx)
 
     window.run_dyno_sweep()
+    if window.dyno_thread is not None and window.dyno_thread.isRunning():
+        assert window.dyno_status_value_label.text() == "Status: Running"
+        assert window.dyno_result_state_label.text() == "Last run: In progress"
+        assert not window.dyno_cancel_btn.isHidden()
 
     loop = QEventLoop()
     start = time.time()

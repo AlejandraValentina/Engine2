@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "optimize_guided.schema.json",
+  "type": "object",
+  "required": ["metadata", "optimization_problem", "baseline", "best_candidate", "candidates", "warnings", "evals_used", "seed", "status"],
+  "properties": {
+    "report_type": {"type": "string"},
+    "report_format_version": {"type": "integer"},
+    "report_family": {"type": "string"},
+    "generated_at_utc": {"type": "string"},
+    "context": {
+      "type": "object",
+      "properties": {
+        "dataset_id": {"type": "string"},
+        "engine_id": {"type": "string"},
+        "preset_path": {"type": "string"},
+        "engine_path": {"type": "string"},
+        "base_engine_path": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "optimization_problem": {"type": "object"},
+    "baseline": {"type": "object"},
+    "best_candidate": {"type": "object"},
+    "candidates": {"type": "array", "items": {"type": "object"}},
+    "warnings": {"type": "array", "items": {"type": "string"}},
+    "evals_used": {"type": "integer"},
+    "seed": {"type": "integer"},
+    "status": {"type": "string"}
+  },
+  "additionalProperties": true
+}

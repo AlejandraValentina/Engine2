@@ -37,3 +37,5 @@ def test_cli_end_to_end_dyno_schema(tmp_path: Path) -> None:
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     schema = json.loads(Path("schemas/dyno.schema.json").read_text(encoding="utf-8"))
     jsonschema.validate(instance=payload, schema=schema)
+    assert payload["observable_semantics"]["ve_actual"]["cross_mode_relation"] == "comparable_not_identical"
+    assert "modeled ve estimate" in payload["observable_semantics"]["ve_actual"]["v1_meaning"].lower()

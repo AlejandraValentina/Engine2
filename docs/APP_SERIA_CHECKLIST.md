@@ -20,7 +20,10 @@ full-scope | `pywavedyn.cli.run_full_scope` → `core.full_network.run_full_scop
 cutlist | `pywavedyn.cli.run_cutlist` → `core.cutlist.generate_cutlist`
 selfcheck | `pywavedyn.cli.run_selfcheck` → `validation_cases/expectations.json`
 benchmark | `pywavedyn.cli.run_benchmark` → `pywavedyn.bench.evaluate`
-bench-import | `pywavedyn.cli.run_bench_import` → `pywavedyn.bench_import.import_bench_csv`
+bench-import | `pywavedyn.cli.run_bench_import` → `pywavedyn.bench_import.write_dataset_package`
+dyno-import | `pywavedyn.cli.run_dyno_import` → `pywavedyn.dyno_data.write_dataset_package`
+dyno-compare | `pywavedyn.cli.run_dyno_compare` → `pywavedyn.bench.evaluate`
+calibrate-staged | `pywavedyn.cli.run_calibrate_staged` → `pywavedyn.staged_calibration.run_staged_calibration`
 
 ## 2) Mapa GUI -> core
 
@@ -51,6 +54,14 @@ Command | Output | Acceptance
 Command | Output | Acceptance
 ---|---|---
 `python -m pytest -q tests/system/test_legacy_compat_golden_regression.py` | tests | compara BMEP/power/torque/VE vs golden (legacy_compat v1)
+
+## 3.2) Validation interpretation
+
+Check | What it covers | What it does not cover
+---|---|---
+`selfcheck` | deterministic expectations, finite outputs, physical-invariant guards, lightweight relational checks | external dyno fidelity
+`benchmark` with in-repo datasets | regression-golden drift detection | real-world accuracy outside those references
+`dyno-import` + `dyno-compare` + calibration | traceable comparison against imported dyno measurements | global solver validity for all operating conditions
 
 ## 4) GUI smoke (offscreen)
 

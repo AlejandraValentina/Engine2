@@ -1,10 +1,69 @@
 {
+  "dataset_id": "v8_like_real",
   "engine_id": "v8_like_real",
-  "source": "real_data",
-  "notes": "PLACEHOLDER: no real data committed. Provide CSV in targets.csv.",
-  "units": {
-    "rpm": "rpm",
-    "torque_nm": "N*m",
-    "power_hp": "hp"
+  "preset_path": "presets/chevy_350.json",
+  "source_type": "real_data",
+  "source_file": "source.csv",
+  "source_sha256": "a7b0586fbc40a19755f4546c53727b6b1393a0eb8a894052eca2fa9ce38f7c0b",
+  "signals_present": [
+    "power_hp",
+    "torque_nm"
+  ],
+  "signal_evidence": {
+    "dataset_signals": [
+      "power_hp",
+      "torque_nm"
+    ],
+    "compared_signals": [],
+    "skipped_signals": [],
+    "groups": {
+      "contract_baseline": {
+        "group_label": "torque/power baseline",
+        "signals_present": [
+          "torque_nm",
+          "power_hp"
+        ],
+        "signals_compared": [],
+        "signals_skipped": [],
+        "status": "available",
+        "note": "Dataset carries the torque/power baseline used by compare and calibration."
+      },
+      "turbo": {
+        "group_label": "turbo",
+        "signals_present": [],
+        "signals_compared": [],
+        "signals_skipped": [],
+        "status": "not_available",
+        "note": "No committed turbo evidence (`boost_kpa`/`map_kpa`) is available in this dataset."
+      },
+      "fueling": {
+        "group_label": "fueling",
+        "signals_present": [],
+        "signals_compared": [],
+        "signals_skipped": [],
+        "status": "not_available",
+        "note": "No committed fueling evidence (`lambda`/`afr`) is available in this dataset."
+      },
+      "thermal": {
+        "group_label": "thermal",
+        "signals_present": [],
+        "signals_compared": [],
+        "signals_skipped": [],
+        "status": "not_available",
+        "note": "No committed thermal evidence (`egt_c`) is available in this dataset."
+      }
+    },
+    "limitations": [
+      "No committed turbo evidence (`boost_kpa`/`map_kpa`) is available in this dataset.",
+      "No committed fueling evidence (`lambda`/`afr`) is available in this dataset.",
+      "No committed thermal evidence (`egt_c`) is available in this dataset."
+    ]
+  },
+  "torque_units": "lbft",
+  "power_units": "hp",
+  "notes": "Imported canonical Chevy 350 real-data package",
+  "error_contract": {
+    "torque_mape_max": 0.15,
+    "power_mape_max": 0.15
   }
 }

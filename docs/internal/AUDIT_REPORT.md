@@ -30,9 +30,9 @@
 - `benchmarks/datasets/k20_like_regression_golden/` (regression_golden)
 - `benchmarks/datasets/v8_like_regression_golden/` (regression_golden)
 - `benchmarks/datasets/f1_like_regression_golden/` (regression_golden)
-- `benchmarks/datasets/k20_like_real/` (real_data placeholder)
-- `benchmarks/datasets/v8_like_real/` (real_data placeholder)
-- `benchmarks/datasets/f1_like_real/` (real_data placeholder)
+- `benchmarks/datasets/k20_like_real/` (real_data canonical package)
+- `benchmarks/datasets/v8_like_real/` (real_data canonical package)
+- `benchmarks/datasets/f1_like_real/` (real_data placeholder legacy)
 
 ## Tests
 - **Unit/contratos (por defecto)**:

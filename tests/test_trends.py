@@ -17,7 +17,7 @@ def test_boost_increases_power(boost_bar, k20_config):
     base_hp = CylinderSimulator(base_engine).run_cycle(6000.0)["mean_power_hp"]
 
     boosted_cfg = copy.deepcopy(k20_config)
-    boosted_cfg["supercharger"] = {"type": "Turbo", "boost_pressure_bar": boost_bar}
+    boosted_cfg["supercharger"] = {"type": "Roots", "boost_pressure_bar": boost_bar}
     boosted_hp = CylinderSimulator(Engine.from_dict(boosted_cfg)).run_cycle(6000.0)["mean_power_hp"]
 
     print(f"Boost {boost_bar} bar -> base_hp={base_hp:.2f} boosted_hp={boosted_hp:.2f}")

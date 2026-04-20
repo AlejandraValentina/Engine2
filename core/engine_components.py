@@ -11,7 +11,33 @@ import math
 from dataclasses import dataclass, field
 from typing import Any, List, Optional
 
+from core.preflight import collect_preflight_issues, collect_preflight_report
 from core.units import cc_to_m3, mm_to_m
+
+
+def _collect_leaf_paths(data: Any, prefix: str = "") -> set[str]:
+    if not isinstance(data, dict):
+        return {prefix} if prefix else set()
+
+    paths: set[str] = set()
+    for key, value in data.items():
+        child = f"{prefix}.{key}" if prefix else str(key)
+        if isinstance(value, dict):
+            nested = _collect_leaf_paths(value, child)
+            if nested:
+                paths.update(nested)
+            else:
+                paths.add(child)
+        else:
+            paths.add(child)
+    return paths
+
+
+def _values_match(lhs: Any, rhs: Any) -> bool:
+    try:
+        return math.isclose(float(lhs), float(rhs), rel_tol=0.0, abs_tol=1e-9)
+    except (TypeError, ValueError):
+        return lhs == rhs
 
 
 def migrate_preset_dict(data: dict) -> dict:
@@ -31,7 +57,97 @@ def migrate_preset_dict(data: dict) -> dict:
     if "camshaft" not in migrated and "cam" in migrated:
         migrated["camshaft"] = migrated["cam"]
 
+    head = migrated.get("head")
+    if isinstance(head, dict):
+        head_payload = dict(head)
+        if "intake_valve_diameter_mm" not in head_payload and "intake_valve_diameter" in head_payload:
+            head_payload["intake_valve_diameter_mm"] = head_payload["intake_valve_diameter"]
+        if "exhaust_valve_diameter_mm" not in head_payload and "exhaust_valve_diameter" in head_payload:
+            head_payload["exhaust_valve_diameter_mm"] = head_payload["exhaust_valve_diameter"]
+        migrated["head"] = head_payload
+
+    sim = migrated.get("simulation_settings")
+    if isinstance(sim, dict) and "ignition_timing_btdc" in sim:
+        combustion = migrated.get("combustion")
+        combustion_payload = dict(combustion) if isinstance(combustion, dict) else {}
+        combustion_payload.setdefault("ignition_advance", sim["ignition_timing_btdc"])
+        migrated["combustion"] = combustion_payload
+
     return migrated
+
+
+def _collect_schema_warnings(raw: dict, migrated: dict) -> list[str]:
+    warnings: list[str] = []
+
+    def warn(message: str) -> None:
+        if message not in warnings:
+            warnings.append(message)
+
+    head_raw = raw.get("head") if isinstance(raw.get("head"), dict) else {}
+    intake_mm = head_raw.get("intake_valve_diameter_mm")
+    intake_legacy = head_raw.get("intake_valve_diameter")
+    if intake_mm is not None and intake_legacy is not None and not _values_match(intake_mm, intake_legacy):
+        warn(
+            "head.intake_valve_diameter_mm and head.intake_valve_diameter were both provided with different values. "
+            "Quick Dyno now treats head.intake_valve_diameter_mm as canonical; remove the legacy alias."
+        )
+
+    exhaust_mm = head_raw.get("exhaust_valve_diameter_mm")
+    exhaust_legacy = head_raw.get("exhaust_valve_diameter")
+    if exhaust_mm is not None and exhaust_legacy is not None and not _values_match(exhaust_mm, exhaust_legacy):
+        warn(
+            "head.exhaust_valve_diameter_mm and head.exhaust_valve_diameter were both provided with different values. "
+            "Quick Dyno now treats head.exhaust_valve_diameter_mm as canonical; remove the legacy alias."
+        )
+
+    sim_raw = raw.get("simulation_settings") if isinstance(raw.get("simulation_settings"), dict) else {}
+    comb_raw = raw.get("combustion") if isinstance(raw.get("combustion"), dict) else {}
+    if "ignition_timing_btdc" in sim_raw:
+        if "ignition_advance" not in comb_raw:
+            warn(
+                "simulation_settings.ignition_timing_btdc was promoted to combustion.ignition_advance for compatibility. "
+                "Define combustion.ignition_advance explicitly because Quick Dyno uses that field."
+            )
+        elif not _values_match(sim_raw.get("ignition_timing_btdc"), comb_raw.get("ignition_advance")):
+            warn(
+                "combustion.ignition_advance and simulation_settings.ignition_timing_btdc differ. "
+                "Quick Dyno uses combustion.ignition_advance; keep the legacy timing field aligned or remove it."
+            )
+
+    fuel_raw = raw.get("fuel") if isinstance(raw.get("fuel"), dict) else {}
+    sim_fuel_raw = sim_raw.get("fuel") if isinstance(sim_raw.get("fuel"), dict) else {}
+    if sim_fuel_raw.get("enabled", False):
+        if (
+            "energy_density" in fuel_raw
+            and "lhv_j_per_kg" in sim_fuel_raw
+            and not _values_match(fuel_raw.get("energy_density"), sim_fuel_raw.get("lhv_j_per_kg"))
+        ):
+            warn(
+                "fuel.energy_density and simulation_settings.fuel.lhv_j_per_kg differ while simulation_settings.fuel.enabled=true. "
+                "Quick Dyno v1 uses the top-level fuel block; v2 uses simulation_settings.fuel."
+            )
+        if (
+            "stoich_afr" in fuel_raw
+            and "afr_stoich" in sim_fuel_raw
+            and not _values_match(fuel_raw.get("stoich_afr"), sim_fuel_raw.get("afr_stoich"))
+        ):
+            warn(
+                "fuel.stoich_afr and simulation_settings.fuel.afr_stoich differ while simulation_settings.fuel.enabled=true. "
+                "Keep them aligned to avoid v1/v2 mismatches."
+            )
+
+    supercharger_raw = raw.get("supercharger") if isinstance(raw.get("supercharger"), dict) else {}
+    turbo_raw = raw.get("turbo") if isinstance(raw.get("turbo"), dict) else {}
+    if str(supercharger_raw.get("type", "NA")).strip().lower() == "turbo":
+        warn(
+            "supercharger.type='Turbo' is deprecated and ambiguous. Use the dedicated turbo block for turbocharged engines."
+        )
+    if turbo_raw.get("enabled") and float(supercharger_raw.get("boost_pressure_bar", 0.0) or 0.0) > 0.0:
+        warn(
+            "turbo.enabled=true while supercharger.boost_pressure_bar is also positive. Quick Dyno will use the turbo block only."
+        )
+
+    return warnings
 
 
 @dataclass
@@ -478,6 +594,7 @@ class Combustion:
     wiebe_a: float = 5.0
     wiebe_m: float = 2.0
     residual_coupling: dict[str, Any] = field(default_factory=dict)
+    adaptive_model: dict[str, Any] = field(default_factory=dict)
     wiebe: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
@@ -499,6 +616,7 @@ class Combustion:
             "wiebe_a": self.wiebe_a,
             "wiebe_m": self.wiebe_m,
             "residual_coupling": self.residual_coupling,
+            "adaptive_model": self.adaptive_model,
         }
         if self.wiebe:
             payload["wiebe"] = self.wiebe
@@ -524,6 +642,7 @@ class Combustion:
             wiebe_a=data.get("wiebe_a", 5.0),
             wiebe_m=data.get("wiebe_m", 2.0),
             residual_coupling=data.get("residual_coupling", {}),
+            adaptive_model=data.get("adaptive_model", {}),
             wiebe=data.get("wiebe", {}),
         )
 
@@ -780,6 +899,7 @@ class Turbo:
     wastegate_gain: float = 0.5
     max_iters: int = 8
     intercooler_efficiency: float = 0.6
+    response_model: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -794,6 +914,7 @@ class Turbo:
             "wastegate_gain": self.wastegate_gain,
             "max_iters": self.max_iters,
             "intercooler_efficiency": self.intercooler_efficiency,
+            "response_model": self.response_model,
         }
 
     @classmethod
@@ -810,6 +931,7 @@ class Turbo:
             wastegate_gain=float(data.get("wastegate_gain", 0.5)),
             max_iters=int(data.get("max_iters", 8)),
             intercooler_efficiency=float(data.get("intercooler_efficiency", 0.6)),
+            response_model=data.get("response_model", {}),
         )
 
 
@@ -829,6 +951,8 @@ class Engine:
     friction: Friction = field(default_factory=Friction)
     fuel: Fuel = field(default_factory=Fuel)
     combustion: Combustion = field(default_factory=Combustion)
+    provided_fields: set[str] | None = field(default=None, repr=False, compare=False)
+    schema_warnings: list[str] = field(default_factory=list, repr=False, compare=False)
 
     def to_dict(self) -> dict:
         return {
@@ -847,6 +971,71 @@ class Engine:
             "fuel": self.fuel.to_dict(),
             "combustion": self.combustion.to_dict(),
         }
+
+    def induction_classification(self) -> str:
+        """Return the canonical UI/validation induction classification.
+
+        Priority is intentionally exact:
+        1. turbo.enabled => "Turbo"
+        2. turbo disabled and supercharger.type != "NA" => "Supercharger"
+        3. otherwise => "NA"
+        """
+
+        if bool(getattr(self.turbo, "enabled", False)):
+            return "Turbo"
+        supercharger_type = str(getattr(self.supercharger, "type", "NA") or "NA")
+        if supercharger_type != "NA":
+            return "Supercharger"
+        return "NA"
+
+    def induction_mode_name(self) -> str:
+        classification = self.induction_classification()
+        if classification == "Turbo":
+            return "Turbo"
+        if classification == "Supercharger":
+            supercharger_type = str(getattr(self.supercharger, "type", "Supercharger") or "Supercharger").strip()
+            if not supercharger_type or supercharger_type == "NA":
+                return "Supercharger"
+            return supercharger_type
+        return "Naturally Aspirated"
+
+    def induction_summary(self) -> str:
+        classification = self.induction_classification()
+        if classification == "Turbo":
+            target_boost_kpa = getattr(self.turbo, "target_boost_kpa", None)
+            target_pr = getattr(self.turbo, "target_pr", None)
+            if target_boost_kpa is not None:
+                return f"Turbo @ {float(target_boost_kpa):.0f} kPa target"
+            if target_pr is not None:
+                return f"Turbo @ PR {float(target_pr):.2f}"
+            return "Turbo"
+        if classification == "Supercharger":
+            supercharger_name = self.induction_mode_name()
+            boost_bar = float(getattr(self.supercharger, "boost_pressure_bar", 0.0) or 0.0)
+            if boost_bar > 0.0:
+                return f"{supercharger_name} @ {boost_bar:.2f} bar"
+            return supercharger_name
+        return "Naturally Aspirated"
+
+    def induction_tree_label(self) -> str:
+        return f"Induction System ({self.induction_mode_name()})"
+
+    def set_induction_mode(self, mode: str) -> None:
+        normalized = str(mode or "NA").strip().lower()
+        if normalized in {"na", "naturally aspirated", "naturally_aspirated"}:
+            self.turbo.enabled = False
+            self.supercharger.type = "NA"
+            self.supercharger.boost_pressure_bar = 0.0
+            return
+
+        if normalized == "turbo":
+            self.turbo.enabled = True
+            self.supercharger.type = "NA"
+            self.supercharger.boost_pressure_bar = 0.0
+            return
+
+        self.turbo.enabled = False
+        self.supercharger.type = str(mode).strip() or "Roots"
 
     @classmethod
     def from_dict(cls, data: dict) -> "Engine":
@@ -867,6 +1056,8 @@ class Engine:
             friction=Friction.from_dict(migrated.get("friction", {})),
             fuel=Fuel.from_dict(migrated.get("fuel", {})),
             combustion=Combustion.from_dict(migrated.get("combustion", {})),
+            provided_fields=_collect_leaf_paths(migrated),
+            schema_warnings=_collect_schema_warnings(data if isinstance(data, dict) else {}, migrated),
         )
 
     def save_to_file(self, filename: str) -> None:
@@ -908,8 +1099,55 @@ class Engine:
                 _fail("throttle.area_exponent", "Throttle area exponent must be positive")
         if getattr(self.combustion, "thermal_efficiency", 0.5) <= 0.0:
             _fail("combustion.thermal_efficiency", "Combustion thermal efficiency must be positive")
+        adaptive_model = getattr(self.combustion, "adaptive_model", {}) or {}
+        if adaptive_model:
+            if not isinstance(adaptive_model, dict):
+                _fail("combustion.adaptive_model", "Combustion adaptive_model must be an object")
+            else:
+                duration_min = float(adaptive_model.get("duration_min_deg", 10.0))
+                duration_max = float(adaptive_model.get("duration_max_deg", 120.0))
+                if duration_min <= 0.0:
+                    _fail("combustion.adaptive_model.duration_min_deg", "Adaptive combustion duration_min_deg must be positive")
+                if duration_max < duration_min:
+                    _fail(
+                        "combustion.adaptive_model.duration_max_deg",
+                        "Adaptive combustion duration_max_deg must be >= duration_min_deg",
+                    )
+                ca50_min = float(adaptive_model.get("ca50_min_deg_atdc", -5.0))
+                ca50_max = float(adaptive_model.get("ca50_max_deg_atdc", 40.0))
+                if ca50_max < ca50_min:
+                    _fail(
+                        "combustion.adaptive_model.ca50_max_deg_atdc",
+                        "Adaptive combustion ca50_max_deg_atdc must be >= ca50_min_deg_atdc",
+                    )
+                duration_scale = float(adaptive_model.get("duration_scale", 1.0))
+                if duration_scale <= 0.0:
+                    _fail("combustion.adaptive_model.duration_scale", "Adaptive combustion duration_scale must be positive")
         if getattr(self.fuel, "energy_density", 0.0) <= 0.0:
             _fail("fuel.energy_density", "Fuel energy density must be positive")
+        turbo = getattr(self, "turbo", None)
+        if turbo is not None:
+            if float(getattr(turbo, "wastegate_gain", 0.0)) <= 0.0:
+                _fail("turbo.wastegate_gain", "Turbo wastegate_gain must be positive")
+            if int(getattr(turbo, "max_iters", 0)) < 1:
+                _fail("turbo.max_iters", "Turbo max_iters must be >= 1")
+            if not (0.0 <= float(getattr(turbo, "intercooler_efficiency", 0.0)) <= 1.0):
+                _fail("turbo.intercooler_efficiency", "Turbo intercooler_efficiency must be within [0, 1]")
+            response_model = getattr(turbo, "response_model", {}) or {}
+            if response_model:
+                if not isinstance(response_model, dict):
+                    _fail("turbo.response_model", "Turbo response_model must be an object")
+                else:
+                    if bool(response_model.get("enabled", False)):
+                        spool_width_rpm = float(response_model.get("spool_width_rpm", 800.0))
+                        flow_width_kg_s = float(response_model.get("flow_width_kg_s", 0.04))
+                        min_response = float(response_model.get("min_response", 0.25))
+                        if spool_width_rpm <= 0.0:
+                            _fail("turbo.response_model.spool_width_rpm", "Turbo response_model spool_width_rpm must be positive")
+                        if flow_width_kg_s <= 0.0:
+                            _fail("turbo.response_model.flow_width_kg_s", "Turbo response_model flow_width_kg_s must be positive")
+                        if not (0.0 < min_response <= 1.0):
+                            _fail("turbo.response_model.min_response", "Turbo response_model min_response must be within (0, 1]")
         fuel_cfg = getattr(self.simulation_settings, "fuel", None)
         if fuel_cfg is not None and getattr(fuel_cfg, "enabled", False):
             if getattr(fuel_cfg, "mode", "lambda") not in {"lambda", "afr"}:
@@ -948,9 +1186,33 @@ class Engine:
 
         return [msg for _path, msg in sorted(issues, key=lambda item: item[0])]
 
+    def was_field_explicitly_provided(self, path: str) -> bool:
+        return self.provided_fields is not None and path in self.provided_fields
+
     def validate(self, strict: bool = False) -> bool:
         """Validate basic physical ranges; raise if strict and invalid."""
         issues = self.validate_with_issues()
+        if issues and strict:
+            raise ValueError("; ".join(issues))
+        return not issues
+
+    def preflight_validate_with_issues(self, operation: str = "dyno", mode: str = "v1") -> list[str]:
+        issues = list(self.validate_with_issues())
+        for issue in collect_preflight_issues(self, operation=operation, mode=mode):
+            if issue not in issues:
+                issues.append(issue)
+        return issues
+
+    def preflight_review(self, operation: str = "dyno", mode: str = "v1") -> dict[str, list[str]]:
+        errors = list(self.validate_with_issues())
+        report = collect_preflight_report(self, operation=operation, mode=mode)
+        for issue in report["errors"]:
+            if issue not in errors:
+                errors.append(issue)
+        return {"errors": errors, "warnings": report["warnings"]}
+
+    def preflight_validate(self, operation: str = "dyno", mode: str = "v1", strict: bool = False) -> bool:
+        issues = self.preflight_review(operation=operation, mode=mode)["errors"]
         if issues and strict:
             raise ValueError("; ".join(issues))
         return not issues

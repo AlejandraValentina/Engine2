@@ -28,9 +28,27 @@ from core.simulator import Engine1DSolver
 from core.intake_scope import run_intake_scope as run_intake_scope_sim
 from core.map_runner import run_partload_map
 from core.auto_calibration import calibrate_engine, calibrate_engine_diagnostics
-from core.optimize_runner import load_target_points, optimize_runner_length
+from core.optimize_runner import load_target_points, optimize_guided, optimize_runner_length
 from pywavedyn.bench import evaluate_with_engine
-from pywavedyn.bench_import import import_csv as import_bench_csv, write_targets as write_bench_targets
+from pywavedyn.bench_import import parse_mapping_text, parse_units_text, write_dataset_package
+from pywavedyn.calibrate import run_reproducible_calibration
+from pywavedyn.analysis_contract import (
+    OBSERVABLE_VE_ACTUAL,
+    REPORT_TYPE_COMPARE,
+    REPORT_TYPE_OPTIMIZE_GUIDED,
+    REPORT_TYPE_SENSITIVITY_LOCAL,
+    REPORT_TYPE_STAGED_CALIBRATION,
+    apply_analysis_envelope,
+    apply_observable_semantics,
+    build_report_context,
+    dataset_context_from_dir,
+)
+from pywavedyn.combustion_mode import apply_adaptive_combustion_mode
+from pywavedyn.dyno_data import write_dataset_package as write_flexible_dataset_package
+from pywavedyn.engineering_diagnostics import diagnose_dyno_output
+from pywavedyn.staged_calibration import run_staged_calibration
+from pywavedyn.ab_sensitivity import run_ab_compare, run_local_sensitivity
+from pywavedyn.validation_compare import apply_turbo_incremental_mode, run_validation_batch
 from core.full_network import run_full_scope as run_full_scope_sim
 from core.units import cc_to_m3
 from core.wave_utils import build_exhaust_coupling, compute_pressure_matrix
@@ -124,6 +142,43 @@ def _parse_float_list(value: str) -> list[float]:
     return [float(p) for p in parts]
 
 
+def _parse_path_list(values: Sequence[Path] | Sequence[str]) -> list[Path]:
+    return [Path(value) for value in values]
+
+
+def _parse_float_mapping_text(value: str) -> dict[str, float]:
+    if not value:
+        return {}
+    mapping: dict[str, float] = {}
+    for item in str(value).split(","):
+        chunk = item.strip()
+        if not chunk:
+            continue
+        if "=" not in chunk:
+            raise ValueError(f"mapping entry must be key=value, got '{chunk}'")
+        key, raw = chunk.split("=", 1)
+        mapping[key.strip()] = float(raw.strip())
+    return mapping
+
+
+def _parse_bounds_map_text(value: str) -> dict[str, tuple[float, float]]:
+    if not value:
+        return {}
+    mapping: dict[str, tuple[float, float]] = {}
+    for item in str(value).split(","):
+        chunk = item.strip()
+        if not chunk:
+            continue
+        if "=" not in chunk:
+            raise ValueError(f"bounds entry must be param=low:high, got '{chunk}'")
+        key, raw = chunk.split("=", 1)
+        if ":" not in raw:
+            raise ValueError(f"bounds entry must be param=low:high, got '{chunk}'")
+        low_s, high_s = raw.split(":", 1)
+        mapping[key.strip()] = (float(low_s.strip()), float(high_s.strip()))
+    return mapping
+
+
 def _parse_numeric_range(value: str, *, default_step: float = 1.0) -> list[float]:
     if not value:
         return []
@@ -166,6 +221,25 @@ def _add_legacy_args(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_adaptive_combustion_arg(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--adaptive-combustion",
+        choices=["as_is", "on", "off"],
+        default="as_is",
+        help="Override combustion.adaptive_model.enabled for this run without editing the preset.",
+    )
+
+
+def _add_turbo_incremental_arg(parser: argparse.ArgumentParser, *, dest: str = "turbo_incremental") -> None:
+    parser.add_argument(
+        f"--{dest.replace('_', '-')}",
+        dest=dest,
+        choices=["as_is", "on", "off"],
+        default="as_is",
+        help="Override turbo.response_model.enabled for this run without editing the preset.",
+    )
+
+
 def _runner_length_grid(base_mm: float, points: int, span_mm: float) -> list[float]:
     points = max(int(points), 1)
     span_mm = max(float(span_mm), 0.0)
@@ -196,6 +270,14 @@ def _metadata(
     if legacy_overrides:
         payload["legacy_overrides"] = legacy_overrides
     return payload
+
+
+def _run_preflight(engine: Engine, *, operation: str, mode: str = "v1") -> None:
+    review = engine.preflight_review(operation=operation, mode=mode)
+    if not review["errors"]:
+        return
+    issue_text = "\n".join(f"- {issue}" for issue in review["errors"])
+    raise ValueError(f"Preflight validation failed for {operation}:\n{issue_text}")
 
 
 def _build_wave_solver(engine: Engine, target_dx: float | None = None) -> Engine1DSolver:
@@ -384,6 +466,7 @@ def run_dyno(
     legacy_compat: str | None = None,
     auto_legacy_compat: bool = False,
     knock_report: Path | None = None,
+    adaptive_combustion: str = "as_is",
 ) -> None:
     engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
         engine_path,
@@ -393,6 +476,12 @@ def run_dyno(
     if turbo_path is not None:
         turbo_raw = json.loads(turbo_path.read_text(encoding="utf-8"))
         engine.turbo = engine.turbo.from_dict(turbo_raw)
+    engine, raw, combustion_summary = apply_adaptive_combustion_mode(
+        engine,
+        raw,
+        mode=adaptive_combustion,
+    )
+    _run_preflight(engine, operation="dyno", mode=mode)
     rpm_values = _parse_rpm_range(rpm_spec)
     if mode == "v1":
         results = _dyno_results_v1(engine, rpm_values)
@@ -430,7 +519,10 @@ def run_dyno(
             "drop_invalid": bool(drop_invalid),
             "rpm_start_safe": bool(rpm_start_safe),
         }
+    metadata["combustion"] = combustion_summary
     output = {"metadata": metadata, "results": results}
+    apply_observable_semantics(output, OBSERVABLE_VE_ACTUAL)
+    output["diagnostics"] = diagnose_dyno_output(output, engine=engine)
     _write_json(out_path, output)
     _warn_knock_penalties(results)
 
@@ -461,6 +553,7 @@ def run_scope(
         legacy_compat=legacy_compat,
         auto_legacy_compat=auto_legacy_compat,
     )
+    _run_preflight(engine, operation="scope", mode="v1")
     simulator = CylinderSimulator(engine)
     solver = _build_wave_solver(engine, target_dx=target_dx)
 
@@ -698,6 +791,7 @@ def run_sweep(
         legacy_compat=legacy_compat,
         auto_legacy_compat=auto_legacy_compat,
     )
+    _run_preflight(engine, operation="sweep", mode="v1")
     lengths = runner_lengths or _runner_length_grid(
         base_mm=float(engine.intake.runner_length),
         points=points,
@@ -755,6 +849,7 @@ def run_map(
         legacy_compat=legacy_compat,
         auto_legacy_compat=auto_legacy_compat,
     )
+    _run_preflight(engine, operation="map", mode="v1")
     points = run_partload_map(engine, rpm_grid, throttle_grid)
     output = {
         "metadata": _metadata(
@@ -770,6 +865,7 @@ def run_map(
         },
         "points": [p.to_dict() for p in points],
     }
+    apply_observable_semantics(output, OBSERVABLE_VE_ACTUAL)
     _write_json(out_path, output)
 
 
@@ -794,12 +890,12 @@ def run_calibrate(
         legacy_compat=legacy_compat,
         auto_legacy_compat=auto_legacy_compat,
     )
-    target = json.loads(target_path.read_text(encoding="utf-8"))
-    points = target.get("points") or target.get("targets") or []
-    if not isinstance(points, list) or not points:
-        raise ValueError("target file must include non-empty 'points' list")
 
     if diagnostics:
+        target = json.loads(target_path.read_text(encoding="utf-8"))
+        points = target.get("points") or target.get("targets") or []
+        if not isinstance(points, list) or not points:
+            raise ValueError("target file must include non-empty 'points' list")
         report = calibrate_engine_diagnostics(
             engine,
             points,
@@ -829,7 +925,18 @@ def run_calibrate(
             "status": report["status"],
         }
     else:
-        report = calibrate_engine(engine, points, params, max_evals)
+        report, calibrated_raw = run_reproducible_calibration(
+            engine,
+            raw,
+            base_engine_path=engine_path,
+            target_path=target_path,
+            params=params,
+            max_evals=max_evals,
+        )
+        calibrated_engine_path = out_path.with_name("calibrated_engine.json")
+        calibrated_engine_path.parent.mkdir(parents=True, exist_ok=True)
+        calibrated_engine_path.write_text(json.dumps(calibrated_raw, indent=2), encoding="utf-8")
+        report["artifacts"]["calibrated_engine"] = str(calibrated_engine_path)
         output = {
             "metadata": _metadata(
                 engine,
@@ -838,7 +945,7 @@ def run_calibrate(
                 legacy_compat=legacy_profile,
                 legacy_overrides=legacy_overrides,
             ),
-            **report.to_dict(),
+            **report,
         }
     _write_json(out_path, output)
 
@@ -922,6 +1029,72 @@ def run_optimize(
     _write_json(out_path, output)
 
 
+def run_optimize_guided(
+    engine_path: Path,
+    out_path: Path,
+    *,
+    objective: str,
+    params: list[str],
+    seed: int,
+    max_evals: int,
+    target_path: Path | None = None,
+    rpm_grid: list[float] | None = None,
+    bounds_map: dict[str, tuple[float, float]] | None = None,
+    max_signal_mape: dict[str, float] | None = None,
+    min_peak_power_hp: float | None = None,
+    min_mean_torque_nm: float | None = None,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
+) -> None:
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
+    target_points = load_target_points(str(target_path)) if target_path is not None else None
+    constraints: dict[str, object] = {}
+    if max_signal_mape:
+        constraints["max_signal_mape"] = dict(max_signal_mape)
+    if min_peak_power_hp is not None:
+        constraints["min_peak_power_hp"] = float(min_peak_power_hp)
+    if min_mean_torque_nm is not None:
+        constraints["min_mean_torque_nm"] = float(min_mean_torque_nm)
+    report = optimize_guided(
+        engine,
+        objective=objective,
+        params=params,
+        seed=seed,
+        max_evals=max_evals,
+        target_points=target_points,
+        rpm_grid=rpm_grid,
+        param_bounds=bounds_map or {},
+        constraints=constraints,
+    )
+    output = {
+        "metadata": _metadata(
+            engine,
+            raw,
+            coupling_mode="optimize_guided",
+            legacy_compat=legacy_profile,
+            legacy_overrides=legacy_overrides,
+        ),
+        **report.to_dict(),
+    }
+    optimize_context = build_report_context(engine_path=engine_path)
+    if target_path is not None and target_path.is_dir():
+        optimize_context = build_report_context(
+            **optimize_context,
+            **dataset_context_from_dir(target_path),
+        )
+    apply_analysis_envelope(
+        output,
+        report_type=REPORT_TYPE_OPTIMIZE_GUIDED,
+        context=optimize_context,
+        generated_at_utc=str(output.get("metadata", {}).get("timestamp", "")) or None,
+    )
+    _write_json(out_path, output)
+
+
 def run_full_scope(
     engine_path: Path,
     duration: float,
@@ -939,6 +1112,7 @@ def run_full_scope(
         legacy_compat=legacy_compat,
         auto_legacy_compat=auto_legacy_compat,
     )
+    _run_preflight(engine, operation="full_scope", mode="v2")
     result = run_full_scope_sim(
         engine,
         duration_s=float(duration),
@@ -968,6 +1142,7 @@ def run_full_scope(
             "runner_stats": result.runner_stats,
         },
     }
+    apply_observable_semantics(output, OBSERVABLE_VE_ACTUAL)
     _write_json(out_path, output)
 
 
@@ -978,11 +1153,17 @@ def run_benchmark(
     *,
     legacy_compat: str | None = None,
     auto_legacy_compat: bool = False,
+    adaptive_combustion: str = "as_is",
 ) -> None:
     engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
         engine_path,
         legacy_compat=legacy_compat,
         auto_legacy_compat=auto_legacy_compat,
+    )
+    engine, raw, combustion_summary = apply_adaptive_combustion_mode(
+        engine,
+        raw,
+        mode=adaptive_combustion,
     )
     report = evaluate_with_engine(engine, raw, dataset_dir)
     report.metadata["version"] = _git_version()
@@ -990,7 +1171,14 @@ def run_benchmark(
         report.metadata["legacy_compat"] = legacy_profile
     if legacy_overrides:
         report.metadata["legacy_overrides"] = legacy_overrides
+    report.metadata["combustion"] = combustion_summary
     output = report.to_dict()
+    apply_analysis_envelope(
+        output,
+        report_type=REPORT_TYPE_COMPARE,
+        context=build_report_context(engine_path=engine_path),
+        generated_at_utc=str(output.get("metadata", {}).get("timestamp", "")) or None,
+    )
     _write_json(out_path, output)
 
 
@@ -998,17 +1186,138 @@ def run_bench_import(
     csv_path: Path,
     out_path: Path,
     *,
+    dataset_id: str,
     engine_id: str,
+    preset_path: str,
     torque_units: str,
     power_units: str,
-) -> None:
-    payload = import_bench_csv(
+    notes: str,
+    torque_mape_max: float,
+    power_mape_max: float,
+    ) -> None:
+    write_dataset_package(
         csv_path,
+        out_path,
+        dataset_id=dataset_id,
+        engine_id=engine_id,
+        preset_path=preset_path,
         torque_units=torque_units,
         power_units=power_units,
-        engine_id=engine_id,
+        notes=notes,
+        error_contract={
+            "torque_mape_max": float(torque_mape_max),
+            "power_mape_max": float(power_mape_max),
+        },
     )
-    write_bench_targets(payload, out_path)
+
+
+def run_dyno_import(
+    input_path: Path,
+    out_path: Path,
+    *,
+    dataset_id: str,
+    engine_id: str,
+    preset_path: str,
+    source_format: str,
+    mapping: str,
+    units: str,
+    notes: str,
+    torque_mape_max: float,
+    power_mape_max: float,
+    afr_stoich: float,
+) -> None:
+    write_flexible_dataset_package(
+        input_path,
+        out_path,
+        dataset_id=dataset_id,
+        engine_id=engine_id,
+        preset_path=preset_path,
+        notes=notes,
+        error_contract={
+            "torque_mape_max": float(torque_mape_max),
+            "power_mape_max": float(power_mape_max),
+        },
+        source_format=source_format,
+        mapping=parse_mapping_text(mapping),
+        units=parse_units_text(units),
+        afr_stoich=float(afr_stoich),
+    )
+
+
+def run_dyno_compare(
+    engine_path: Path,
+    dataset_dir: Path,
+    out_path: Path,
+    *,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
+    adaptive_combustion: str = "as_is",
+) -> None:
+    run_benchmark(
+        engine_path,
+        dataset_dir,
+        out_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+        adaptive_combustion=adaptive_combustion,
+    )
+
+
+def run_calibrate_staged(
+    engine_path: Path,
+    dataset_dir: Path,
+    out_path: Path,
+    *,
+    max_evals_per_stage: int,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
+    adaptive_combustion: str = "as_is",
+) -> None:
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
+    engine, raw, combustion_summary = apply_adaptive_combustion_mode(
+        engine,
+        raw,
+        mode=adaptive_combustion,
+    )
+    report, calibrated_raw, bench_before, bench_after = run_staged_calibration(
+        engine,
+        raw,
+        base_engine_path=engine_path,
+        dataset_dir=dataset_dir,
+        max_evals_per_stage=max_evals_per_stage,
+    )
+    calibrated_engine_path = out_path.with_name("calibrated_engine.json")
+    benchmark_before_path = out_path.with_name("benchmark_before.json")
+    benchmark_after_path = out_path.with_name("benchmark_after.json")
+    calibrated_engine_path.parent.mkdir(parents=True, exist_ok=True)
+    calibrated_engine_path.write_text(json.dumps(calibrated_raw, indent=2), encoding="utf-8")
+    benchmark_before_path.write_text(json.dumps(bench_before, indent=2), encoding="utf-8")
+    benchmark_after_path.write_text(json.dumps(bench_after, indent=2), encoding="utf-8")
+    report["artifacts"]["calibrated_engine"] = str(calibrated_engine_path)
+    report["artifacts"]["benchmark_before"] = str(benchmark_before_path)
+    report["artifacts"]["benchmark_after"] = str(benchmark_after_path)
+    output = {
+        "metadata": _metadata(
+            Engine.from_dict(calibrated_raw),
+            raw,
+            coupling_mode="staged_calibration",
+            legacy_compat=legacy_profile,
+            legacy_overrides=legacy_overrides,
+        ),
+        **report,
+    }
+    output["metadata"]["combustion"] = combustion_summary
+    output["combustion_requested"] = combustion_summary
+    apply_analysis_envelope(
+        output,
+        report_type=REPORT_TYPE_STAGED_CALIBRATION,
+        generated_at_utc=str(output.get("metadata", {}).get("timestamp", "")) or None,
+    )
+    _write_json(out_path, output)
 
 
 def _cutlist_text_path(out_path: Path) -> Path:
@@ -1094,6 +1403,142 @@ def run_cutlist(
     text_path.write_text("\n".join(text_lines) + "\n", encoding="utf-8")
 
 
+def run_validate_features(
+    engine_path: Path,
+    dataset_dirs: list[Path],
+    out_path: Path,
+    *,
+    include_adaptive_toggle: bool,
+    include_turbo_toggle: bool,
+    include_staged_calibration: bool,
+    max_evals_per_stage: int,
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
+) -> None:
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
+    payload = run_validation_batch(
+        engine,
+        raw,
+        base_engine_path=engine_path,
+        dataset_dirs=dataset_dirs,
+        include_adaptive_toggle=include_adaptive_toggle,
+        include_turbo_toggle=include_turbo_toggle,
+        include_staged_calibration=include_staged_calibration,
+        max_evals_per_stage=max_evals_per_stage,
+    )
+    payload["metadata"]["version"] = _git_version()
+    if legacy_profile:
+        payload["metadata"]["legacy_compat"] = legacy_profile
+    if legacy_overrides:
+        payload["metadata"]["legacy_overrides"] = legacy_overrides
+    _write_json(out_path, payload)
+
+
+def run_compare_ab(
+    engine_a_path: Path,
+    engine_b_path: Path,
+    dataset_dir: Path,
+    out_path: Path,
+    *,
+    label_a: str,
+    label_b: str,
+    adaptive_combustion_a: str = "as_is",
+    adaptive_combustion_b: str = "as_is",
+    turbo_incremental_a: str = "as_is",
+    turbo_incremental_b: str = "as_is",
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
+) -> None:
+    engine_a, raw_a, legacy_profile_a, legacy_overrides_a = _load_engine_with_legacy(
+        engine_a_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
+    engine_b, raw_b, legacy_profile_b, legacy_overrides_b = _load_engine_with_legacy(
+        engine_b_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
+    engine_a, raw_a, combustion_a = apply_adaptive_combustion_mode(engine_a, raw_a, mode=adaptive_combustion_a)
+    engine_b, raw_b, combustion_b = apply_adaptive_combustion_mode(engine_b, raw_b, mode=adaptive_combustion_b)
+    engine_a, raw_a, turbo_a = apply_turbo_incremental_mode(engine_a, raw_a, mode=turbo_incremental_a)
+    engine_b, raw_b, turbo_b = apply_turbo_incremental_mode(engine_b, raw_b, mode=turbo_incremental_b)
+    payload = run_ab_compare(
+        engine_a,
+        raw_a,
+        engine_b,
+        raw_b,
+        dataset_dir=dataset_dir,
+        label_a=label_a,
+        label_b=label_b,
+    )
+    payload["metadata"] = {
+        "version": _git_version(),
+        "engine_a_path": str(engine_a_path),
+        "engine_b_path": str(engine_b_path),
+        "legacy_compat_a": legacy_profile_a,
+        "legacy_compat_b": legacy_profile_b,
+        "legacy_overrides_a": legacy_overrides_a,
+        "legacy_overrides_b": legacy_overrides_b,
+        "config_a": {
+            "combustion": combustion_a,
+            "turbo_incremental": turbo_a,
+        },
+        "config_b": {
+            "combustion": combustion_b,
+            "turbo_incremental": turbo_b,
+        },
+    }
+    _write_json(out_path, payload)
+
+
+def run_sensitivity_local(
+    engine_path: Path,
+    dataset_dir: Path,
+    out_path: Path,
+    *,
+    params: list[str],
+    adaptive_combustion: str = "as_is",
+    turbo_incremental: str = "as_is",
+    legacy_compat: str | None = None,
+    auto_legacy_compat: bool = False,
+) -> None:
+    engine, raw, legacy_profile, legacy_overrides = _load_engine_with_legacy(
+        engine_path,
+        legacy_compat=legacy_compat,
+        auto_legacy_compat=auto_legacy_compat,
+    )
+    engine, raw, combustion_summary = apply_adaptive_combustion_mode(engine, raw, mode=adaptive_combustion)
+    engine, raw, turbo_summary = apply_turbo_incremental_mode(engine, raw, mode=turbo_incremental)
+    payload = run_local_sensitivity(
+        engine,
+        raw,
+        dataset_dir=dataset_dir,
+        params=params,
+    )
+    payload["metadata"] = {
+        "version": _git_version(),
+        "engine_path": str(engine_path),
+        "params_requested": params,
+        "legacy_compat": legacy_profile,
+        "legacy_overrides": legacy_overrides,
+        "config": {
+            "combustion": combustion_summary,
+            "turbo_incremental": turbo_summary,
+        },
+    }
+    apply_analysis_envelope(
+        payload,
+        report_type=REPORT_TYPE_SENSITIVITY_LOCAL,
+        context=build_report_context(engine_path=engine_path),
+    )
+    _write_json(out_path, payload)
+
+
 def _read_expectations(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -1141,6 +1586,28 @@ def _write_json(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _cycle_physical_invariants(engine: Engine, rpm: float, cycle: dict) -> dict:
+    torque_nm = float(cycle["mean_torque_nm"])
+    power_hp = float(cycle["mean_power_hp"])
+    bmep_bar = float(cycle["bmep_bar"])
+    ve_actual = float(cycle["ve_actual"])
+    omega = float(rpm) * 2.0 * math.pi / 60.0
+    expected_power_hp = torque_nm * omega / 745.7
+    displacement_m3 = max(cc_to_m3(engine.block.displacement_cc), 1e-12)
+    expected_bmep_bar = torque_nm * 4.0 * math.pi / displacement_m3 / 100000.0
+    power_rel_error = abs(power_hp - expected_power_hp) / max(abs(expected_power_hp), 1e-9)
+    bmep_rel_error = abs(bmep_bar - expected_bmep_bar) / max(abs(expected_bmep_bar), 1e-9)
+    return {
+        "power_from_torque_consistent": bool(power_rel_error <= 1e-6),
+        "bmep_from_torque_consistent": bool(bmep_rel_error <= 1e-6),
+        "positive_absolute_pressure": bool(float(np.min(cycle["pressure"])) > 0.0),
+        "positive_absolute_temperature": bool(float(np.min(cycle["temperature"])) > 0.0),
+        "ve_actual_in_bounds": bool(0.0 <= ve_actual <= 1.5),
+        "power_rel_error": float(power_rel_error),
+        "bmep_rel_error": float(bmep_rel_error),
+    }
+
+
 def run_selfcheck(expectations_path: Path, out_path: Path) -> int:
     expectations = _read_expectations(expectations_path)
     cases = expectations.get("cases", [])
@@ -1172,6 +1639,22 @@ def run_selfcheck(expectations_path: Path, out_path: Path) -> int:
                 ve_val = float(cycle.get("ve_actual", 0.0))
                 if not (0.0 <= ve_val <= 1.5):
                     issues.append("ve out of bounds")
+            if dyno_results:
+                invariants = []
+                for rpm, cycle in zip(dyno_rpms, dyno_results):
+                    entry = {"rpm": float(rpm), **_cycle_physical_invariants(engine, float(rpm), cycle)}
+                    invariants.append(entry)
+                    if not entry["power_from_torque_consistent"]:
+                        issues.append(f"power/torque invariant failed at rpm={float(rpm):.1f}")
+                    if not entry["bmep_from_torque_consistent"]:
+                        issues.append(f"bmep/torque invariant failed at rpm={float(rpm):.1f}")
+                    if not entry["positive_absolute_pressure"]:
+                        issues.append(f"pressure invariant failed at rpm={float(rpm):.1f}")
+                    if not entry["positive_absolute_temperature"]:
+                        issues.append(f"temperature invariant failed at rpm={float(rpm):.1f}")
+                    if not entry["ve_actual_in_bounds"]:
+                        issues.append(f"ve invariant failed at rpm={float(rpm):.1f}")
+                case_entry["checks"]["physical_invariants"] = invariants
 
             power_min = case.get("power_hp_min", [])
             power_max = case.get("power_hp_max", [])
@@ -1346,6 +1829,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Write knock report JSON (opt-in; requires residual coupling).",
     )
     _add_legacy_args(dyno)
+    _add_adaptive_combustion_arg(dyno)
     dyno.add_argument("--out", required=True, type=Path)
 
     scope = sub.add_parser("scope", help="Run a 1D wave scope")
@@ -1364,12 +1848,39 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_legacy_args(intake_scope)
     intake_scope.add_argument("--out", required=True, type=Path)
 
-    bench_import = sub.add_parser("bench-import", help="Import CSV data into benchmark targets")
+    bench_import = sub.add_parser("bench-import", help="Import canonical real-data CSV into benchmark dataset package")
     bench_import.add_argument("--csv", required=True, type=Path)
-    bench_import.add_argument("--out", required=True, type=Path)
-    bench_import.add_argument("--engine-id", default="unknown")
+    bench_import.add_argument("--out", required=True, type=Path, help="Output dataset directory")
+    bench_import.add_argument("--dataset-id", required=True)
+    bench_import.add_argument("--engine-id", required=True)
+    bench_import.add_argument("--preset-path", required=True)
     bench_import.add_argument("--torque-units", choices=["lbft", "nm"], default="lbft")
     bench_import.add_argument("--power-units", choices=["hp", "kw"], default="hp")
+    bench_import.add_argument("--notes", default="")
+    bench_import.add_argument("--torque-mape-max", type=float, default=1.0)
+    bench_import.add_argument("--power-mape-max", type=float, default=1.0)
+
+    dyno_import = sub.add_parser("dyno-import", help="Import flexible dyno CSV/JSON into canonical dataset package")
+    dyno_import.add_argument("--input", required=True, type=Path)
+    dyno_import.add_argument("--out", required=True, type=Path, help="Output dataset directory")
+    dyno_import.add_argument("--dataset-id", required=True)
+    dyno_import.add_argument("--engine-id", required=True)
+    dyno_import.add_argument("--preset-path", required=True)
+    dyno_import.add_argument("--format", choices=["auto", "csv", "json"], default="auto")
+    dyno_import.add_argument(
+        "--mapping",
+        required=True,
+        help="Comma list of canonical=source_field. Canonical signals: rpm, torque_nm, power_hp, boost_kpa, map_kpa, lambda, afr, egt_c",
+    )
+    dyno_import.add_argument(
+        "--units",
+        required=True,
+        help="Comma list of canonical=unit. Example: torque_nm=lbft,power_hp=hp,boost_kpa=psi_g,map_kpa=kpa_abs,egt_c=f",
+    )
+    dyno_import.add_argument("--afr-stoich", type=float, default=14.7)
+    dyno_import.add_argument("--notes", default="")
+    dyno_import.add_argument("--torque-mape-max", type=float, default=1.0)
+    dyno_import.add_argument("--power-mape-max", type=float, default=1.0)
 
     audio = sub.add_parser("audio", help="Render multi-cylinder audio WAV (headless)")
     audio.add_argument("--engine", required=True, type=Path)
@@ -1437,6 +1948,21 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_legacy_args(optimize)
     optimize.add_argument("--out", required=True, type=Path)
 
+    optimize_guided = sub.add_parser("optimize-guided", help="Run a guided local optimization on a small, interpretable parameter set")
+    optimize_guided.add_argument("--engine", required=True, type=Path)
+    optimize_guided.add_argument("--objective", choices=["dataset_error", "peak_power", "mean_torque_band", "boost_target_tracking"], required=True)
+    optimize_guided.add_argument("--params", required=True, type=str, help="Comma-separated params. Up to 2 supported in this iteration.")
+    optimize_guided.add_argument("--target", type=Path, default=None, help="Target JSON or canonical dataset directory for dataset_error objective")
+    optimize_guided.add_argument("--rpm-grid", type=str, default="", help="RPM list for dyno-style objectives")
+    optimize_guided.add_argument("--param-bounds", type=str, default="", help="Comma list param=low:high")
+    optimize_guided.add_argument("--max-signal-mape", type=str, default="", help="Comma list signal=max_mape guardrail")
+    optimize_guided.add_argument("--min-peak-power-hp", type=float, default=None)
+    optimize_guided.add_argument("--min-mean-torque-nm", type=float, default=None)
+    optimize_guided.add_argument("--seed", type=int, default=123)
+    optimize_guided.add_argument("--max-evals", type=int, default=30)
+    _add_legacy_args(optimize_guided)
+    optimize_guided.add_argument("--out", required=True, type=Path)
+
     full_scope = sub.add_parser("full-scope", help="Run full intake+exhaust network scope")
     full_scope.add_argument("--engine", required=True, type=Path)
     full_scope.add_argument("--duration", required=True, type=float)
@@ -1467,7 +1993,55 @@ def _build_parser() -> argparse.ArgumentParser:
     benchmark.add_argument("--engine", required=True, type=Path)
     benchmark.add_argument("--dataset", required=True, type=Path)
     _add_legacy_args(benchmark)
+    _add_adaptive_combustion_arg(benchmark)
     benchmark.add_argument("--out", required=True, type=Path)
+
+    dyno_compare = sub.add_parser("dyno-compare", help="Compare simulator against canonical dyno dataset")
+    dyno_compare.add_argument("--engine", required=True, type=Path)
+    dyno_compare.add_argument("--dataset", required=True, type=Path)
+    _add_legacy_args(dyno_compare)
+    _add_adaptive_combustion_arg(dyno_compare)
+    dyno_compare.add_argument("--out", required=True, type=Path)
+
+    calibrate_staged = sub.add_parser("calibrate-staged", help="Run staged assisted calibration against dyno dataset")
+    calibrate_staged.add_argument("--engine", required=True, type=Path)
+    calibrate_staged.add_argument("--dataset", required=True, type=Path)
+    calibrate_staged.add_argument("--out", required=True, type=Path)
+    calibrate_staged.add_argument("--max-evals-per-stage", type=int, default=10)
+    _add_legacy_args(calibrate_staged)
+    _add_adaptive_combustion_arg(calibrate_staged)
+
+    validate_features = sub.add_parser("validate-features", help="Run comparative validation across datasets and feature toggles")
+    validate_features.add_argument("--engine", required=True, type=Path)
+    validate_features.add_argument("--datasets", required=True, nargs="+", type=Path)
+    validate_features.add_argument("--out", required=True, type=Path)
+    validate_features.add_argument("--with-adaptive-toggle", action="store_true")
+    validate_features.add_argument("--with-turbo-toggle", action="store_true")
+    validate_features.add_argument("--with-staged-calibration", action="store_true")
+    validate_features.add_argument("--max-evals-per-stage", type=int, default=10)
+    _add_legacy_args(validate_features)
+
+    compare_ab = sub.add_parser("compare-ab", help="Compare two engine configurations A/B on the same dataset")
+    compare_ab.add_argument("--engine-a", required=True, type=Path)
+    compare_ab.add_argument("--engine-b", required=True, type=Path)
+    compare_ab.add_argument("--dataset", required=True, type=Path)
+    compare_ab.add_argument("--label-a", default="A")
+    compare_ab.add_argument("--label-b", default="B")
+    _add_legacy_args(compare_ab)
+    compare_ab.add_argument("--adaptive-combustion-a", choices=["as_is", "on", "off"], default="as_is")
+    compare_ab.add_argument("--adaptive-combustion-b", choices=["as_is", "on", "off"], default="as_is")
+    compare_ab.add_argument("--turbo-incremental-a", choices=["as_is", "on", "off"], default="as_is")
+    compare_ab.add_argument("--turbo-incremental-b", choices=["as_is", "on", "off"], default="as_is")
+    compare_ab.add_argument("--out", required=True, type=Path)
+
+    sensitivity_local = sub.add_parser("sensitivity-local", help="Run local sensitivity around the current configuration on a dyno dataset")
+    sensitivity_local.add_argument("--engine", required=True, type=Path)
+    sensitivity_local.add_argument("--dataset", required=True, type=Path)
+    sensitivity_local.add_argument("--params", type=str, default="ve_scale,friction_scale,burn_scale")
+    _add_legacy_args(sensitivity_local)
+    _add_adaptive_combustion_arg(sensitivity_local)
+    _add_turbo_incremental_arg(sensitivity_local)
+    sensitivity_local.add_argument("--out", required=True, type=Path)
 
     return parser
 
@@ -1491,6 +2065,7 @@ def main(argv: Iterable[str] | None = None) -> None:
             legacy_compat=args.legacy_compat,
             auto_legacy_compat=bool(args.auto_legacy_compat),
             knock_report=args.knock_report,
+            adaptive_combustion=str(args.adaptive_combustion),
         )
     elif args.command == "scope":
         run_scope(
@@ -1585,6 +2160,23 @@ def main(argv: Iterable[str] | None = None) -> None:
             legacy_compat=args.legacy_compat,
             auto_legacy_compat=bool(args.auto_legacy_compat),
         )
+    elif args.command == "optimize-guided":
+        run_optimize_guided(
+            args.engine,
+            args.out,
+            objective=str(args.objective),
+            params=[p.strip() for p in str(args.params).split(",") if p.strip()],
+            seed=int(args.seed),
+            max_evals=int(args.max_evals),
+            target_path=args.target,
+            rpm_grid=_parse_float_list(args.rpm_grid),
+            bounds_map=_parse_bounds_map_text(args.param_bounds),
+            max_signal_mape=_parse_float_mapping_text(args.max_signal_mape),
+            min_peak_power_hp=args.min_peak_power_hp,
+            min_mean_torque_nm=args.min_mean_torque_nm,
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
+        )
     elif args.command == "full-scope":
         run_full_scope(
             args.engine,
@@ -1614,14 +2206,92 @@ def main(argv: Iterable[str] | None = None) -> None:
             args.out,
             legacy_compat=args.legacy_compat,
             auto_legacy_compat=bool(args.auto_legacy_compat),
+            adaptive_combustion=str(args.adaptive_combustion),
         )
     elif args.command == "bench-import":
         run_bench_import(
             args.csv,
             args.out,
+            dataset_id=str(args.dataset_id),
             engine_id=str(args.engine_id),
+            preset_path=str(args.preset_path),
             torque_units=str(args.torque_units),
             power_units=str(args.power_units),
+            notes=str(args.notes),
+            torque_mape_max=float(args.torque_mape_max),
+            power_mape_max=float(args.power_mape_max),
+        )
+    elif args.command == "dyno-import":
+        run_dyno_import(
+            args.input,
+            args.out,
+            dataset_id=str(args.dataset_id),
+            engine_id=str(args.engine_id),
+            preset_path=str(args.preset_path),
+            source_format=str(args.format),
+            mapping=str(args.mapping),
+            units=str(args.units),
+            notes=str(args.notes),
+            torque_mape_max=float(args.torque_mape_max),
+            power_mape_max=float(args.power_mape_max),
+            afr_stoich=float(args.afr_stoich),
+        )
+    elif args.command == "dyno-compare":
+        run_dyno_compare(
+            args.engine,
+            args.dataset,
+            args.out,
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
+            adaptive_combustion=str(args.adaptive_combustion),
+        )
+    elif args.command == "calibrate-staged":
+        run_calibrate_staged(
+            args.engine,
+            args.dataset,
+            args.out,
+            max_evals_per_stage=int(args.max_evals_per_stage),
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
+            adaptive_combustion=str(args.adaptive_combustion),
+        )
+    elif args.command == "validate-features":
+        run_validate_features(
+            args.engine,
+            _parse_path_list(args.datasets),
+            args.out,
+            include_adaptive_toggle=bool(args.with_adaptive_toggle),
+            include_turbo_toggle=bool(args.with_turbo_toggle),
+            include_staged_calibration=bool(args.with_staged_calibration),
+            max_evals_per_stage=int(args.max_evals_per_stage),
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
+        )
+    elif args.command == "compare-ab":
+        run_compare_ab(
+            args.engine_a,
+            args.engine_b,
+            args.dataset,
+            args.out,
+            label_a=str(args.label_a),
+            label_b=str(args.label_b),
+            adaptive_combustion_a=str(args.adaptive_combustion_a),
+            adaptive_combustion_b=str(args.adaptive_combustion_b),
+            turbo_incremental_a=str(args.turbo_incremental_a),
+            turbo_incremental_b=str(args.turbo_incremental_b),
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
+        )
+    elif args.command == "sensitivity-local":
+        run_sensitivity_local(
+            args.engine,
+            args.dataset,
+            args.out,
+            params=[p.strip() for p in str(args.params).split(",") if p.strip()],
+            adaptive_combustion=str(args.adaptive_combustion),
+            turbo_incremental=str(args.turbo_incremental),
+            legacy_compat=args.legacy_compat,
+            auto_legacy_compat=bool(args.auto_legacy_compat),
         )
 
 

@@ -9,7 +9,15 @@ from core.engine_components import Engine
 from core.thermo import CylinderSimulator
 
 
-_ALLOWED_PARAMS = {"ve_scale", "friction_scale", "burn_scale"}
+_ALLOWED_PARAMS = {
+    "ve_scale",
+    "friction_scale",
+    "burn_scale",
+    "adaptive_duration_scale",
+    "adaptive_ca50_offset_deg",
+    "turbo_target_boost_scale",
+    "turbo_spool_rpm_offset",
+}
 
 
 @dataclass
@@ -42,6 +50,30 @@ def _apply_scales(engine: Engine, params: dict) -> None:
     if "burn_scale" in params:
         scale = float(params["burn_scale"])
         engine.combustion.thermal_efficiency = max(0.0, min(engine.combustion.thermal_efficiency * scale, 1.0))
+    if "adaptive_duration_scale" in params:
+        value = float(params["adaptive_duration_scale"])
+        cfg = dict(getattr(engine.combustion, "adaptive_model", {}) or {})
+        cfg["enabled"] = bool(cfg.get("enabled", True))
+        cfg["duration_scale"] = max(value, 0.1)
+        engine.combustion.adaptive_model = cfg
+    if "adaptive_ca50_offset_deg" in params:
+        value = float(params["adaptive_ca50_offset_deg"])
+        cfg = dict(getattr(engine.combustion, "adaptive_model", {}) or {})
+        cfg["enabled"] = bool(cfg.get("enabled", True))
+        cfg["ca50_offset_deg"] = value
+        engine.combustion.adaptive_model = cfg
+    if "turbo_target_boost_scale" in params:
+        scale = float(params["turbo_target_boost_scale"])
+        if engine.turbo.target_boost_kpa is not None:
+            engine.turbo.target_boost_kpa = max(float(engine.turbo.target_boost_kpa) * scale, 1.0)
+        elif engine.turbo.target_pr is not None:
+            engine.turbo.target_pr = max(1.0 + (float(engine.turbo.target_pr) - 1.0) * scale, 1.0)
+    if "turbo_spool_rpm_offset" in params:
+        value = float(params["turbo_spool_rpm_offset"])
+        cfg = dict(getattr(engine.turbo, "response_model", {}) or {})
+        cfg["enabled"] = bool(cfg.get("enabled", True))
+        cfg["spool_rpm"] = float(cfg.get("spool_rpm", 3000.0)) + value
+        engine.turbo.response_model = cfg
 
 
 def _relative_error(pred: float, target: float, eps: float = 1e-9) -> float:
@@ -56,15 +88,22 @@ def _evaluate(engine: Engine, target_points: list[dict]) -> float:
     for tgt in target_points:
         rpm = float(tgt["rpm"])
         cycle = sim.run_cycle(rpm)
-        for key in ("power_hp", "torque_nm", "bmep_bar", "ve_actual"):
+        for key in ("power_hp", "torque_nm", "bmep_bar", "ve_actual", "boost_kpa", "map_kpa"):
             if key in tgt:
-                pred_key = "mean_power_hp" if key == "power_hp" else "mean_torque_nm" if key == "torque_nm" else key
+                if key == "power_hp":
+                    pred_key = "mean_power_hp"
+                elif key == "torque_nm":
+                    pred_key = "mean_torque_nm"
+                elif key == "map_kpa":
+                    pred_key = "map_est_kpa"
+                else:
+                    pred_key = key
                 pred = float(cycle[pred_key])
                 err = _relative_error(pred, float(tgt[key]))
                 total += err * err
                 count += 1
     if count == 0:
-        raise ValueError("target points must include at least one of power_hp/torque_nm/bmep_bar/ve_actual")
+        raise ValueError("target points must include at least one of power_hp/torque_nm/bmep_bar/ve_actual/boost_kpa/map_kpa")
     return total / count
 
 
@@ -81,6 +120,45 @@ def _sorted_params(params: Iterable[str]) -> list[str]:
     return [p.strip() for p in params if p.strip()]
 
 
+def _initial_param_value(engine: Engine, param: str) -> float:
+    if param in {"ve_scale", "friction_scale", "burn_scale"}:
+        return 1.0
+    adaptive_cfg = getattr(engine.combustion, "adaptive_model", {}) or {}
+    if param == "adaptive_duration_scale":
+        return float(adaptive_cfg.get("duration_scale", 1.0))
+    if param == "adaptive_ca50_offset_deg":
+        return float(adaptive_cfg.get("ca50_offset_deg", 0.0))
+    if param == "turbo_target_boost_scale":
+        return 1.0
+    if param == "turbo_spool_rpm_offset":
+        return 0.0
+    raise ValueError(f"Unknown calibration param '{param}'")
+
+
+def _candidate_values(engine: Engine, param: str) -> list[float]:
+    if param in {"ve_scale", "friction_scale", "burn_scale"}:
+        return _grid_values()
+    if param == "adaptive_duration_scale":
+        base = _initial_param_value(engine, param)
+        return sorted({round(max(base * 0.9, 0.1), 6), round(base, 6), round(base * 1.1, 6)})
+    if param == "adaptive_ca50_offset_deg":
+        base = _initial_param_value(engine, param)
+        return [round(base - 2.0, 6), round(base, 6), round(base + 2.0, 6)]
+    if param == "turbo_target_boost_scale":
+        return [0.85, 1.0, 1.15]
+    if param == "turbo_spool_rpm_offset":
+        return [-500.0, 0.0, 500.0]
+    raise ValueError(f"Unknown calibration param '{param}'")
+
+
+def _random_param_value(engine: Engine, param: str, rng: random.Random) -> float:
+    if param in {"ve_scale", "friction_scale", "burn_scale"}:
+        bounds = _param_bounds()
+        return rng.uniform(bounds[0], bounds[1])
+    values = _candidate_values(engine, param)
+    return rng.uniform(min(values), max(values))
+
+
 def calibrate_engine(
     engine: Engine,
     target_points: list[dict],
@@ -95,7 +173,7 @@ def calibrate_engine(
         if p not in _ALLOWED_PARAMS:
             raise ValueError(f"Unknown calibration param '{p}'")
 
-    params_initial = {p: 1.0 for p in params}
+    params_initial = {p: _initial_param_value(engine, p) for p in params}
 
     base_engine = Engine.from_dict(engine.to_dict())
     _apply_scales(base_engine, params_initial)
@@ -104,9 +182,9 @@ def calibrate_engine(
     best_params = dict(params_initial)
     evals_used = 1
 
-    grid = _grid_values()
     if params:
-        for values in itertools.product(grid, repeat=len(params)):
+        param_grids = [_candidate_values(engine, p) for p in params]
+        for values in itertools.product(*param_grids):
             if evals_used >= max_evals:
                 break
             candidate = dict(zip(params, values))
@@ -155,20 +233,19 @@ def calibrate_engine_diagnostics(
         if p not in _ALLOWED_PARAMS:
             raise ValueError(f"Unknown calibration param '{p}'")
 
-    params_initial = {p: 1.0 for p in params}
-    bounds = _param_bounds()
+    params_initial = {p: _initial_param_value(engine, p) for p in params}
     rng = random.Random(seed)
 
     candidates: list[dict] = []
     candidates.append(params_initial)
 
-    grid = _grid_values()
     if params:
-        for values in itertools.product(grid, repeat=len(params)):
+        param_grids = [_candidate_values(engine, p) for p in params]
+        for values in itertools.product(*param_grids):
             candidates.append(dict(zip(params, values)))
 
     for _ in range(multi_start):
-        candidates.append({p: rng.uniform(bounds[0], bounds[1]) for p in params})
+        candidates.append({p: _random_param_value(engine, p, rng) for p in params})
 
     seen = set()
     unique_candidates: list[dict] = []
@@ -226,7 +303,7 @@ def calibrate_engine_diagnostics(
             "multi_start": int(multi_start),
             "eps_obj": float(eps_obj),
             "eps_params": float(eps_params),
-            "bounds": {"min": float(bounds[0]), "max": float(bounds[1])},
+            "bounds": {p: {"min": float(min(_candidate_values(engine, p))), "max": float(max(_candidate_values(engine, p)))} for p in params},
             "top_k": int(top_k),
         },
         "best_solution": best,

@@ -22,7 +22,8 @@ def _run(cmd: list[str]) -> None:
 @pytest.mark.system
 def test_all_cli_outputs_validate_schemas(tmp_path: Path) -> None:
     engine = Path("presets/legacy/custom_twin_230cc.json").resolve()
-    bench_dataset = Path("benchmarks/datasets/custom_twin_230cc").resolve()
+    benchmark_engine = Path("presets/honda_k20.json").resolve()
+    bench_dataset = Path("benchmarks/datasets/k20_like_real").resolve()
 
     dyno_path = tmp_path / "dyno.json"
     _run([sys.executable, "-m", "pywavedyn.cli", "dyno", "--engine", str(engine), "--rpm", "2000", "--out", str(dyno_path)])
@@ -96,7 +97,9 @@ def test_all_cli_outputs_validate_schemas(tmp_path: Path) -> None:
         "--out",
         str(map_path),
     ])
-    jsonschema.validate(instance=json.loads(map_path.read_text()), schema=_load_schema("map.schema.json"))
+    map_payload = json.loads(map_path.read_text())
+    jsonschema.validate(instance=map_payload, schema=_load_schema("map.schema.json"))
+    assert map_payload["observable_semantics"]["ve_actual"]["cross_mode_relation"] == "comparable_not_identical"
 
     target_path = tmp_path / "target.json"
     target_payload = {
@@ -147,6 +150,29 @@ def test_all_cli_outputs_validate_schemas(tmp_path: Path) -> None:
     ])
     jsonschema.validate(instance=json.loads(opt_path.read_text()), schema=_load_schema("opt_report.schema.json"))
 
+    opt_guided_path = tmp_path / "opt_guided.json"
+    _run([
+        sys.executable,
+        "-m",
+        "pywavedyn.cli",
+        "optimize-guided",
+        "--engine",
+        str(engine),
+        "--objective",
+        "dataset_error",
+        "--params",
+        "burn_scale,friction_scale",
+        "--target",
+        str(target_path),
+        "--max-signal-mape",
+        "torque_nm=10.0",
+        "--max-evals",
+        "8",
+        "--out",
+        str(opt_guided_path),
+    ])
+    jsonschema.validate(instance=json.loads(opt_guided_path.read_text()), schema=_load_schema("optimize_guided.schema.json"))
+
     full_scope_path = tmp_path / "full_scope.json"
     _run([
         sys.executable,
@@ -164,7 +190,9 @@ def test_all_cli_outputs_validate_schemas(tmp_path: Path) -> None:
         "--out",
         str(full_scope_path),
     ])
-    jsonschema.validate(instance=json.loads(full_scope_path.read_text()), schema=_load_schema("full_scope.schema.json"))
+    full_scope_payload = json.loads(full_scope_path.read_text())
+    jsonschema.validate(instance=full_scope_payload, schema=_load_schema("full_scope.schema.json"))
+    assert full_scope_payload["observable_semantics"]["ve_actual"]["cross_mode_relation"] == "comparable_not_identical"
 
     bench_path = tmp_path / "bench.json"
     _run([
@@ -173,7 +201,7 @@ def test_all_cli_outputs_validate_schemas(tmp_path: Path) -> None:
         "pywavedyn.cli",
         "benchmark",
         "--engine",
-        str(engine),
+        str(benchmark_engine),
         "--dataset",
         str(bench_dataset),
         "--out",
@@ -222,7 +250,7 @@ def test_all_cli_outputs_validate_schemas(tmp_path: Path) -> None:
 
     csv_path = tmp_path / "curve.csv"
     csv_path.write_text("rpm,hp,tq\n2000,40,80\n3000,55,90\n", encoding="utf-8")
-    targets_path = tmp_path / "targets.json"
+    dataset_dir = tmp_path / "toy_dataset"
     _run([
         sys.executable,
         "-m",
@@ -231,12 +259,129 @@ def test_all_cli_outputs_validate_schemas(tmp_path: Path) -> None:
         "--csv",
         str(csv_path),
         "--out",
-        str(targets_path),
+        str(dataset_dir),
+        "--dataset-id",
+        "toy_dataset",
         "--engine-id",
         "toy",
+        "--preset-path",
+        "presets/honda_k20.json",
         "--torque-units",
         "lbft",
         "--power-units",
         "hp",
+        "--notes",
+        "toy dataset",
     ])
-    jsonschema.validate(instance=json.loads(targets_path.read_text()), schema=_load_schema("bench_targets.schema.json"))
+    jsonschema.validate(
+        instance=json.loads((dataset_dir / "target_curve.json").read_text(encoding="utf-8")),
+        schema=_load_schema("bench_targets.schema.json"),
+    )
+
+    flexible_csv = tmp_path / "flex_dyno.csv"
+    flexible_csv.write_text("speed,pwr,trq,map_abs\n2000,40,80,95\n3000,55,90,96\n", encoding="utf-8")
+    flexible_dataset = tmp_path / "flex_dataset"
+    _run([
+        sys.executable,
+        "-m",
+        "pywavedyn.cli",
+        "dyno-import",
+        "--input",
+        str(flexible_csv),
+        "--out",
+        str(flexible_dataset),
+        "--dataset-id",
+        "flex_dataset",
+        "--engine-id",
+        "toy",
+        "--preset-path",
+        "presets/honda_k20.json",
+        "--format",
+        "csv",
+        "--mapping",
+        "rpm=speed,power_hp=pwr,torque_nm=trq,map_kpa=map_abs",
+        "--units",
+        "power_hp=hp,torque_nm=lbft,map_kpa=kpa_abs",
+        "--notes",
+        "flex dataset",
+    ])
+    jsonschema.validate(
+        instance=json.loads((flexible_dataset / "target_curve.json").read_text(encoding="utf-8")),
+        schema=_load_schema("bench_targets.schema.json"),
+    )
+
+    staged_path = tmp_path / "staged_calibration.json"
+    _run([
+        sys.executable,
+        "-m",
+        "pywavedyn.cli",
+        "calibrate-staged",
+        "--engine",
+        str(benchmark_engine),
+        "--dataset",
+        str(flexible_dataset),
+        "--out",
+        str(staged_path),
+        "--max-evals-per-stage",
+        "3",
+    ])
+    jsonschema.validate(instance=json.loads(staged_path.read_text()), schema=_load_schema("staged_calibration.schema.json"))
+
+    validation_path = tmp_path / "validation_compare.json"
+    _run([
+        sys.executable,
+        "-m",
+        "pywavedyn.cli",
+        "validate-features",
+        "--engine",
+        str(benchmark_engine),
+        "--datasets",
+        str(flexible_dataset),
+        "--out",
+        str(validation_path),
+        "--with-adaptive-toggle",
+        "--with-staged-calibration",
+        "--max-evals-per-stage",
+        "3",
+    ])
+    jsonschema.validate(instance=json.loads(validation_path.read_text()), schema=_load_schema("validation_compare.schema.json"))
+
+    ab_compare_path = tmp_path / "ab_compare.json"
+    _run([
+        sys.executable,
+        "-m",
+        "pywavedyn.cli",
+        "compare-ab",
+        "--engine-a",
+        str(benchmark_engine),
+        "--engine-b",
+        str(benchmark_engine),
+        "--dataset",
+        str(flexible_dataset),
+        "--label-a",
+        "baseline",
+        "--label-b",
+        "adaptive_on",
+        "--adaptive-combustion-b",
+        "on",
+        "--out",
+        str(ab_compare_path),
+    ])
+    jsonschema.validate(instance=json.loads(ab_compare_path.read_text()), schema=_load_schema("ab_compare.schema.json"))
+
+    sensitivity_path = tmp_path / "sensitivity_local.json"
+    _run([
+        sys.executable,
+        "-m",
+        "pywavedyn.cli",
+        "sensitivity-local",
+        "--engine",
+        str(benchmark_engine),
+        "--dataset",
+        str(flexible_dataset),
+        "--params",
+        "ve_scale,friction_scale,burn_scale",
+        "--out",
+        str(sensitivity_path),
+    ])
+    jsonschema.validate(instance=json.loads(sensitivity_path.read_text()), schema=_load_schema("sensitivity_local.schema.json"))

@@ -42,13 +42,14 @@ G) Benchmarks
   - `python -m pywavedyn.cli benchmark --engine validation_cases/single_cyl_moto_like.json --dataset benchmarks/datasets/single_cyl_moto_na --out bench_report.json`
   - `python -m pywavedyn.cli benchmark --engine presets/honda_k20.json --dataset benchmarks/datasets/k20_like_regression_golden --out bench_report.json`
   - `python -m pywavedyn.cli benchmark --engine presets/chevy_350.json --dataset benchmarks/datasets/v8_like_regression_golden --out bench_report.json`
-  - `python -m pywavedyn.cli benchmark --engine presets/ferrari_f1.json --dataset benchmarks/datasets/f1_like_regression_golden --out bench_report.json`
-- Importador (CSV -> targets):
-  - `python -m pywavedyn.cli bench-import --csv curve.csv --out benchmarks/datasets/<name>/target_curve.json --engine-id <id> --torque-units lbft --power-units hp`
+- `python -m pywavedyn.cli benchmark --engine presets/ferrari_f1.json --dataset benchmarks/datasets/f1_like_regression_golden --out bench_report.json`
+- Importador (CSV/JSON -> package canónico):
+  - `python -m pywavedyn.cli dyno-import --input curve.csv --out benchmarks/datasets/<name> --dataset-id <id> --engine-id <id> --preset-path presets/honda_k20.json --format csv --mapping rpm=speed,torque_nm=tq,power_hp=hp --units torque_nm=lbft,power_hp=hp`
 
 Notes
 - `regression_golden` datasets are generated from current simulator outputs and used for stability/regression.
-- `real_data` datasets (not included in repo) should be stored externally and imported via `bench-import`.
+- `real_data` datasets may be stored externally or committed as canonical packages when source data and traceability are available.
+- Legacy placeholders are allowed only when they are explicitly marked and are not presented as migrated canonical real-data packages.
 
 H) Runbook quick check
 - Install deps: `python -m pip install -r requirements.txt`

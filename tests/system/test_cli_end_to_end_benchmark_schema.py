@@ -38,3 +38,4 @@ def test_cli_end_to_end_benchmark_schema(tmp_path: Path) -> None:
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     schema = json.loads(Path("schemas/bench_report.schema.json").read_text(encoding="utf-8"))
     jsonschema.validate(instance=payload, schema=schema)
+    assert "diagnostics" in payload

@@ -223,7 +223,8 @@ Para comparar fidelidad de manera reproducible, usar estos flujos (headless):
 - **Benchmark (regression_golden / real_data):**
   - `python -m pywavedyn.cli benchmark --engine presets/honda_k20.json --dataset benchmarks/datasets/honda_k20_na --out bench_report.json`
 - **Import CSV (datos externos):**
-  - `python -m pywavedyn.cli bench-import --csv curve.csv --out benchmarks/datasets/<name>/target_curve.json --engine-id <id> --torque-units lbft --power-units hp`
+  - `python -m pywavedyn.cli dyno-import --input curve.csv --out benchmarks/datasets/<name> --dataset-id <id> --engine-id <id> --preset-path presets/honda_k20.json --format csv --mapping rpm=speed,torque_nm=tq,power_hp=hp --units torque_nm=lbft,power_hp=hp`
+  - `bench-import` sigue disponible para el flujo CSV canónico mínimo, pero el package real-data actual escribe un directorio con `metadata.json`, `target_curve.json` y opcionalmente `source.csv`.
 
 ### Recording Audio
 Audio can be generated headless via CLI or recorded in the GUI if enabled.

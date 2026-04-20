@@ -30,8 +30,20 @@ def test_turbo_boost_effect():
     base_hp = run_cycle_hp(engine, 6000.0)
 
     engine_boosted = Engine.from_dict(engine.to_dict())
-    engine_boosted.supercharger.type = "Turbo"
-    engine_boosted.supercharger.boost_pressure_bar = 1.0
+    engine_boosted.turbo = engine_boosted.turbo.from_dict(
+        {
+            "enabled": True,
+            "target_boost_kpa": 100.0,
+            "compressor_map": [
+                {"flow_kg_s": 0.03, "pr": 1.8},
+                {"flow_kg_s": 0.08, "pr": 2.1},
+            ],
+            "turbine_map": [
+                {"flow_kg_s": 0.03, "pr": 1.4},
+                {"flow_kg_s": 0.08, "pr": 1.7},
+            ],
+        }
+    )
     boosted_hp = run_cycle_hp(engine_boosted, 6000.0)
 
     assert boosted_hp > base_hp * 1.5
@@ -61,10 +73,12 @@ def test_friction_model():
 
 def test_intake_restriction():
     engine = Engine()
+    engine.head.intake_valve_diameter_mm = 50.0
     engine.head.intake_valve_diameter = 50.0
     hp_huge = run_cycle_hp(engine, 7000.0)
 
     choked = Engine.from_dict(engine.to_dict())
+    choked.head.intake_valve_diameter_mm = 20.0
     choked.head.intake_valve_diameter = 20.0
     hp_tiny = run_cycle_hp(choked, 7000.0)
 

@@ -5,7 +5,7 @@ import logging
 import math
 import os
 from dataclasses import dataclass
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 import numpy as np
 
@@ -173,6 +173,150 @@ def wiebe_function(
     return x
 
 
+def _estimate_overlap_residual_fraction(engine: Engine, residual_cfg: dict[str, Any] | None) -> float:
+    cfg = residual_cfg or {}
+    overlap_step = float(cfg.get("overlap_step_deg", 0.5))
+    overlap_step = max(overlap_step, 0.1)
+    angles = np.arange(0.0, 720.0 + overlap_step, overlap_step)
+    intake_open = np.array([engine.camshaft.get_lift(a, intake=True) > 0.0 for a in angles])
+    exhaust_open = np.array([engine.camshaft.get_lift(a, intake=False) > 0.0 for a in angles])
+    overlap_deg = float(np.count_nonzero(intake_open & exhaust_open) * overlap_step)
+    return float(np.clip(overlap_deg / 720.0, 0.0, 1.0))
+
+
+def _resolve_adaptive_combustion_schedule(
+    comb: Any,
+    *,
+    rpm: float,
+    compression_ratio: float,
+    ambient_pressure_pa: float,
+    manifold_pressure_pa: float,
+    charge_temp_k: float,
+    bmep_est_bar: float,
+    afr_user: float,
+    fuel_stoich: float,
+    residual_fraction: float,
+    burn_duration: float,
+    target_ca50: float | None,
+    explicit_schedule_override: bool,
+) -> tuple[float, float | None, dict[str, Any]]:
+    cfg = getattr(comb, "adaptive_model", {}) or {}
+    trace: dict[str, Any] = {"enabled": bool(cfg.get("enabled", False))}
+    if not trace["enabled"]:
+        return burn_duration, target_ca50, trace
+
+    if explicit_schedule_override:
+        trace.update(
+            {
+                "status": "skipped",
+                "reason": "explicit_wiebe_override",
+            }
+        )
+        return burn_duration, target_ca50, trace
+
+    rpm_ref = float(cfg.get("rpm_ref", 4000.0))
+    load_ref = float(cfg.get("load_ref_bar", 10.0))
+    cr_ref = float(cfg.get("compression_ratio_ref", 10.5))
+    boost_ref = float(cfg.get("boost_ref_kpa", 0.0))
+    temp_ref = float(cfg.get("charge_temp_ref_k", 330.0))
+    lambda_ref = float(cfg.get("lambda_ref", 1.0))
+    residual_ref = float(cfg.get("residual_ref", 0.0))
+
+    boost_kpa = max((float(manifold_pressure_pa) - float(ambient_pressure_pa)) / 1000.0, 0.0)
+    lambda_rel = float(np.clip(float(afr_user) / max(float(fuel_stoich), 1e-9), 0.5, 2.0))
+    temp_term = (float(charge_temp_k) - temp_ref) / 50.0
+
+    duration_delta = (
+        float(cfg.get("duration_rpm_per_krpm", 0.0)) * ((float(rpm) - rpm_ref) / 1000.0)
+        + float(cfg.get("duration_load_per_bar", 0.0)) * (float(bmep_est_bar) - load_ref)
+        + float(cfg.get("duration_compression_per_ratio", 0.0)) * (float(compression_ratio) - cr_ref)
+        + float(cfg.get("duration_boost_per_kpa", 0.0)) * (boost_kpa - boost_ref)
+        + float(cfg.get("duration_lambda_per_lambda", 0.0)) * (lambda_rel - lambda_ref)
+        + float(cfg.get("duration_residual_per_frac", 0.0)) * (float(residual_fraction) - residual_ref)
+        + float(cfg.get("duration_temp_per_50k", 0.0)) * temp_term
+    )
+    ca50_delta = (
+        float(cfg.get("ca50_rpm_per_krpm", 0.0)) * ((float(rpm) - rpm_ref) / 1000.0)
+        + float(cfg.get("ca50_load_per_bar", 0.0)) * (float(bmep_est_bar) - load_ref)
+        + float(cfg.get("ca50_compression_per_ratio", 0.0)) * (float(compression_ratio) - cr_ref)
+        + float(cfg.get("ca50_boost_per_kpa", 0.0)) * (boost_kpa - boost_ref)
+        + float(cfg.get("ca50_lambda_per_lambda", 0.0)) * (lambda_rel - lambda_ref)
+        + float(cfg.get("ca50_residual_per_frac", 0.0)) * (float(residual_fraction) - residual_ref)
+        + float(cfg.get("ca50_temp_per_50k", 0.0)) * temp_term
+    )
+
+    duration_scale = float(cfg.get("duration_scale", 1.0))
+    duration_min = float(cfg.get("duration_min_deg", 10.0))
+    duration_max = float(cfg.get("duration_max_deg", 120.0))
+    ca50_min = float(cfg.get("ca50_min_deg_atdc", -5.0))
+    ca50_max = float(cfg.get("ca50_max_deg_atdc", 40.0))
+    base_ca50 = float(target_ca50 if target_ca50 is not None else cfg.get("base_ca50_deg_atdc", getattr(comb, "ca50_base_deg_atdc", 8.0)))
+    ca50_offset = float(cfg.get("ca50_offset_deg", 0.0))
+
+    burn_duration_eff = float(np.clip((float(burn_duration) + duration_delta) * duration_scale, duration_min, duration_max))
+    target_ca50_eff = float(np.clip(base_ca50 + ca50_delta + ca50_offset, ca50_min, ca50_max))
+    trace.update(
+        {
+            "status": "applied",
+            "signals": {
+                "rpm": float(rpm),
+                "load_bar_proxy": float(bmep_est_bar),
+                "compression_ratio": float(compression_ratio),
+                "boost_kpa": float(boost_kpa),
+                "lambda_rel": float(lambda_rel),
+                "residual_fraction_proxy": float(residual_fraction),
+                "charge_temp_k": float(charge_temp_k),
+            },
+            "duration_delta_deg": float(duration_delta),
+            "ca50_delta_deg": float(ca50_delta),
+            "duration_base_deg": float(burn_duration),
+            "duration_effective_deg": float(burn_duration_eff),
+            "ca50_base_deg_atdc": float(base_ca50),
+            "ca50_effective_deg_atdc": float(target_ca50_eff),
+        }
+    )
+    return burn_duration_eff, target_ca50_eff, trace
+
+
+def _resolve_turbo_response(
+    turbo_cfg: Any,
+    *,
+    rpm: float,
+    m_dot_air: float,
+    pr_commanded: float,
+) -> tuple[float, dict[str, Any]]:
+    response_cfg = getattr(turbo_cfg, "response_model", {}) or {}
+    trace: dict[str, Any] = {"enabled": bool(response_cfg.get("enabled", False))}
+    if not trace["enabled"]:
+        return float(max(pr_commanded, 1.0)), trace
+
+    spool_rpm = float(response_cfg.get("spool_rpm", 3000.0))
+    spool_width_rpm = max(float(response_cfg.get("spool_width_rpm", 800.0)), 1.0)
+    flow_ref = float(response_cfg.get("flow_ref_kg_s", 0.12))
+    flow_width = max(float(response_cfg.get("flow_width_kg_s", 0.04)), 1e-6)
+    min_response = float(np.clip(response_cfg.get("min_response", 0.25), 0.01, 1.0))
+
+    rpm_term = 1.0 / (1.0 + math.exp(-(float(rpm) - spool_rpm) / spool_width_rpm))
+    flow_term = 1.0 / (1.0 + math.exp(-(float(m_dot_air) - flow_ref) / flow_width))
+    response_factor = float(np.clip(max(min_response, rpm_term * flow_term), min_response, 1.0))
+    pr_achieved = 1.0 + (max(float(pr_commanded), 1.0) - 1.0) * response_factor
+    trace.update(
+        {
+            "status": "applied",
+            "spool_rpm": float(spool_rpm),
+            "spool_width_rpm": float(spool_width_rpm),
+            "flow_ref_kg_s": float(flow_ref),
+            "flow_width_kg_s": float(flow_width),
+            "rpm_term": float(rpm_term),
+            "flow_term": float(flow_term),
+            "response_factor": float(response_factor),
+            "pr_commanded": float(max(float(pr_commanded), 1.0)),
+            "pr_achieved": float(pr_achieved),
+        }
+    )
+    return pr_achieved, trace
+
+
 class CylinderSimulator:
     """Simple 0D cylinder thermodynamics to estimate pressure and torque."""
 
@@ -203,9 +347,8 @@ class CylinderSimulator:
         head = self.engine.head
         valve_mm = getattr(head, "intake_valve_diameter_mm", None)
         legacy_mm = getattr(head, "intake_valve_diameter", None)
-        if legacy_mm is not None:
-            if valve_mm is None or not math.isclose(float(valve_mm), float(legacy_mm), abs_tol=1e-6):
-                valve_mm = legacy_mm
+        if valve_mm is None and legacy_mm is not None:
+            valve_mm = legacy_mm
         if valve_mm is None:
             valve_mm = 35.0
         valve_diameter_m = float(valve_mm) * 1e-3
@@ -277,7 +420,8 @@ class CylinderSimulator:
         cam = self.engine.camshaft
         comb = getattr(self.engine, "combustion", None)
         ignition = getattr(comb, "ignition_advance", 30.0)
-        afr_user = getattr(comb, "afr", getattr(self.engine.fuel, "stoich_afr", 14.7))
+        stoich_afr_ref = getattr(self.engine.fuel, "stoich_afr", 14.7)
+        afr_user = getattr(comb, "afr", stoich_afr_ref)
         wiebe_a = getattr(comb, "wiebe_a", 5.0)
         wiebe_m = getattr(comb, "wiebe_m", 2.0)
         target_ca50 = getattr(comb, "target_ca50_deg_atdc", None)
@@ -287,7 +431,7 @@ class CylinderSimulator:
 
         fuel_cfg = getattr(self.engine, "fuel", None)
         fuel_lhv = getattr(fuel_cfg, "energy_density", 44e6)
-        fuel_stoich = afr_user
+        fuel_stoich = stoich_afr_ref
         fuel_octane = getattr(fuel_cfg, "octane_rating", 93.0)
 
         icl = cam.lobe_separation - cam.advance
@@ -322,16 +466,25 @@ class CylinderSimulator:
 
         V_IVC = max(volume_at(IVC), 1e-9)
 
-        boost_bar = getattr(self.engine.supercharger, "boost_pressure_bar", 0.0)
-        boost_pa = bar_to_pa(float(boost_bar))
-        # Manifold pressure is always absolute: ambient + boost (boost may be zero for NA).
+        turbo_cfg = getattr(self.engine, "turbo", None)
+        turbo_enabled = turbo_cfg is not None and bool(getattr(turbo_cfg, "enabled", False))
+
+        forced_induction_mode = "na"
         if intake_map_pa is None:
-            P_manifold = ambient_pressure_pa + boost_pa
+            P_manifold = ambient_pressure_pa
         else:
             P_manifold = max(float(intake_map_pa), 1e3)
-        T_boost = ambient_temp_k * (P_manifold / ambient_pressure_pa) ** 0.28
         intercooler_eff = getattr(self.engine.supercharger, "intercooler_efficiency", 0.70)
+        T_boost = ambient_temp_k * (P_manifold / ambient_pressure_pa) ** 0.28
         T_charge = ambient_temp_k + (T_boost - ambient_temp_k) * (1.0 - intercooler_eff)
+        if intake_map_pa is None and not turbo_enabled:
+            boost_bar = getattr(self.engine.supercharger, "boost_pressure_bar", 0.0)
+            boost_pa = bar_to_pa(float(boost_bar))
+            P_manifold = ambient_pressure_pa + boost_pa
+            T_boost = ambient_temp_k * (P_manifold / ambient_pressure_pa) ** 0.28
+            T_charge = ambient_temp_k + (T_boost - ambient_temp_k) * (1.0 - intercooler_eff)
+            if boost_pa > 0.0:
+                forced_induction_mode = "supercharger"
 
         piston_speed = 2.0 * stroke_m * rpm / 60.0
         base_ve, mach_index, ve_cam_factor, ve_mach_factor, ve_flow_loss_factor = self._calculate_dynamic_ve(
@@ -380,10 +533,9 @@ class CylinderSimulator:
         disp_cid = self.engine.block.displacement_cc * 0.0610237
         required_cfm = (disp_cid * rpm) / 3456.0 * ve_prelim
 
-        turbo_cfg = getattr(self.engine, "turbo", None)
-        turbo_enabled = turbo_cfg is not None and bool(getattr(turbo_cfg, "enabled", False))
         turbo_outputs: dict[str, float] = {}
         if turbo_enabled:
+            forced_induction_mode = "turbo"
             max_iters = int(getattr(turbo_cfg, "max_iters", 8))
             if max_iters < 1:
                 raise ValueError("turbo.max_iters must be >= 1")
@@ -428,9 +580,17 @@ class CylinderSimulator:
                     pr_comp = pr_comp + gain * (pr_target - pr_comp)
                 pr_comp = max(pr_comp, 1.0)
 
+            pr_comp_commanded = float(pr_comp)
+            pr_comp, turbo_response_trace = _resolve_turbo_response(
+                turbo_cfg,
+                rpm=float(rpm),
+                m_dot_air=float(m_dot_air),
+                pr_commanded=pr_comp_commanded,
+            )
+
             wg_duty = 0.0
-            if pr_raw > pr_comp and pr_raw > 1.0:
-                wg_duty = min(max((pr_raw - pr_comp) / (pr_raw - 1.0), 0.0), 1.0)
+            if pr_raw > pr_comp_commanded and pr_raw > 1.0:
+                wg_duty = min(max((pr_raw - pr_comp_commanded) / (pr_raw - 1.0), 0.0), 1.0)
 
             pr_turb = _interp_pr(getattr(turbo_cfg, "turbine_map", []), m_dot_air)
             if pr_turb is None:
@@ -444,6 +604,7 @@ class CylinderSimulator:
             turbo_outputs = {
                 "boost_kpa": float((P_manifold - ambient_pressure_pa) / 1000.0),
                 "pr_comp": float(pr_comp),
+                "pr_comp_commanded": float(pr_comp_commanded),
                 "pr_turb": float(pr_turb),
                 "wg_duty": float(wg_duty),
             }
@@ -463,6 +624,8 @@ class CylinderSimulator:
             k_load = getattr(comb, "ca50_load_factor", 0.0)
             target_ca50 = base_ca50 + k_rpm * (rpm / 1000.0) + k_load * bmep_est_bar
 
+        start_override = None
+        end_override = None
         if isinstance(wiebe_cfg, dict) and bool(wiebe_cfg.get("enabled", False)):
             if "a" in wiebe_cfg:
                 wiebe_a = float(wiebe_cfg.get("a", wiebe_a))
@@ -485,7 +648,31 @@ class CylinderSimulator:
                 start_angle_override = 360.0 + float(start_override)
             elif end_override is not None:
                 start_angle_override = 360.0 + float(end_override) - float(burn_duration)
-            burn_duration = max(float(burn_duration), 1.0)
+        burn_duration = max(float(burn_duration), 1.0)
+
+        residual_cfg = getattr(self.engine.combustion, "residual_coupling", {}) or {}
+        residual_fraction_est = 0.0
+        if bool(residual_cfg.get("enabled", False)) or bool((getattr(comb, "adaptive_model", {}) or {}).get("enabled", False)):
+            residual_fraction_est = _estimate_overlap_residual_fraction(self.engine, residual_cfg)
+
+        burn_duration, target_ca50, adaptive_trace = _resolve_adaptive_combustion_schedule(
+            comb,
+            rpm=float(rpm),
+            compression_ratio=float(compression_ratio),
+            ambient_pressure_pa=float(ambient_pressure_pa),
+            manifold_pressure_pa=float(P_manifold),
+            charge_temp_k=float(T_charge),
+            bmep_est_bar=float(bmep_est_bar),
+            afr_user=float(afr_user),
+            fuel_stoich=float(fuel_stoich),
+            residual_fraction=float(residual_fraction_est),
+            burn_duration=float(burn_duration),
+            target_ca50=target_ca50,
+            explicit_schedule_override=bool(
+                start_angle_override is not None
+                or (isinstance(wiebe_cfg, dict) and any(key in wiebe_cfg for key in ("ca50_deg_atdc", "burn_duration_deg", "duration_deg", "start_deg_atdc", "end_deg_atdc")))
+            ),
+        )
 
         required_cfm = (disp_cid * rpm) / 3456.0 * ve_prelim
         head_supply_cfm = self.engine.head.port_flow_cfm * self.engine.head.intake_valves * self.engine.block.num_cylinders
@@ -511,22 +698,13 @@ class CylinderSimulator:
         ve_flow_cap_factor = float(flow_cap_factor)
 
         m_air = ve * (P_manifold * V_IVC) / (gas_constant * T_charge)
-        fuel_mass = m_air / fuel_stoich
+        fuel_mass = m_air / max(float(afr_user), 1e-9)
         working_mass_kg = max(m_air + fuel_mass, 1e-12)
         eta_combustion = float(np.clip(getattr(self.engine.combustion, "thermal_efficiency", 0.95), 0.0, 1.0))
-        residual_cfg = getattr(self.engine.combustion, "residual_coupling", {}) or {}
         residual_factor = 1.0
-        residual_fraction_est = 0.0
         if bool(residual_cfg.get("enabled", False)):
             k_residual = float(residual_cfg.get("k", 0.8))
             min_factor = float(residual_cfg.get("min_factor", 0.4))
-            overlap_step = float(residual_cfg.get("overlap_step_deg", 0.5))
-            overlap_step = max(overlap_step, 0.1)
-            angles = np.arange(0.0, 720.0 + overlap_step, overlap_step)
-            intake_open = np.array([self.engine.camshaft.get_lift(a, intake=True) > 0.0 for a in angles])
-            exhaust_open = np.array([self.engine.camshaft.get_lift(a, intake=False) > 0.0 for a in angles])
-            overlap_deg = float(np.count_nonzero(intake_open & exhaust_open) * overlap_step)
-            residual_fraction_est = float(np.clip(overlap_deg / 720.0, 0.0, 1.0))
             residual_factor = float(np.clip(1.0 - k_residual * residual_fraction_est, min_factor, 1.0))
             eta_combustion = float(np.clip(eta_combustion * residual_factor, 0.0, 1.0))
         if wiebe_eta_scale is not None:
@@ -757,6 +935,11 @@ class CylinderSimulator:
             "start_angle_used": float(start_angle),
             "burn_duration_used": float(burn_duration),
             "ca50_target_used": None if target_ca50 is None else float(target_ca50),
+            "charge_temp_k": float(T_charge),
+            "lambda_rel_used": float(np.clip(float(afr_user) / max(float(fuel_stoich), 1e-9), 0.5, 2.0)),
+            "combustion_model": "adaptive_v1" if adaptive_trace.get("enabled") else "legacy",
+            "adaptive_combustion": adaptive_trace,
+            "forced_induction_mode": forced_induction_mode,
         }
         if bool(residual_cfg.get("enabled", False)):
             trace["residual_fraction_est"] = float(residual_fraction_est)
@@ -796,6 +979,7 @@ class CylinderSimulator:
         }
         if turbo_enabled:
             result.update(turbo_outputs)
+            result["turbo_response"] = turbo_response_trace
         return result
     def run_pro_cycle(self, rpm: float) -> Dict[str, np.ndarray]:
         """Pro dyno path currently reuses the calibrated quick cycle."""

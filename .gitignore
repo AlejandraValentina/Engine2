@@ -5,3 +5,7 @@ out_v2_demo.json
 *.egg-info/
 _scope_test.json
 .vscode/
+artifacts/
+tmp_*/
+bench_*.json
+out_*.json

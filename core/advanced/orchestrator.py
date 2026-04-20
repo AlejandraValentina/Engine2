@@ -1604,9 +1604,8 @@ def _build_valve_timing(engine: Engine, pipe_role: str) -> ValveTiming:
         lift_m = float(cam.intake_lift) * 1e-3
         seat_mm = head.intake_valve_diameter_mm
         legacy_mm = head.intake_valve_diameter
-        if legacy_mm is not None:
-            if seat_mm is None or not math.isclose(float(seat_mm), float(legacy_mm), abs_tol=1e-6):
-                seat_mm = legacy_mm
+        if seat_mm is None and legacy_mm is not None:
+            seat_mm = legacy_mm
         if seat_mm is None:
             seat_mm = 35.0
         open_start = 0.0
@@ -1619,9 +1618,8 @@ def _build_valve_timing(engine: Engine, pipe_role: str) -> ValveTiming:
         legacy_mm = head.exhaust_valve_diameter
         if seat_mm is None:
             seat_mm = fallback_mm
-        if legacy_mm is not None:
-            if seat_mm is None or not math.isclose(float(seat_mm), float(legacy_mm), abs_tol=1e-6):
-                seat_mm = legacy_mm
+        if seat_mm is None and legacy_mm is not None:
+            seat_mm = legacy_mm
         if seat_mm is None:
             seat_mm = 30.0
         open_start = 360.0

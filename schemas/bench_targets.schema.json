@@ -13,7 +13,12 @@
         "properties": {
           "rpm": {"type": "number"},
           "power_hp": {"type": "number"},
-          "torque_nm": {"type": "number"}
+          "torque_nm": {"type": "number"},
+          "boost_kpa": {"type": "number"},
+          "map_kpa": {"type": "number"},
+          "lambda": {"type": "number"},
+          "afr": {"type": "number"},
+          "egt_c": {"type": "number"}
         },
         "additionalProperties": true
       }

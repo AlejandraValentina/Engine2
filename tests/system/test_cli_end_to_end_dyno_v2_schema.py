@@ -39,3 +39,7 @@ def test_cli_end_to_end_dyno_v2_schema(tmp_path: Path) -> None:
     payload = json.loads(out_path.read_text(encoding="utf-8"))
     schema = json.loads(Path("schemas/dyno.schema.json").read_text(encoding="utf-8"))
     jsonschema.validate(instance=payload, schema=schema)
+    assert payload["metadata"]["coupling_mode"] == "v2_orchestrator"
+    assert payload["observable_semantics"]["ve_actual"]["cross_mode_relation"] == "comparable_not_identical"
+    assert "trapped fresh-mass" in payload["observable_semantics"]["ve_actual"]["v2_meaning"].lower()
+    assert payload["results"]
