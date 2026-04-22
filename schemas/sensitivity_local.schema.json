@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sensitivity_local.schema.json",
+  "type": "object",
+  "required": ["metadata", "dataset", "baseline", "params", "summary"],
+  "properties": {
+    "report_type": {"type": "string"},
+    "report_format_version": {"type": "integer"},
+    "report_family": {"type": "string"},
+    "generated_at_utc": {"type": "string"},
+    "context": {
+      "type": "object",
+      "properties": {
+        "dataset_id": {"type": "string"},
+        "engine_id": {"type": "string"},
+        "preset_path": {"type": "string"},
+        "engine_path": {"type": "string"},
+        "base_engine_path": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["version", "engine_path", "params_requested", "config"],
+      "properties": {
+        "version": {"type": "string"},
+        "engine_path": {"type": "string"},
+        "params_requested": {"type": "array", "items": {"type": "string"}},
+        "config": {"type": "object"}
+      },
+      "additionalProperties": true
+    },
+    "dataset": {"type": "object"},
+    "signal_evidence": {"type": "object"},
+    "baseline": {"type": "object"},
+    "params": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["param", "supported", "interpretation", "note", "perturbations", "influence_by_signal", "tradeoff_detected"],
+        "properties": {
+          "param": {"type": "string"},
+          "supported": {"type": "boolean"},
+          "interpretation": {"type": "string"},
+          "note": {"type": "string"},
+          "perturbations": {"type": "array"},
+          "influence_by_signal": {"type": "object"},
+          "overall_influence_score": {"type": ["number", "null"]},
+          "tradeoff_detected": {"type": "boolean"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["rankings_by_signal", "robustness_by_signal"],
+      "properties": {
+        "rankings_by_signal": {"type": "object"},
+        "robustness_by_signal": {"type": "object"}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

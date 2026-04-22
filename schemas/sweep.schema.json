@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sweep.schema.json",
+  "type": "object",
+  "required": ["metadata", "sweep", "results"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "sweep": {
+      "type": "object",
+      "required": ["param", "unit", "rpm", "values"],
+      "properties": {
+        "param": {"type": "string"},
+        "unit": {"type": "string"},
+        "rpm": {"type": "number"},
+        "values": {
+          "type": "array",
+          "items": {"type": "number"}
+        }
+      },
+      "additionalProperties": true
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["runner_length_mm", "rpm", "mean_power_hp", "mean_torque_nm", "bmep_bar"],
+        "properties": {
+          "runner_length_mm": {"type": "number"},
+          "rpm": {"type": "number"},
+          "mean_power_hp": {"type": "number"},
+          "mean_torque_nm": {"type": "number"},
+          "bmep_bar": {"type": "number"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

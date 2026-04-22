@@ -1,0 +1,15 @@
+{
+  "engine_id": "v8_like_regression_golden",
+  "source": "regression_golden",
+  "preset": "presets/chevy_350.json",
+  "units": {
+    "rpm": "rpm",
+    "torque_nm": "N*m",
+    "power_hp": "hp"
+  },
+  "error_contract": {
+    "torque_mape_max": 0.02,
+    "power_mape_max": 0.02
+  },
+  "notes": "Regression golden dataset generated from current simulator outputs."
+}

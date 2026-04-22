@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "scope.schema.json",
+  "type": "object",
+  "required": ["metadata", "time", "tail_pressure_pa", "pressure_matrix_pa"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "time": {
+      "type": "array",
+      "items": {"type": "number"}
+    },
+    "tail_pressure_pa": {
+      "type": "array",
+      "items": {"type": "number"}
+    },
+    "pressure_matrix_pa": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {"type": "number"}
+      }
+    }
+  },
+  "additionalProperties": true
+}

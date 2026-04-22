@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "selfcheck.schema.json",
+  "type": "object",
+  "required": ["status", "cases"],
+  "properties": {
+    "status": {"type": "string"},
+    "cases": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["file", "issues", "checks"],
+        "properties": {
+          "file": {"type": "string"},
+          "issues": {
+            "type": "array",
+            "items": {"type": "string"}
+          },
+          "checks": {"type": "object"},
+          "metadata": {"type": "object"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

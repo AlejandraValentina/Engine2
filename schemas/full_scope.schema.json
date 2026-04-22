@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "full_scope.schema.json",
+  "type": "object",
+  "required": ["metadata", "duration_s", "dt_min", "dt_max", "steps_used", "status", "per_cyl", "traces"],
+  "properties": {
+    "observable_semantics": {
+      "type": "object",
+      "properties": {
+        "ve_actual": {
+          "type": "object",
+          "properties": {
+            "available_in_modes": {"type": "array", "items": {"type": "string"}},
+            "cross_mode_relation": {"type": "string"},
+            "v1_meaning": {"type": "string"},
+            "v2_meaning": {"type": "string"},
+            "interpretation_note": {"type": "string"}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "duration_s": {"type": "number"},
+    "dt_min": {"type": "number"},
+    "dt_max": {"type": "number"},
+    "steps_used": {"type": "integer"},
+    "status": {"type": "string"},
+    "per_cyl": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cyl_id", "rpm", "ve_actual", "map_est_kpa", "residual_fraction_est", "scavenging_index"],
+        "properties": {
+          "cyl_id": {"type": "integer"},
+          "rpm": {"type": "number"},
+          "ve_actual": {"type": "number"},
+          "mean_torque_nm": {"type": "number"},
+          "map_est_kpa": {"type": "number"},
+          "residual_fraction_est": {"type": "number"},
+          "scavenging_index": {"type": "number"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "traces": {
+      "type": "object",
+      "required": ["time", "intake_plenum_pa", "exhaust_plenum_pa", "runner_stats"],
+      "properties": {
+        "time": {"type": "array", "items": {"type": "number"}},
+        "intake_plenum_pa": {"type": "array", "items": {"type": "number"}},
+        "exhaust_plenum_pa": {"type": "array", "items": {"type": "number"}},
+        "runner_stats": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["cyl_id", "intake_min", "intake_max", "intake_rms", "exhaust_min", "exhaust_max", "exhaust_rms"],
+            "properties": {
+              "cyl_id": {"type": "integer"},
+              "intake_min": {"type": "number"},
+              "intake_max": {"type": "number"},
+              "intake_rms": {"type": "number"},
+              "exhaust_min": {"type": "number"},
+              "exhaust_max": {"type": "number"},
+              "exhaust_rms": {"type": "number"}
+            },
+            "additionalProperties": true
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "model_name": "V8-like",
+  "block": {
+    "bore": 101.6,
+    "stroke": 88.4,
+    "conrod_length": 150.0,
+    "num_cylinders": 8,
+    "config": "V",
+    "bank_angle": 90.0,
+    "firing_order": [1, 8, 4, 3, 6, 5, 7, 2],
+    "redline_rpm": 6500.0
+  },
+  "head": {
+    "compression_ratio": 10.0,
+    "intake_valves": 2,
+    "exhaust_valves": 2,
+    "intake_valve_diameter": 42.0,
+    "exhaust_valve_diameter": 37.0,
+    "port_flow_cfm": 220.0,
+    "port_flow_efficiency": 0.70,
+    "mach_tolerance": 0.78
+  },
+  "camshaft": {
+    "intake_lift": 12.0,
+    "exhaust_lift": 11.5,
+    "intake_duration": 230.0,
+    "exhaust_duration": 240.0,
+    "lobe_separation": 110.0,
+    "advance": 2.0,
+    "peak_rpm": 5200.0
+  },
+  "intake": {
+    "runner_length": 280.0,
+    "runner_diameter": 48.0,
+    "plenum_volume": 5.0,
+    "throttle_body_dia": 70.0,
+    "throttle_cfm": 750.0,
+    "flow_loss_coefficient": 0.0
+  },
+  "exhaust": {
+    "header_primary_length": 500.0,
+    "header_primary_diameter": 45.0,
+    "collector_length": 300.0
+  },
+  "combustion": {
+    "thermal_efficiency": 0.50,
+    "burn_duration": 50.0,
+    "ignition_advance": 28.0,
+    "afr": 13.5,
+    "wiebe_a": 5.0,
+    "wiebe_m": 2.0,
+    "chamber_type": "Custom"
+  },
+  "simulation_settings": {
+    "ignition_timing_btdc": 28.0,
+    "air_temperature_c": 25.0,
+    "air_pressure_bar": 1.013,
+    "exhaust_backpressure_factor": 1.05
+  }
+}

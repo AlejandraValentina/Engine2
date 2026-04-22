@@ -1,0 +1,13 @@
+{
+  "dataset_id": "f1_like_real",
+  "engine_id": "f1_like_real",
+  "source_type": "real_data",
+  "source": "real_data",
+  "placeholder": true,
+  "notes": "PLACEHOLDER legacy dataset: no real data committed. Provide CSV in targets.csv.",
+  "units": {
+    "rpm": "rpm",
+    "torque_nm": "N*m",
+    "power_hp": "hp"
+  }
+}

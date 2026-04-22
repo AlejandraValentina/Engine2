@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "model_name": "Benchmark Turbo Small",
+  "block": {
+    "bore": 82.0,
+    "stroke": 75.0,
+    "conrod_length": 130.0,
+    "num_cylinders": 4,
+    "config": "L",
+    "bank_angle": 0.0,
+    "firing_order": [1, 3, 4, 2],
+    "redline_rpm": 7200.0
+  },
+  "head": {
+    "compression_ratio": 9.5,
+    "intake_valves": 2,
+    "exhaust_valves": 2,
+    "intake_valve_diameter": 33.0,
+    "exhaust_valve_diameter": 29.0,
+    "port_flow_cfm": 180.0,
+    "port_flow_efficiency": 0.70,
+    "mach_tolerance": 0.78
+  },
+  "camshaft": {
+    "intake_lift": 10.0,
+    "exhaust_lift": 9.5,
+    "intake_duration": 240.0,
+    "exhaust_duration": 240.0,
+    "lobe_separation": 112.0,
+    "advance": 0.0,
+    "peak_rpm": 6000.0
+  },
+  "intake": {
+    "runner_length": 220.0,
+    "runner_diameter": 42.0,
+    "plenum_volume": 3.0,
+    "throttle_body_dia": 60.0,
+    "throttle_cfm": 600.0,
+    "flow_loss_coefficient": 0.0
+  },
+  "exhaust": {
+    "header_primary_length": 400.0,
+    "header_primary_diameter": 36.0,
+    "collector_length": 200.0
+  },
+  "supercharger": {
+    "type": "Turbo",
+    "boost_pressure_bar": 0.6,
+    "intercooler_efficiency": 0.7
+  },
+  "combustion": {
+    "thermal_efficiency": 0.48,
+    "burn_duration": 50.0,
+    "ignition_advance": 28.0,
+    "afr": 12.8,
+    "wiebe_a": 5.0,
+    "wiebe_m": 2.0,
+    "chamber_type": "Custom"
+  },
+  "simulation_settings": {
+    "ignition_timing_btdc": 28.0,
+    "air_temperature_c": 25.0,
+    "air_pressure_bar": 1.013,
+    "exhaust_backpressure_factor": 1.05
+  }
+}

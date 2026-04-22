@@ -1,0 +1,66 @@
+{
+  "schema_version": 1,
+  "model_name": "Benchmark Mono NA",
+  "block": {
+    "bore": 72.0,
+    "stroke": 58.0,
+    "conrod_length": 105.0,
+    "num_cylinders": 1,
+    "config": "L",
+    "bank_angle": 0.0,
+    "firing_order": [1],
+    "redline_rpm": 9000.0
+  },
+  "head": {
+    "compression_ratio": 11.0,
+    "intake_valves": 2,
+    "exhaust_valves": 1,
+    "intake_valve_diameter": 30.0,
+    "exhaust_valve_diameter": 26.0,
+    "port_flow_cfm": 100.0,
+    "port_flow_efficiency": 0.72,
+    "mach_tolerance": 0.80
+  },
+  "camshaft": {
+    "intake_lift": 9.0,
+    "exhaust_lift": 8.5,
+    "intake_duration": 235.0,
+    "exhaust_duration": 235.0,
+    "lobe_separation": 110.0,
+    "advance": 0.0,
+    "peak_rpm": 7500.0
+  },
+  "intake": {
+    "runner_length": 180.0,
+    "runner_diameter": 36.0,
+    "plenum_volume": 1.0,
+    "throttle_body_dia": 42.0,
+    "throttle_cfm": 180.0,
+    "flow_loss_coefficient": 0.0
+  },
+  "exhaust": {
+    "header_primary_length": 320.0,
+    "header_primary_diameter": 30.0,
+    "collector_length": 120.0
+  },
+  "supercharger": {
+    "type": "NA",
+    "boost_pressure_bar": 0.0,
+    "intercooler_efficiency": 0.7
+  },
+  "combustion": {
+    "thermal_efficiency": 0.50,
+    "burn_duration": 45.0,
+    "ignition_advance": 30.0,
+    "afr": 13.2,
+    "wiebe_a": 5.0,
+    "wiebe_m": 2.0,
+    "chamber_type": "Custom"
+  },
+  "simulation_settings": {
+    "ignition_timing_btdc": 30.0,
+    "air_temperature_c": 25.0,
+    "air_pressure_bar": 1.013,
+    "exhaust_backpressure_factor": 1.05
+  }
+}

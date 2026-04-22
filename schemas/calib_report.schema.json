@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "calib_report.schema.json",
+  "type": "object",
+  "required": [
+    "metadata",
+    "preset_base_path",
+    "target_path",
+    "params_initial",
+    "params_final",
+    "parameter_values",
+    "error_initial",
+    "error_final",
+    "evals_used",
+    "status",
+    "artifacts"
+  ],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "preset_base_path": {"type": "string"},
+    "target_path": {"type": "string"},
+    "dataset": {"type": ["object", "null"]},
+    "params_initial": {"type": "object"},
+    "params_final": {"type": "object"},
+    "parameter_values": {"type": "object"},
+    "error_initial": {"type": "number"},
+    "error_final": {"type": "number"},
+    "evals_used": {"type": "integer"},
+    "status": {"type": "string"},
+    "artifacts": {
+      "type": "object",
+      "required": ["calibrated_engine", "benchmark_before", "benchmark_after"],
+      "properties": {
+        "calibrated_engine": {"type": "string"},
+        "benchmark_before": {"type": ["string", "null"]},
+        "benchmark_after": {"type": ["string", "null"]}
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

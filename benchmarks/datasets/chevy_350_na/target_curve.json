@@ -1,0 +1,61 @@
+{
+  "engine_id": "chevy_350_na",
+  "points": [
+    {
+      "rpm": 1500.0,
+      "torque_nm": 342.719966,
+      "power_hp": 72.193008,
+      "bmep_bar": 7.511553,
+      "ve_actual": 0.826325
+    },
+    {
+      "rpm": 2000.0,
+      "torque_nm": 344.343878,
+      "power_hp": 96.713441,
+      "bmep_bar": 7.547145,
+      "ve_actual": 0.849876
+    },
+    {
+      "rpm": 2500.0,
+      "torque_nm": 345.637753,
+      "power_hp": 121.346053,
+      "bmep_bar": 7.575503,
+      "ve_actual": 0.87394
+    },
+    {
+      "rpm": 3000.0,
+      "torque_nm": 348.157367,
+      "power_hp": 146.676764,
+      "bmep_bar": 7.630727,
+      "ve_actual": 0.901812
+    },
+    {
+      "rpm": 3500.0,
+      "torque_nm": 359.843845,
+      "power_hp": 176.866914,
+      "bmep_bar": 7.886865,
+      "ve_actual": 0.950205
+    },
+    {
+      "rpm": 4000.0,
+      "torque_nm": 386.091019,
+      "power_hp": 216.877334,
+      "bmep_bar": 8.462136,
+      "ve_actual": 1.030486
+    },
+    {
+      "rpm": 4500.0,
+      "torque_nm": 405.902962,
+      "power_hp": 256.506993,
+      "bmep_bar": 8.896364,
+      "ve_actual": 1.098511
+    },
+    {
+      "rpm": 5000.0,
+      "torque_nm": 421.753087,
+      "power_hp": 296.137053,
+      "bmep_bar": 9.243758,
+      "ve_actual": 1.159479
+    }
+  ]
+}
