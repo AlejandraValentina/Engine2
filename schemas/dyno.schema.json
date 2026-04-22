@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "dyno.schema.json",
+  "type": "object",
+  "required": ["metadata", "results"],
+  "properties": {
+    "observable_semantics": {
+      "type": "object",
+      "properties": {
+        "ve_actual": {
+          "type": "object",
+          "properties": {
+            "available_in_modes": {"type": "array", "items": {"type": "string"}},
+            "cross_mode_relation": {"type": "string"},
+            "v1_meaning": {"type": "string"},
+            "v2_meaning": {"type": "string"},
+            "interpretation_note": {"type": "string"}
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rpm", "mean_power_hp", "mean_torque_nm", "bmep_bar", "ve_actual"],
+        "properties": {
+          "rpm": {"type": "number"},
+          "mean_power_hp": {"type": "number"},
+          "mean_torque_nm": {"type": "number"},
+          "bmep_bar": {"type": "number"},
+          "ve_actual": {"type": "number"},
+          "map_est_kpa": {"type": "number"},
+          "overlap_flow_kg": {"type": "number"},
+          "residual_fraction_est": {"type": "number"},
+          "scavenging_index": {"type": "number"},
+          "boost_kpa": {"type": "number"},
+          "pr_comp": {"type": "number"},
+          "pr_turb": {"type": "number"},
+          "wg_duty": {"type": "number"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "severity", "confidence", "signals_used", "metrics_used", "rationale", "suggested_interpretation"],
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "severity": {"type": "string"},
+          "confidence": {"type": "string"},
+          "signals_used": {"type": "array", "items": {"type": "string"}},
+          "metrics_used": {"type": "object"},
+          "rationale": {"type": "string"},
+          "suggested_interpretation": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

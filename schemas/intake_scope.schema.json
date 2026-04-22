@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "intake_scope.schema.json",
+  "type": "object",
+  "required": ["metadata", "time", "plenum_pressure_pa", "runner_pressure_pa", "valve_area_m2"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "time": {
+      "type": "array",
+      "items": {"type": "number"}
+    },
+    "plenum_pressure_pa": {
+      "type": "array",
+      "items": {"type": "number"}
+    },
+    "runner_pressure_pa": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "items": {"type": "number"}
+      }
+    },
+    "valve_area_m2": {
+      "type": "array",
+      "items": {"type": "number"}
+    }
+  },
+  "additionalProperties": true
+}

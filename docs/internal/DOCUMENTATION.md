@@ -1,0 +1,271 @@
+# PyWaveDyn Documentation
+
+## Overview
+PyWaveDyn is a verification-focused 0D virtual dyno plus a 1D exhaust wave-scope (opt-in integration). This document describes the codebase and GUI workflows; "implemented" features are defined by reproducible commands/tests (see `FEATURES.md` and `VALIDATION_GUIDE.md`). The advanced core spec lives in `../TECHNICAL_SPECS_V2.md`.
+
+## Module Reference
+
+### `core/numerics.py`
+- **Responsibilities:** Low-level numerical methods for the 1D Euler equations and valve flow.
+- **Key Functions:**
+  - `flux_vector` and `lax_wendroff_step` for Lax–Wendroff time marching with geometric source terms.
+  - `calculate_mass_flow_rate` for isentropic nozzle/orifice flow (choked/subsonic).
+- **Physics:** Euler conservation form, area variation sources, friction placeholders, isentropic mass flow using compressible relations, and safety clamps for stability.
+
+### `core/simulator.py`
+- **Responsibilities:** Wrapper around the numerical core to advance a single pipe using boundary conditions sourced from valves or atmosphere.
+- **Key Classes:**
+  - `PipeSolver` maintains mesh, conserved variables, CFL-based timestep selection, and ghost-cell boundaries.
+- **Physics:** Lax-Wendroff scheme, ghost-cell inlet reflection when valves close, ambient static-pressure outlet (P_amb imposed in the ghost cell), energy/density clamping for stability, CFL limiter, and boundary application before/after each step to preserve imposed conditions.
+
+### `core/advanced/*`
+- **Responsibilities:** Coupled 0D↔1D solver path with phase-aware boundary fluxes, ghost inversion, and convergence tracking.
+- **Key Modules:**
+  - `orchestrator.py` (cycle loop, coupling, convergence monitor, optional flags like `use_numba_1d`).
+  - `solver_1d.py` (MUSCL–Hancock + Rusanov, outlet BCs, SoA/Numba path).
+  - `coupling.py`/`nozzle.py` (valve area, nozzle mass flow, ghost inversion).
+  - `cylinder_cv.py`/`combustion.py` (CV update and optional combustion/heat transfer).
+  - `junctions.py` (junction mixing + losses).
+
+### `core/thermo.py`
+- **Responsibilities:** Zero-dimensional cycle simulation to estimate brake torque and power over a 720° crank cycle.
+- **Key Classes:**
+  - `CylinderSimulator` builds volume profiles, applies Wiebe heat release, models boosted manifold pressure, runner tuning, Mach-index valve choking, camshaft-timed valve events, and subtracts FMEP friction.
+- **Physics:** Slider-crank volume/dV geometry; Wiebe combustion with ignition advance; adiabatic compression/expansion; P·dV work integral; intake/exhaust pumping losses; Mach-index volumetric efficiency with runner length harmonic boosts; valve-timing-based phase masks (IVC/EVO); forced-induction manifold pressure/temperature adjustments; friction mean effective pressure approximation.
+- **Nota (BMEP):** En 0D, `thermal_efficiency` escala el calor químico antes de pérdidas térmicas. Con `thermal_efficiency≈0.55` y VE ~1.2–1.3, el BMEP de freno puede saturar ~9–10 bar. Para targets tipo superbike se requiere un override opt-in de fase/eficiencia de combustión (ver sección Wiebe).
+
+### `core/engine_components.py`
+- **Responsibilities:** Data model for engine parts with JSON serialization.
+- **Key Classes:** `Block`, `CylinderHead`, `Camshaft`, `IntakeSystem`, `ExhaustSystem`, `Supercharger`, `Engine` (root container with save/load helpers).
+- **Physics/Data:** Geometric parameters, firing order, displacement computation; cam harmonic lift approximation; redline RPM; flow limits (port flow CFM, throttle CFM).
+
+#### `head.port_flow_cfm` semantics (important)
+- `head.port_flow_cfm` is **per intake valve** capacity at 28 inH2O.
+- The 0D flow cap computes total head supply as `head_supply_cfm = port_flow_cfm * intake_valves * num_cylinders`.
+- The final supply is `supply_cfm = min(head_supply_cfm, throttle_cfm)`.
+- This `supply_cfm` limits VE via `flow_cap_factor = supply_cfm / required_cfm`.
+- **Preset guidance:** set `port_flow_cfm` per **valve**, not per cylinder or whole engine.
+
+### `acoustics/audio_generator.py`
+- **Responsibilities:** Convert simulated pressure-time signals into listenable audio files.
+- **Key Classes:**
+  - `AudioSynthesizer` buffers samples, interpolates to 44.1 kHz, high-pass filters, normalizes, and writes WAV.
+- **Physics/Signal Processing:** Interp1d resampling, Butterworth high-pass filter for DC removal.
+
+### `gui/main_window.py`
+- **Responsibilities:** Main PySide6 window for editing engine data, persisting projects, running dyno sweeps, and exploring parametric optimizations.
+- **Key Elements:**
+  - Tree-driven component selection with property editors bound directly to dataclasses (including redline RPM, port flow CFM, throttle CFM).
+  - Dyno tab with mode selector: v1 (Quick 0D via `CylinderSimulator`) or v2 (Pro Coupled via `ProDynoV2Runner`), plus JSON export aligned to the CLI dyno schema.
+  - Pro Dyno tab for v2 sweeps with convergence plots (same runner as CLI v2).
+  - Optimizer tab to sweep component parameters (cams, intake, exhaust, compression) and plot peak horsepower trends with progress feedback.
+  - Toolbar/menu actions for saving/loading JSON configs and quick-save.
+- **Workflow:** Refreshes the tree from the `Engine` model, edits values via spin boxes/combo boxes, runs dyno simulations across RPM ranges derived from the block redline, and executes optimization sweeps that temporarily modify component attributes and restore them afterward.
+
+### `gui/widgets/scope_widget.py`
+- **Responsibilities:** Plotting helper for pressure/energy traces with HUD text overlay.
+- **Key Classes:**
+  - `ScopeWidget` provides neon-themed pyqtgraph plot, auto-ranging Y axis, and status text showing simulation time/crank angle/valve state, with thicker neon pen for clarity.
+
+### `test_solver.py`
+- **Responsibilities:** Regression harness for the pipe solver to step a simple pipe and log pressures for debugging stability/CFL behavior.
+
+## Usage Guide
+
+### Defining an Engine in the GUI
+1. Launch the application (`python main.py`).
+2. Use the **Project Explorer** tree to select a component (Block, Head, Camshaft, Intake, Exhaust, Supercharger).
+3. The **Properties** tab will auto-focus and show editable fields. Adjust values with spin boxes or combo boxes; changes write directly to the underlying data model. Derived fields (such as displacement and mean piston speed) update in-place without rebuilding the entire form.
+4. If a value update fails, the GUI surfaces the error in the status bar and a dialog instead of silently swallowing it.
+
+### Running the Dyno
+1. Open the **Dyno Graph** tab.
+2. Set the **Redline RPM** in the Block properties to bound the sweep (loop runs from 1000 RPM to the redline + 500 buffer in 500 RPM steps).
+3. Pick a **Mode**:
+   - **v1 (Quick 0D):** fast sweep using the 0D thermodynamic model.
+   - **v2 (Pro Coupled):** slower coupled sweep using the v2 orchestrator.
+4. Pick a **Quality** preset for v2:
+   - **Fast:** baseline behavior.
+   - **Stable:** adds settle cycles, periodicity gating, and drops non-converged points.
+5. Click **Run Power Sweep** to simulate; the plot overlays Power (HP) and Torque (Nm).
+6. Progress is shown (RPM i/N + elapsed time) and the plot updates incrementally. You can cancel and the UI remains responsive.
+7. Use **Export Dyno JSON…** to save the CLI-compatible dyno output (validated against `schemas/dyno.schema.json`).
+
+### Correr smoke tests GUI offscreen
+```bash
+QT_QPA_PLATFORM=offscreen python3 -m pytest -q tests/test_gui_import_smoke.py tests/test_gui_offscreen_window_smoke.py
+```
+
+### Running Headless (CLI)
+PyWaveDyn exposes a minimal headless CLI for reproducible runs without the GUI:
+
+- **Dyno sweep:** `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:9000:250 --out out_dyno.json`
+- **Dyno v2 (stable):** `python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 1000:9000:500 --mode v2 --settle-cycles 1 --min-periodicity 0.35 --drop-invalid --rpm-start-safe --out out_dyno_v2.json`
+- **Wave scope:** `python -m pywavedyn.cli scope --engine presets/honda_k20.json --rpm 2500 --cycles 1 --out out_scope.json`
+- **Intake scope:** `python -m pywavedyn.cli intake-scope --engine presets/honda_k20.json --target-dx 0.05 --max-steps 200 --out intake_scope.json`
+- **Audio:** `python -m pywavedyn.cli audio --engine presets/honda_k20.json --rpm 2500 --duration 0.5 --sample-rate 44100 --out out.wav`
+  - Fuente plenum (opcional): `python -m pywavedyn.cli audio --engine presets/honda_k20.json --rpm 2500 --duration 0.5 --sample-rate 44100 --source exhaust_plenum --out out.wav`
+- **Sweep:** `python -m pywavedyn.cli sweep --engine presets/honda_k20.json --rpm 3000 --points 5 --out out_sweep.json`
+- **Part-load map:** `python -m pywavedyn.cli map --engine presets/honda_k20.json --rpm-grid 2000,3000 --throttle-grid 0.2,0.6,1.0 --out map.json`
+- **Cut-list:** `python -m pywavedyn.cli cutlist --engine presets/honda_k20.json --out cutlist.json`
+- **Auto-calibration:** `python -m pywavedyn.cli calibrate --engine presets/honda_k20.json --target target.json --out calib_report.json --max-evals 40 --params ve_scale,friction_scale,burn_scale`
+  - **Calibrate BMEP (opt-in):** `python -m pywavedyn.cli calibrate-bmep --engine presets/v12_1710cc_15k_superbike_target.json --rpm 10000 --target-bmep 12.5 --ca50-range 6:12:1 --duration-range 14:26:2 --out bmep_report.json`
+
+The CLI outputs JSON with metadata (input_hash, timestamp, settings, coupling_mode) plus results for each command.
+
+### Preset: F1 Screamer V12 1.71L @ 15k
+Minimal CLI examples for the new V12 preset:
+
+- **Dyno v1 (quick):** `python -m pywavedyn.cli dyno --engine presets/f1_screamer_v12_1710cc_15k.json --rpm 12000:15000:3000 --out v12_dyno_v1.json`
+- **Dyno v2 (stable):** `python -m pywavedyn.cli dyno --engine presets/f1_screamer_v12_1710cc_15k.json --rpm 12000:15000:3000 --mode v2 --settle-cycles 1 --min-periodicity 0.6 --drop-invalid --rpm-start-safe --out v12_dyno_v2.json`
+- **Optional knock report:** `python -m pywavedyn.cli dyno --engine presets/f1_screamer_v12_1710cc_15k.json --rpm 12000:15000:3000 --mode v2 --knock-report v12_knock.json --out v12_dyno_v2.json`
+- **Schema validation (dyno JSON):** `python -m pytest -q tests/test_output_schema_dyno.py`
+
+### Preset: V12 1.71L Superbike Target (95 RON)
+Preset para BMEP objetivo con 95 octanos (opt-in).
+
+- **Dyno v1 (quick):** `python -m pywavedyn.cli dyno --engine presets/v12_1710cc_15k_superbike_target.json --rpm 10000:15000:2500 --out v12_superbike_v1.json`
+- **Dyno v2 (stable):** `python -m pywavedyn.cli dyno --engine presets/v12_1710cc_15k_superbike_target.json --rpm 10000:15000:2500 --mode v2 --settle-cycles 1 --min-periodicity 0.6 --drop-invalid --rpm-start-safe --out v12_superbike_v2.json`
+- **Calibrate BMEP (report):** `python -m pywavedyn.cli calibrate-bmep --engine presets/v12_1710cc_15k_superbike_target.json --rpm 10000 --target-bmep 12.5 --out bmep_report.json`
+
+### Species transport (opt-in)
+El transporte conservativo de la especie `Y_fresh` en el solver 1D está deshabilitado por defecto. Para activarlo:
+
+```json
+{
+  "simulation_settings": {
+    "species": {
+      "enabled": true,
+      "model": "y_fresh"
+    }
+  }
+}
+```
+
+Cuando está habilitado, el solver 1D advecta `rhoY = rho * Y_fresh` con el mismo esquema que la masa y clampa `Y_fresh` a `[0,1]`.
+
+### Knock report (opt-in)
+Reporte de knock basado en residuales calientes (proxy). Requiere `combustion.residual_coupling.enabled=true` y se exporta como JSON separado:
+
+```bash
+python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000:4000:1000 --mode v2 --knock-report knock.json --out dyno.json
+```
+
+El reporte se valida contra `schemas/knock_report.schema.json` y no altera `dyno.schema.json`.
+
+### Combustion Wiebe controls (opt-in)
+El bloque `combustion.wiebe` permite override explícito de fase/duración de combustión en 0D (sin cambiar defaults):
+
+```json
+{
+  "combustion": {
+    "wiebe": {
+      "enabled": true,
+      "ca50_deg_atdc": 9.0,
+      "burn_duration_deg": 24.0,
+      "a": 5.0,
+      "m": 2.0,
+      "eta_scale": 1.35
+    }
+  }
+}
+```
+
+- `ca50_deg_atdc` y `burn_duration_deg` sobreescriben los targets dinámicos cuando `enabled=true`.
+- `eta_scale` multiplica `thermal_efficiency` **solo** cuando Wiebe está habilitado (clamp a 1.0). Útil para representar combustión más rápida/eficiente sin cambiar defaults globales.
+- Opcionales: `start_deg_atdc`/`end_deg_atdc` para fijar ventana absoluta de combustión (BTDC permitido con valores negativos).
+
+Para diagnóstico, se puede imprimir balance energético por ciclo:
+
+```bash
+PYWAVEDYN_DEBUG_COMBUSTION=1 python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 3000 --out dyno.json
+```
+
+Muestra `Q_in`, `Q_rejected`, `W_ind`, pumping work, IMEP/BMEP y CA10/50/90.
+
+El reporte de calibración de BMEP se valida contra `schemas/calibrate_bmep.schema.json`.
+
+### Legacy compatibility mode (opt-in)
+Para presets legacy, se puede forzar el perfil v1 con:
+
+```bash
+python -m pywavedyn.cli dyno --engine presets/legacy/custom_twin_230cc.json --rpm 2000 --auto-legacy-compat --out dyno.json
+```
+
+O explícitamente:
+
+```bash
+python -m pywavedyn.cli dyno --engine presets/honda_k20.json --rpm 2000 --legacy-compat v1 --out dyno.json
+```
+
+Cuando está activo, los outputs incluyen `metadata.legacy_compat="v1"`.
+
+### Plenum wall thermal (opt-in)
+Los plenums 0D pueden habilitar masa térmica de pared para evitar enfriamientos irreales por A/V. Se activa en el bloque `intake_plenum.wall_thermal` o `exhaust_plenum.wall_thermal`:
+
+- `enabled`: false por defecto (no-op cuando está deshabilitado).
+- `material.rho`, `material.cp`, `thickness_m`: definen la masa térmica.
+- `h_model`: `"dittus_boelter"` (default) o `"constant"`.
+- `ambient_loss.enabled`: pérdidas a ambiente (off por defecto).
+
+### Calibración: diagnóstico de unicidad
+El comando `calibrate` soporta un modo diagnóstico opt-in para identificar soluciones no únicas:
+
+- `--diagnostics --multi-start N --top-k K --eps-obj X --eps-params Y --seed S`
+
+Cuando está habilitado genera un reporte extendido (schema `calibrate_report.schema.json`) con top-k soluciones y un flag `unique`.
+
+### Como comparar fidelidad
+Para comparar fidelidad de manera reproducible, usar estos flujos (headless):
+
+- **Selfcheck (tendencias/rangos):**
+  - `python -m pywavedyn.cli selfcheck --expectations validation_cases/expectations.json --out selfcheck_report.json`
+- **Benchmark (regression_golden / real_data):**
+  - `python -m pywavedyn.cli benchmark --engine presets/honda_k20.json --dataset benchmarks/datasets/honda_k20_na --out bench_report.json`
+- **Import CSV (datos externos):**
+  - `python -m pywavedyn.cli dyno-import --input curve.csv --out benchmarks/datasets/<name> --dataset-id <id> --engine-id <id> --preset-path presets/honda_k20.json --format csv --mapping rpm=speed,torque_nm=tq,power_hp=hp --units torque_nm=lbft,power_hp=hp`
+  - `bench-import` sigue disponible para el flujo CSV canónico mínimo, pero el package real-data actual escribe un directorio con `metadata.json`, `target_curve.json` y opcionalmente `source.csv`.
+
+### Recording Audio
+Audio can be generated headless via CLI or recorded in the GUI if enabled.
+
+- **CLI:** `python -m pywavedyn.cli audio --engine presets/honda_k20.json --rpm 2500 --duration 0.5 --sample-rate 44100 --out out.wav`
+- **GUI:** The scope view can buffer tailpipe pressure samples and export a WAV.
+
+1. During a transient pipe simulation (scope view), enable the **Record Audio** toggle on the toolbar (if present in your build). If the toggle is off, the audio buffer stays empty and **Save Audio** remains disabled.
+2. When recording is enabled, each simulation step appends the tailpipe pressure sample via `AudioSynthesizer.add_sample`.
+3. Click **Save WAV** to export the buffered signal; pressure is resampled to 44.1 kHz, filtered, normalized, and written as a `.wav` file.
+
+### Saving/Loading JSON Configurations
+- **Save:** Use the toolbar save icon or File → Save to write the current `Engine` configuration to JSON via `Engine.save_to_file`. If the project already has a filename, Save writes directly to that path; otherwise it behaves like Save As.
+- **Save As:** File → Save As always prompts for a filename.
+- **Load:** Use File → Load to restore an existing configuration; the tree and property editors refresh automatically. The window title and overview header show the loaded filename.
+
+### Running Optimization Sweeps
+Headless sweeps are available via CLI (runner length grid). GUI sweeps remain available for exploratory workflows.
+
+1. Open the **Optimizer** tab.
+2. Choose a target parameter (e.g., intake runner length, cam intake duration, compression ratio) and set start/end/step values.
+3. Click **Run Optimization Sweep**. The optimizer temporarily adjusts the selected parameter, runs dyno simulations over the RPM range, records peak horsepower, updates a progress bar, and plots Parameter Value vs. Peak HP.
+4. When finished, the original engine settings are restored automatically, so you can adopt the best value manually.
+
+## Verificacion v2.3 FINAL
+```bash
+python -m pytest -q -W error::RuntimeWarning
+python -m pytest -q
+python -m pytest -q -m integration
+python -m pytest -q -m legacy
+python -m pytest -q -m perf
+python -m pytest -q -m system
+python -m pywavedyn.cli --help
+python -m pywavedyn.cli full-scope --help
+python -m pywavedyn.cli benchmark --help
+python -m pywavedyn.cli dyno --help
+python -m pywavedyn.cli optimize --help
+```
+
+### Notes on Physics Models
+- **Gas Dynamics:** Pipes advance with a Lax–Wendroff finite-volume scheme, ghost cells for boundary reflection, ambient static-pressure outlets (P_amb imposed in the ghost cell), and stability clamps (density/energy, CFL timestep).
+- **Valve Flow:** Mass transfer uses isentropic relations with choking detection and discharge coefficients. The default 1D exhaust valve model uses curtain or fixed seat area (via `SimulationSettings.exhaust_valve_area_model`) with Cd from `SimulationSettings.exhaust_valve_cd` (override) or `CylinderHead.exhaust_valve_cd` and `CylinderHead.exhaust_valve_seat_diameter_mm`. The placeholder sinusoid is only used when valve geometry/cam data is unavailable or explicitly forced.
+- **Thermo Cycle:** Cylinder pressure uses phase-aware intake/compression/combustion/exhaust masks with Wiebe heat release and friction torque subtraction for brake output.
+- **Audio:** Raw pressure histories are interpolated to fixed-rate audio with optional DC removal to hear exhaust timbre.

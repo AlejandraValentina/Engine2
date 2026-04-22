@@ -1,0 +1,15 @@
+{
+  "engine_id": "v8_like_regression_golden",
+  "points": [
+    {
+      "rpm": 2000.0,
+      "torque_nm": 344.34387833902633,
+      "power_hp": 96.71344137486054
+    },
+    {
+      "rpm": 4000.0,
+      "torque_nm": 386.0910186005874,
+      "power_hp": 216.877333628824
+    }
+  ]
+}

@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "calibrate_report.schema.json",
+  "type": "object",
+  "required": ["metadata", "best_solution", "top_k", "uniqueness", "evals_used", "status"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode", "seed", "multi_start", "eps_obj", "eps_params", "bounds", "top_k"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"},
+        "seed": {"type": "integer"},
+        "multi_start": {"type": "integer"},
+        "eps_obj": {"type": "number"},
+        "eps_params": {"type": "number"},
+        "bounds": {
+          "type": "object",
+          "required": ["min", "max"],
+          "properties": {
+            "min": {"type": "number"},
+            "max": {"type": "number"}
+          }
+        },
+        "top_k": {"type": "integer"}
+      },
+      "additionalProperties": true
+    },
+    "best_solution": {
+      "type": "object",
+      "required": ["params", "objective"],
+      "properties": {
+        "params": {"type": "object"},
+        "objective": {"type": "number"}
+      },
+      "additionalProperties": true
+    },
+    "top_k": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["params", "objective"],
+        "properties": {
+          "params": {"type": "object"},
+          "objective": {"type": "number"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "uniqueness": {
+      "type": "object",
+      "required": ["unique", "reason", "param_spread", "obj_spread"],
+      "properties": {
+        "unique": {"type": "boolean"},
+        "reason": {"type": "string"},
+        "param_spread": {"type": "object"},
+        "obj_spread": {"type": "number"}
+      },
+      "additionalProperties": true
+    },
+    "evals_used": {"type": "integer"},
+    "status": {"type": "string"}
+  },
+  "additionalProperties": true
+}

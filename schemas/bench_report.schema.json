@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "bench_report.schema.json",
+  "type": "object",
+  "required": ["metadata", "dataset", "points", "errors", "contract"],
+  "properties": {
+    "report_type": {"type": "string"},
+    "report_format_version": {"type": "integer"},
+    "report_family": {"type": "string"},
+    "generated_at_utc": {"type": "string"},
+    "context": {
+      "type": "object",
+      "properties": {
+        "dataset_id": {"type": "string"},
+        "engine_id": {"type": "string"},
+        "preset_path": {"type": "string"},
+        "engine_path": {"type": "string"},
+        "base_engine_path": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "dataset": {
+      "type": "object",
+      "required": [
+        "dataset_id",
+        "engine_id",
+        "preset_path",
+        "source_type",
+        "source_file",
+        "source_sha256",
+        "notes",
+        "error_contract",
+        "path",
+        "metadata"
+      ],
+      "properties": {
+        "dataset_id": {"type": "string"},
+        "engine_id": {"type": "string"},
+        "preset_path": {"type": "string"},
+        "source_type": {"type": "string"},
+        "source_file": {"type": "string"},
+        "source_format": {"type": ["string", "null"]},
+        "source_sha256": {"type": "string"},
+        "notes": {"type": "string"},
+        "signals_present": {"type": "array", "items": {"type": "string"}},
+        "mapping_applied": {"type": "object"},
+        "original_units": {"type": "object"},
+        "import_warnings": {"type": "array", "items": {"type": "string"}},
+        "error_contract": {
+          "type": "object",
+          "required": ["torque_mape_max", "power_mape_max"],
+          "properties": {
+            "torque_mape_max": {"type": "number"},
+            "power_mape_max": {"type": "number"}
+          },
+          "additionalProperties": true
+        },
+        "path": {"type": "string"},
+        "metadata": {"type": "object"}
+      },
+      "additionalProperties": true
+    },
+    "points": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rpm", "target", "predicted"],
+        "properties": {
+          "rpm": {"type": "number"},
+          "target": {"type": "object"},
+          "predicted": {"type": "object"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "errors": {
+      "type": "object",
+      "required": ["torque_nm", "power_hp", "total_mape"],
+      "properties": {
+        "torque_nm": {
+          "type": "object",
+          "required": ["mae", "mape"],
+          "properties": {
+            "mae": {"type": "number"},
+            "mape": {"type": "number"}
+          }
+        },
+        "power_hp": {
+          "type": "object",
+          "required": ["mae", "mape"],
+          "properties": {
+            "mae": {"type": "number"},
+            "mape": {"type": "number"}
+          }
+        },
+        "total_mape": {"type": "number"}
+      },
+      "additionalProperties": true
+    },
+    "signal_coverage": {
+      "type": "object",
+      "properties": {
+        "dataset_signals": {"type": "array", "items": {"type": "string"}},
+        "compared_signals": {"type": "array", "items": {"type": "string"}},
+        "skipped_signals": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "signal_evidence": {
+      "type": "object",
+      "properties": {
+        "dataset_signals": {"type": "array", "items": {"type": "string"}},
+        "compared_signals": {"type": "array", "items": {"type": "string"}},
+        "skipped_signals": {"type": "array", "items": {"type": "string"}},
+        "groups": {"type": "object"},
+        "limitations": {"type": "array", "items": {"type": "string"}}
+      },
+      "additionalProperties": true
+    },
+    "diagnostics": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "title", "severity", "confidence", "signals_used", "metrics_used", "rationale", "suggested_interpretation"],
+        "properties": {
+          "id": {"type": "string"},
+          "title": {"type": "string"},
+          "severity": {"type": "string"},
+          "confidence": {"type": "string"},
+          "signals_used": {"type": "array", "items": {"type": "string"}},
+          "metrics_used": {"type": "object"},
+          "rationale": {"type": "string"},
+          "suggested_interpretation": {"type": "string"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "contract": {
+      "type": "object",
+      "required": ["torque_mape_max", "power_mape_max", "pass"],
+      "properties": {
+        "torque_mape_max": {"type": "number"},
+        "power_mape_max": {"type": "number"},
+        "pass": {"type": "boolean"}
+      }
+    }
+  },
+  "additionalProperties": true
+}

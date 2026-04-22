@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "knock_report.schema.json",
+  "type": "object",
+  "required": ["metadata", "results"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["rpm", "knock_index", "knock_flag", "endgas_temp_k", "residual_fraction", "residual_temp_k"],
+        "properties": {
+          "rpm": {"type": "number"},
+          "knock_index": {"type": "number"},
+          "knock_flag": {"type": "boolean"},
+          "endgas_temp_k": {"type": "number"},
+          "residual_fraction": {"type": "number"},
+          "residual_temp_k": {"type": "number"},
+          "endgas_base_temp_k": {"type": "number"},
+          "window_deg": {"type": "number"},
+          "threshold": {"type": "number"},
+          "A": {"type": "number"},
+          "B": {"type": "number"}
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

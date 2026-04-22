@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "calibrate_bmep.schema.json",
+  "type": "object",
+  "required": ["metadata", "target", "ranges", "evaluations", "best", "status", "used_no_knock_filter"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["input_hash", "timestamp", "version", "settings", "coupling_mode"],
+      "properties": {
+        "input_hash": {"type": "string"},
+        "timestamp": {"type": "string"},
+        "version": {"type": "string"},
+        "settings": {"type": "object"},
+        "coupling_mode": {"type": "string"}
+      },
+      "additionalProperties": true
+    },
+    "target": {
+      "type": "object",
+      "required": ["rpm", "bmep_bar"],
+      "properties": {
+        "rpm": {"type": "number"},
+        "bmep_bar": {"type": "number"}
+      }
+    },
+    "ranges": {
+      "type": "object",
+      "required": ["ca50_deg_atdc", "burn_duration_deg"],
+      "properties": {
+        "ca50_deg_atdc": {"type": "array", "items": {"type": "number"}},
+        "burn_duration_deg": {"type": "array", "items": {"type": "number"}}
+      }
+    },
+    "evaluations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ca50_deg_atdc", "burn_duration_deg", "bmep_bar", "mean_power_hp", "mean_torque_nm"],
+        "properties": {
+          "ca50_deg_atdc": {"type": "number"},
+          "burn_duration_deg": {"type": "number"},
+          "bmep_bar": {"type": "number"},
+          "mean_power_hp": {"type": "number"},
+          "mean_torque_nm": {"type": "number"},
+          "knock_warning": {"type": "boolean"}
+        },
+        "additionalProperties": true
+      }
+    },
+    "best": {
+      "type": ["object", "null"],
+      "required": ["ca50_deg_atdc", "burn_duration_deg", "bmep_bar", "mean_power_hp", "mean_torque_nm"],
+      "properties": {
+        "ca50_deg_atdc": {"type": "number"},
+        "burn_duration_deg": {"type": "number"},
+        "bmep_bar": {"type": "number"},
+        "mean_power_hp": {"type": "number"},
+        "mean_torque_nm": {"type": "number"},
+        "knock_warning": {"type": "boolean"}
+      },
+      "additionalProperties": true
+    },
+    "status": {"type": "string"},
+    "used_no_knock_filter": {"type": "boolean"}
+  },
+  "additionalProperties": true
+}

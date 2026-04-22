@@ -1,0 +1,61 @@
+{
+  "engine_id": "single_cyl_moto_na",
+  "points": [
+    {
+      "rpm": 3000.0,
+      "torque_nm": 4.975858,
+      "power_hp": 2.096301,
+      "bmep_bar": 2.006394,
+      "ve_actual": 0.866791
+    },
+    {
+      "rpm": 4000.0,
+      "torque_nm": 4.94356,
+      "power_hp": 2.776926,
+      "bmep_bar": 1.993371,
+      "ve_actual": 0.898533
+    },
+    {
+      "rpm": 5000.0,
+      "torque_nm": 4.97507,
+      "power_hp": 3.493282,
+      "bmep_bar": 2.006077,
+      "ve_actual": 0.942065
+    },
+    {
+      "rpm": 6000.0,
+      "torque_nm": 5.45953,
+      "power_hp": 4.60014,
+      "bmep_bar": 2.201424,
+      "ve_actual": 1.042248
+    },
+    {
+      "rpm": 7000.0,
+      "torque_nm": 6.079744,
+      "power_hp": 5.976513,
+      "bmep_bar": 2.45151,
+      "ve_actual": 1.162678
+    },
+    {
+      "rpm": 8000.0,
+      "torque_nm": 6.208134,
+      "power_hp": 6.974539,
+      "bmep_bar": 2.50328,
+      "ve_actual": 1.231084
+    },
+    {
+      "rpm": 9000.0,
+      "torque_nm": 6.062455,
+      "power_hp": 7.662236,
+      "bmep_bar": 2.444538,
+      "ve_actual": 1.272503
+    },
+    {
+      "rpm": 10000.0,
+      "torque_nm": 3.866331,
+      "power_hp": 5.429546,
+      "bmep_bar": 1.559004,
+      "ve_actual": 1.082126
+    }
+  ]
+}

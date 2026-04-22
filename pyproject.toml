@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pywavedyn"
+version = "0.2.0"
+description = "PyWaveDyn headless engine simulation toolkit"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+keywords = ["engine", "simulation", "dyno", "acoustics", "wave"]
+
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.9",
+]
+
+[project.optional-dependencies]
+gui = [
+  "PySide6>=6.5",
+  "pyqtgraph>=0.13",
+]
+dev = [
+  "pytest>=7.0",
+  "jsonschema>=4.0",
+]
+
+[project.scripts]
+pywavedyn = "pywavedyn.cli:main"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+include = ["pywavedyn", "core", "core.*", "acoustics", "acoustics.*"]
+
+[tool.setuptools.data-files]
+"presets" = ["presets/**/*.json"]
+"schemas" = ["schemas/**/*.schema.json"]
