@@ -292,11 +292,19 @@ def _rusanov_flux(UL: np.ndarray, UR: np.ndarray, gamma: float, gas_constant: fl
     F_UL = flux(UL, gamma)
     F_UR = flux(UR, gamma)
 
-    prim_L = conserved_to_primitive(UL, gamma, gas_constant)
-    prim_R = conserved_to_primitive(UR, gamma, gas_constant)
-    a_L = np.sqrt(gamma * prim_L[:, 2] / np.maximum(prim_L[:, 0], _DENSITY_FLOOR))
-    a_R = np.sqrt(gamma * prim_R[:, 2] / np.maximum(prim_R[:, 0], _DENSITY_FLOOR))
-    smax = np.maximum(np.abs(prim_L[:, 1]) + a_L, np.abs(prim_R[:, 1]) + a_R)
+    # Compute wave speeds directly without full conserved_to_primitive
+    # (avoids creating (N,5) array with T and Y that are not needed)
+    rho_L = np.maximum(UL[:, 0], _DENSITY_FLOOR)
+    u_L = UL[:, 1] / rho_L
+    p_L = np.maximum((gamma - 1.0) * (UL[:, 2] - 0.5 * rho_L * u_L * u_L), _PRESSURE_FLOOR)
+    a_L = np.sqrt(gamma * p_L / rho_L)
+
+    rho_R = np.maximum(UR[:, 0], _DENSITY_FLOOR)
+    u_R = UR[:, 1] / rho_R
+    p_R = np.maximum((gamma - 1.0) * (UR[:, 2] - 0.5 * rho_R * u_R * u_R), _PRESSURE_FLOOR)
+    a_R = np.sqrt(gamma * p_R / rho_R)
+
+    smax = np.maximum(np.abs(u_L) + a_L, np.abs(u_R) + a_R)
 
     return 0.5 * (F_UL + F_UR) - 0.5 * smax[:, None] * (UR - UL)
 
@@ -709,6 +717,36 @@ def _minmod_numba(a: float, b: float) -> float:
 
 
 @njit(cache=True)
+def _outlet_prim_nr_numba(
+    rho_i: float,
+    u_i: float,
+    p_i: float,
+    Y_i: float,
+    p_outlet: float,
+    gamma: float,
+) -> tuple:
+    """Non-reflecting outlet BC (Numba-compatible scalar version)."""
+    rho_safe = rho_i if rho_i > _DENSITY_FLOOR else _DENSITY_FLOOR
+    p_safe = p_i if p_i > _PRESSURE_FLOOR else _PRESSURE_FLOOR
+    a_i = math.sqrt(gamma * p_safe / rho_safe)
+
+    if u_i <= 0.0 or abs(u_i) >= a_i:
+        return rho_i, u_i, p_i, Y_i
+
+    p_out = p_outlet if p_outlet > _PRESSURE_FLOOR else _PRESSURE_FLOOR
+    rho_out = rho_safe * (p_out / p_safe) ** (1.0 / gamma)
+    rho_out_safe = rho_out if rho_out > _DENSITY_FLOOR else _DENSITY_FLOOR
+    a_out = math.sqrt(gamma * p_out / rho_out_safe)
+    J_plus = u_i + 2.0 * a_i / (gamma - 1.0)
+    u_out = J_plus - 2.0 * a_out / (gamma - 1.0)
+
+    if not math.isfinite(u_out) or u_out <= 0.0:
+        return rho_i, u_i, p_i, Y_i
+
+    return rho_out, u_out, p_out, Y_i
+
+
+@njit(cache=True)
 def _muscl_hancock_step_soa_numba_kernel(
     U_in: np.ndarray,
     ghost_left_prim: np.ndarray,
@@ -725,6 +763,8 @@ def _muscl_hancock_step_soa_numba_kernel(
     diameter: float,
     mu: float,
     friction_energy_mode: int,
+    outlet_mode_code: int,
+    p_outlet: float,
     prim: np.ndarray,
     prim_ext: np.ndarray,
     slope: np.ndarray,
@@ -860,6 +900,31 @@ def _muscl_hancock_step_soa_numba_kernel(
         prim_half[i, 1] = u
         prim_half[i, 2] = p
         prim_half[i, 3] = Y
+
+    # Recompute right ghost for corrector phase if outlet BC is active
+    if outlet_mode_code == 1:  # non_reflecting
+        rho_nr, u_nr, p_nr, Y_nr = _outlet_prim_nr_numba(
+            prim_half[n_phys - 1, 0],
+            prim_half[n_phys - 1, 1],
+            prim_half[n_phys - 1, 2],
+            prim_half[n_phys - 1, 3],
+            p_outlet,
+            gamma,
+        )
+        ghost_right_prim[0] = rho_nr
+        ghost_right_prim[1] = u_nr
+        ghost_right_prim[2] = p_nr
+        ghost_right_prim[3] = Y_nr
+        # Recompute ghost_right_U for corrector face flux
+        rho_nr_s = rho_nr if rho_nr > _DENSITY_FLOOR else _DENSITY_FLOOR
+        p_nr_s = p_nr if p_nr > _PRESSURE_FLOOR else _PRESSURE_FLOOR
+        T_nr = p_nr_s / (rho_nr_s * gas_constant)
+        e_int_nr = gas_constant * T_nr / (gamma - 1.0)
+        E_nr = e_int_nr + 0.5 * u_nr * u_nr
+        ghost_right_U[0] = rho_nr_s
+        ghost_right_U[1] = rho_nr_s * u_nr
+        ghost_right_U[2] = rho_nr_s * E_nr
+        ghost_right_U[3] = rho_nr_s * Y_nr
 
     prim_half_ext[0, :] = ghost_left_prim
     prim_half_ext[1:-1, :] = prim_half
@@ -1197,7 +1262,9 @@ def _muscl_hancock_step_soa_numba(
     mode = outlet_mode
     if mode is None:
         mode = "non_reflecting" if p_outlet is not None else "copy"
-    if mode != "copy" or p_outlet is not None:
+
+    # Impedance mode not yet supported in Numba kernel — fall back to Python
+    if mode == "impedance":
         return _muscl_hancock_step_soa(
             U,
             dx,
@@ -1215,6 +1282,10 @@ def _muscl_hancock_step_soa_numba(
             mu=mu,
             friction_energy_mode=friction_energy_mode,
         )
+
+    if mode == "non_reflecting" and p_outlet is None:
+        raise ValueError("p_outlet must be set when outlet_mode is 'non_reflecting'")
+
     if friction_model is None:
         friction_mode_code = 0 if friction_factor > 0.0 else 2
     elif friction_model == "constant":
@@ -1235,6 +1306,13 @@ def _muscl_hancock_step_soa_numba(
     else:
         raise ValueError(f"Unknown friction_energy_mode '{friction_energy_mode}'")
 
+    # Outlet mode encoding for Numba kernel
+    outlet_mode_code = 0  # copy
+    p_outlet_val = 0.0
+    if mode == "non_reflecting":
+        outlet_mode_code = 1
+        p_outlet_val = float(p_outlet)
+
     N = U.shape[0]
     if N < 3:
         raise ValueError("U must include left/right ghost cells and at least one physical cell")
@@ -1252,16 +1330,35 @@ def _muscl_hancock_step_soa_numba(
         ],
         dtype=float,
     )
-    prim_right_full = conserved_to_primitive(U[-1:], gamma, gas_constant)[0]
-    prim_right = np.array(
-        [
-            max(float(prim_right_full[0]), _DENSITY_FLOOR),
-            float(prim_right_full[1]),
-            max(float(prim_right_full[2]), _PRESSURE_FLOOR),
-            float(prim_right_full[4]),
-        ],
-        dtype=float,
-    )
+
+    if mode == "copy":
+        prim_right_full = conserved_to_primitive(U[-1:], gamma, gas_constant)[0]
+        prim_right = np.array(
+            [
+                max(float(prim_right_full[0]), _DENSITY_FLOOR),
+                float(prim_right_full[1]),
+                max(float(prim_right_full[2]), _PRESSURE_FLOOR),
+                float(prim_right_full[4]),
+            ],
+            dtype=float,
+        )
+    else:
+        # non_reflecting: compute ghost from outlet BC of last physical cell
+        prim_last = conserved_to_primitive(U[-2:-1], gamma, gas_constant)[0]
+        prim_last_4 = np.array(
+            [
+                max(float(prim_last[0]), _DENSITY_FLOOR),
+                float(prim_last[1]),
+                max(float(prim_last[2]), _PRESSURE_FLOOR),
+                float(prim_last[4]),
+            ],
+            dtype=float,
+        )
+        prim_right = _outlet_primitive_bc(
+            prim_last_4, float(p_outlet), gamma, gas_constant,
+            mode, reflection_coeff, impedance,
+        )
+
     ghost_left_U = _primitive_to_conserved_row(prim_left, gamma, gas_constant)
     ghost_right_U = _primitive_to_conserved_row(prim_right, gamma, gas_constant)
 
@@ -1282,6 +1379,8 @@ def _muscl_hancock_step_soa_numba(
         diameter,
         mu,
         friction_energy_code,
+        outlet_mode_code,
+        p_outlet_val,
         buf["prim"],
         buf["prim_ext"],
         buf["slope"],
@@ -1305,7 +1404,26 @@ def _muscl_hancock_step_soa_numba(
     U_new = U.copy()
     U_new[1:-1] = buf["U_out"]
     U_new[0] = U[0]
-    U_new[-1] = U_new[-2]
+    if mode == "copy":
+        U_new[-1] = U_new[-2]
+    else:
+        # Apply outlet BC to final output ghost cell
+        prim_new_last = conserved_to_primitive(U_new[-2:-1], gamma, gas_constant)[0]
+        prim_new_right = np.array(
+            [
+                max(float(prim_new_last[0]), _DENSITY_FLOOR),
+                float(prim_new_last[1]),
+                max(float(prim_new_last[2]), _PRESSURE_FLOOR),
+                float(prim_new_last[4]),
+            ],
+            dtype=float,
+        )
+        prim_new_right = _outlet_primitive_bc(
+            prim_new_right, float(p_outlet), gamma, gas_constant,
+            mode, reflection_coeff, impedance,
+        )
+        U_new[-1] = _primitive_to_conserved_row(prim_new_right, gamma, gas_constant)
+
     _guard_state(U_new, gamma, gas_constant, "muscl_hancock_step output")
     _apply_scalar_guard(U_new, "muscl_hancock_step post-guard")
     return U_new

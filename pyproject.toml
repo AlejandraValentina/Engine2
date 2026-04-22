@@ -25,6 +25,9 @@ dev = [
   "pytest>=7.0",
   "jsonschema>=4.0",
 ]
+fast = [
+  "numba>=0.57",
+]
 
 [project.scripts]
 pywavedyn = "pywavedyn.cli:main"

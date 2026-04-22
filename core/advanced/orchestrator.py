@@ -116,7 +116,7 @@ class OrchestratorConfig:
     combustion: CombustionConfig = field(default_factory=CombustionConfig)
     coupling_relax_alpha: float = 1.0
     coupling_relax_warmup_iters: int = 0
-    use_numba_1d: bool = False
+    use_numba_1d: bool = True
     heat_transfer: HeatTransferConfig = field(default_factory=HeatTransferConfig)
     throttle: Throttle = field(default_factory=Throttle)
     pipe_prefill: "PipePrefillConfig" = field(default_factory=lambda: PipePrefillConfig())
